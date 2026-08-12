@@ -25,12 +25,11 @@ being repeated on each measurement:
 | Attribute | Description |
 |-----------|-------------|
 | `service.name` | `ld-relay`, unless overridden with `OTEL_SERVICE_NAME`. |
-| `relay.id` | A unique identifier for this Relay Proxy process, generated at startup. Example: `5f313039-df4e-45f5-ad9e-4afd840cb210` |
-| `service.instance.id` | The same value as `relay.id`, unless you supply your own via `OTEL_RESOURCE_ATTRIBUTES`. This is the standard attribute for identifying a process instance, and Prometheus exposes it as the `instance` label. |
+| `service.instance.id` | A unique identifier for this Relay Proxy process, generated at startup, unless you supply your own via `OTEL_RESOURCE_ATTRIBUTES`. Prometheus exposes it as the `instance` label. Example: `5f313039-df4e-45f5-ad9e-4afd840cb210` |
 
 Note that resource attributes are **not** copied onto every series. Prometheus reports them through
-`target_info`, so a query that needs `relay.id` has to join against it -- or use the `instance` label,
-which carries the same value.
+`target_info`, so a query that needs the process identity has to join against it -- or use the
+`instance` label, which carries the same value.
 
 ## Request attributes
 

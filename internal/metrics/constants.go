@@ -71,7 +71,8 @@ const (
 
 // Attributes deliberately absent from these sets:
 //
-//   - relay.id is a resource attribute (see tracing.NewResource): it never varies within a process.
+//   - the relay process identity is a resource attribute, service.instance.id (refer to
+//     tracing.NewResource): it never varies within a process.
 //   - instance.id, platform.category and sdk.wrapper were dropped. instance.id is per SDK instance, so
 //     it made every request metric effectively per-client-process; the other two are largely implied by
 //     http.route. All three are still reported in the usage data Relay sends to LaunchDarkly, which is
