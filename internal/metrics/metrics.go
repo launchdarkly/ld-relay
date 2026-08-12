@@ -84,6 +84,7 @@ func NewManager(
 			sdkmetric.Instrument{Name: requestDurationMeasureName},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}},
 		)))
+		opts = append(opts, cardinalityLimitOptions(otlpConfig, logger)...)
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
 			logger.Warn("failed to start Go runtime metrics", "error", err)
@@ -114,6 +115,24 @@ func NewManager(
 	go m.consumeUsageStats()
 
 	return m, nil
+}
+
+// cardinalityLimitOptions returns the MeterProvider options implied by the configured cardinality
+// limit. The SDK caps each instrument at 2000 distinct attribute sets per collection cycle by
+// default, folding everything past that into a single otel.metric.overflow series. When the operator
+// configured nothing we return no options, because passing one unconditionally would also shadow the
+// SDK's own OTEL_GO_X_CARDINALITY_LIMIT. A configured limit of zero means no limit at all.
+func cardinalityLimitOptions(otlpConfig config.OpenTelemetryConfig, logger *slog.Logger) []sdkmetric.Option {
+	if !otlpConfig.MetricsCardinalityLimit.IsDefined() {
+		return nil
+	}
+	limit := otlpConfig.MetricsCardinalityLimit.GetOrElse(0)
+	if limit == 0 {
+		logger.Info("OTel metrics cardinality limit disabled")
+	} else {
+		logger.Info("using OTel metrics cardinality limit", "limit", limit)
+	}
+	return []sdkmetric.Option{sdkmetric.WithCardinalityLimit(limit)}
 }
 
 // GetInstruments returns the OTel instruments for recording metrics.

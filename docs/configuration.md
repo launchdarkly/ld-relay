@@ -247,6 +247,7 @@ To learn more, read [Metrics](./metrics.md).
 |------------------|--------------------------------|:-------:|:--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `enabled`        | `USE_OTLP`                     | Boolean | `false` | If true, enables exporting metrics via OTLP.                                                                                                                                                                       |
 | `protocol`       | `OTEL_EXPORTER_OTLP_PROTOCOL` | String  |         | The OTLP transport protocol. Must be `grpc` or `http`.                                                                                                                                                             |
+| `metricsCardinalityLimit` | `OTEL_METRICS_CARDINALITY_LIMIT` | Int | `2000` | The maximum number of distinct attribute sets recorded for a single metric instrument in one export cycle. Set to `0` for no limit. To learn more, read [Metrics](./metrics.md). |
 
 All other OTLP configuration — including endpoint, headers, TLS, compression, timeouts, and service name — is handled by standard [OpenTelemetry environment variables](https://opentelemetry.io/docs/specs/otel/protocol/exporter/). The OpenTelemetry SDK reads these directly from the environment. Commonly used variables include:
 

@@ -327,7 +327,13 @@ type HTTPConfig struct {
 // Most standard OTEL environment variables (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS,
 // OTEL_SERVICE_NAME, etc.) are read directly by the OpenTelemetry SDK and should not be duplicated here.
 // Only Relay-specific settings belong in this struct.
+//
+// MetricsCardinalityLimit is an exception to that rule: the OpenTelemetry specification defines no
+// environment variable for the cardinality limit, and the Go SDK's own OTEL_GO_X_CARDINALITY_LIMIT sits
+// in its experimental namespace, so Relay owns this setting. When it is undefined, Relay applies no
+// option and the SDK's default (or OTEL_GO_X_CARDINALITY_LIMIT, if the operator set it) stands.
 type OpenTelemetryConfig struct {
-	Enabled  bool   `conf:"USE_OTLP"`
-	Protocol string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	Enabled                 bool      `conf:"USE_OTLP"`
+	Protocol                string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	MetricsCardinalityLimit ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
 }

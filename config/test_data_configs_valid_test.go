@@ -98,6 +98,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
+		makeValidConfigOTLPUnlimitedCardinality(),
 		makeValidConfigProxy(),
 	}
 }
@@ -768,18 +769,41 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.OpenTelemetry = OpenTelemetryConfig{
-			Enabled:  true,
-			Protocol: "grpc",
+			Enabled:                 true,
+			Protocol:                "grpc",
+			MetricsCardinalityLimit: ct.NewOptInt(20000),
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":                    "1",
-		"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+		"USE_OTLP":                       "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
+		"OTEL_METRICS_CARDINALITY_LIMIT": "20000",
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
 Protocol = grpc
+MetricsCardinalityLimit = 20000
+`
+	return c
+}
+
+func makeValidConfigOTLPUnlimitedCardinality() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - cardinality limit disabled"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:                 true,
+			MetricsCardinalityLimit: ct.NewOptInt(0),
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":                       "1",
+		"OTEL_METRICS_CARDINALITY_LIMIT": "0",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+MetricsCardinalityLimit = 0
 `
 	return c
 }
