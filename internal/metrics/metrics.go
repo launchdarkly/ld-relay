@@ -11,11 +11,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
-	"github.com/pborman/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -33,6 +30,7 @@ type Manager struct {
 	closed         bool
 	lock           sync.Mutex
 	environments   []*EnvironmentManager
+	unscopedEnv    *EnvironmentManager
 
 	usageChan            chan any
 	environmentsForUsage map[string]*environmentMetricUsage
@@ -64,12 +62,18 @@ func NewManager(
 	flushInterval time.Duration,
 	logger *slog.Logger,
 ) (*Manager, error) {
-	metricsRelayID := uuid.New()
+	// The relay ID is a resource attribute now, generated once per process by the tracing package so
+	// that metrics, traces and the usage data sent to LaunchDarkly all report the same identity.
+	metricsRelayID := tracing.RelayID()
 
 	res := tracing.NewResource(logger)
 
+	// instruments is deliberately left nil when OpenTelemetry is disabled. Every recording path
+	// no-ops on nil instruments, and checking that first is what lets them skip building attribute
+	// sets: with a noop meter the attributes were still assembled per request, at roughly 2 us and
+	// 3.5 KB each, only to be handed to an instrument that discards them.
 	var meterProvider *sdkmetric.MeterProvider
-	var meter otelmetric.Meter
+	var instruments *Instruments
 	if otlpConfig.Enabled {
 		opts, err := newOTLPExporters(otlpConfig, logger)
 		if err != nil {
@@ -80,50 +84,15 @@ func NewManager(
 			sdkmetric.Instrument{Name: requestDurationMeasureName},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}},
 		)))
+		opts = append(opts, cardinalityLimitOptions(otlpConfig, logger)...)
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
-		meter = meterProvider.Meter("ld-relay")
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
 			logger.Warn("failed to start Go runtime metrics", "error", err)
 		}
-	} else {
-		meter = noop.Meter{}
-	}
-
-	connections, _ := meter.Int64UpDownCounter(connMeasureName,
-		otelmetric.WithDescription("Number of active HTTP server requests"),
-		otelmetric.WithUnit("{request}"))
-	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
-		otelmetric.WithDescription("Duration of HTTP server requests"),
-		otelmetric.WithUnit("s"))
-	eventsReceivedBytes, _ := meter.Int64Counter(eventsReceivedMeasureName,
-		otelmetric.WithDescription("Bytes of event data received"),
-		otelmetric.WithUnit("By"))
-
-	eventsDropped, _ := meter.Int64Counter(eventsDroppedMeasureName,
-		otelmetric.WithDescription("Events dropped due to capacity overflow"),
-		otelmetric.WithUnit("{event}"))
-	eventsSent, _ := meter.Int64Counter(eventsSentMeasureName,
-		otelmetric.WithDescription("Events successfully sent"),
-		otelmetric.WithUnit("{event}"))
-	eventsFailedSend, _ := meter.Int64Counter(eventsSendErrorsMeasureName,
-		otelmetric.WithDescription("Events that failed to send after all retries"),
-		otelmetric.WithUnit("{event}"))
-	eventsBytesSent, _ := meter.Int64Counter(eventsSentSizeMeasureName,
-		otelmetric.WithDescription("Bytes of event payloads successfully sent"),
-		otelmetric.WithUnit("By"))
-	pendingEvents, _ := meter.Int64Gauge(eventsPendingMeasureName,
-		otelmetric.WithDescription("Events buffered in the queue"),
-		otelmetric.WithUnit("{event}"))
-
-	instruments := &Instruments{
-		connections:         connections,
-		requestDuration:     requestDuration,
-		eventsReceivedBytes: eventsReceivedBytes,
-		eventsDropped:       eventsDropped,
-		eventsSent:          eventsSent,
-		eventsFailedSend:    eventsFailedSend,
-		eventsBytesSent:     eventsBytesSent,
-		pendingEvents:       pendingEvents,
+		instruments, err = newInstruments(meterProvider.Meter("ld-relay"))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	usageChan := make(chan any, 256)
@@ -135,6 +104,9 @@ func NewManager(
 		logger:               logger,
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
+		unscopedEnv: &EnvironmentManager{
+			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(""))},
+		},
 	}
 	if m.flushInterval <= 0 {
 		m.flushInterval = defaultFlushInterval
@@ -145,9 +117,35 @@ func NewManager(
 	return m, nil
 }
 
+// cardinalityLimitOptions returns the MeterProvider options implied by the configured cardinality
+// limit. The SDK caps each instrument at 2000 distinct attribute sets per collection cycle by
+// default, folding everything past that into a single otel.metric.overflow series. When the operator
+// configured nothing we return no options, because passing one unconditionally would also shadow the
+// SDK's own OTEL_GO_X_CARDINALITY_LIMIT. A configured limit of zero means no limit at all.
+func cardinalityLimitOptions(otlpConfig config.OpenTelemetryConfig, logger *slog.Logger) []sdkmetric.Option {
+	if !otlpConfig.MetricsCardinalityLimit.IsDefined() {
+		return nil
+	}
+	limit := otlpConfig.MetricsCardinalityLimit.GetOrElse(0)
+	if limit == 0 {
+		logger.Info("OTel metrics cardinality limit disabled")
+	} else {
+		logger.Info("using OTel metrics cardinality limit", "limit", limit)
+	}
+	return []sdkmetric.Option{sdkmetric.WithCardinalityLimit(limit)}
+}
+
 // GetInstruments returns the OTel instruments for recording metrics.
 func (m *Manager) GetInstruments() *Instruments {
 	return m.instruments
+}
+
+// GetUnscopedEnvironment returns an EnvironmentManager for recording metrics on requests that are not
+// associated with any LD environment, such as the status endpoints and requests that matched no route.
+// Its launchdarkly.environment.name attribute is the not_provided sentinel, and it has no collector, since there is
+// no environment to report usage data for.
+func (m *Manager) GetUnscopedEnvironment() *EnvironmentManager {
+	return m.unscopedEnv
 }
 
 // SetInstrumentsForTest replaces the instruments on this Manager. Intended for testing only.
@@ -236,10 +234,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 		return nil, errAddEnvironmentAfterClosed
 	}
 
-	envKVs := []attribute.KeyValue{
-		relayIDAttrKey.String(m.metricsRelayID),
-		envNameAttrKey.String(sanitizeTagValue(envName)),
-	}
+	envKVs := []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(envName))}
 
 	var collector *RelayMetricsCollector
 	if publisher != nil {

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
@@ -12,6 +13,7 @@ import (
 // Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
 	connections         metric.Int64UpDownCounter // active connections (+1/-1)
+	requests            metric.Int64Counter       // cumulative count of requests received
 	requestDuration     metric.Float64Histogram   // request duration in seconds
 	eventsReceivedBytes metric.Int64Counter       // cumulative bytes of event data received
 	eventsDropped       metric.Int64Counter       // cumulative count of events dropped due to capacity overflow
@@ -21,11 +23,10 @@ type Instruments struct {
 	pendingEvents       metric.Int64Gauge         // current number of events pending delivery
 }
 
-// Measure identifies what to record. Each pre-defined Measure var specifies which
-// instruments should be incremented and what platform category to use.
+// Measure identifies what to record in the usage data Relay reports to LaunchDarkly. The platform
+// category lives on here rather than on the OTEL metrics, which no longer carry it.
 type Measure struct {
 	recordConnections bool
-	recordDuration    bool
 	recordPolling     bool
 	platformCategory  string
 }
@@ -42,15 +43,6 @@ var (
 	// ServerConns is a Measure representing the current number of active stream connections from server-side SDKs.
 	ServerConns = Measure{recordConnections: true, platformCategory: ServerPlatformCategory}
 
-	// BrowserDuration is a Measure for recording request duration from browsers.
-	BrowserDuration = Measure{recordDuration: true, platformCategory: BrowserPlatformCategory}
-
-	// MobileDuration is a Measure for recording request duration from mobile SDKs.
-	MobileDuration = Measure{recordDuration: true, platformCategory: MobilePlatformCategory}
-
-	// ServerDuration is a Measure for recording request duration from server-side SDKs.
-	ServerDuration = Measure{recordDuration: true, platformCategory: ServerPlatformCategory}
-
 	// ServerPollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
 	ServerPollingRequests = Measure{recordPolling: true, platformCategory: ServerPlatformCategory}
 
@@ -64,40 +56,68 @@ var (
 // NewInstrumentsForTest creates Instruments backed by the given OTel meter.
 // This is intended for use by tests outside the metrics package.
 func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
-	connections, err := meter.Int64UpDownCounter(connMeasureName)
+	return newInstruments(meter)
+}
+
+// newInstruments creates every instrument Relay records against, from the given meter.
+func newInstruments(meter metric.Meter) (*Instruments, error) {
+	connections, err := meter.Int64UpDownCounter(connMeasureName,
+		metric.WithDescription("Number of active HTTP server requests"),
+		metric.WithUnit("{request}"))
 	if err != nil {
 		return nil, err
 	}
-	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName)
+	requests, err := meter.Int64Counter(requestsMeasureName,
+		metric.WithDescription("Requests received, counted when the request starts"),
+		metric.WithUnit("{request}"))
 	if err != nil {
 		return nil, err
 	}
-	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedMeasureName)
+	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName,
+		metric.WithDescription("Duration of HTTP server requests"),
+		metric.WithUnit("s"))
 	if err != nil {
 		return nil, err
 	}
-	eventsDropped, err := meter.Int64Counter(eventsDroppedMeasureName)
+	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedMeasureName,
+		metric.WithDescription("Bytes of event data received"),
+		metric.WithUnit("By"))
 	if err != nil {
 		return nil, err
 	}
-	eventsSent, err := meter.Int64Counter(eventsSentMeasureName)
+	eventsDropped, err := meter.Int64Counter(eventsDroppedMeasureName,
+		metric.WithDescription("Events dropped due to capacity overflow"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
-	eventsFailedSend, err := meter.Int64Counter(eventsSendErrorsMeasureName)
+	eventsSent, err := meter.Int64Counter(eventsSentMeasureName,
+		metric.WithDescription("Events successfully sent"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
-	eventsBytesSent, err := meter.Int64Counter(eventsSentSizeMeasureName)
+	eventsFailedSend, err := meter.Int64Counter(eventsFailedMeasureName,
+		metric.WithDescription("Events that could not be delivered after all retries"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
-	pendingEvents, err := meter.Int64Gauge(eventsPendingMeasureName)
+	eventsBytesSent, err := meter.Int64Counter(eventsSentSizeMeasureName,
+		metric.WithDescription("Bytes of event payloads successfully sent"),
+		metric.WithUnit("By"))
+	if err != nil {
+		return nil, err
+	}
+	pendingEvents, err := meter.Int64Gauge(eventsPendingMeasureName,
+		metric.WithDescription("Events buffered in the queue"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
 	return &Instruments{
 		connections:         connections,
+		requests:            requests,
 		requestDuration:     requestDuration,
 		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,
@@ -116,7 +136,7 @@ type RequestInfo struct {
 	Method             string
 	ApplicationID      string
 	ApplicationVersion string
-	InstanceID         string
+	EndpointType       EndpointType
 	// Semconv fields populated after handler execution
 	StatusCode      int
 	URLScheme       string
@@ -124,36 +144,49 @@ type RequestInfo struct {
 	ErrorType       string
 }
 
-func (ri RequestInfo) sanitized() (ua, wrapper, route, method, appID, appVersion, instanceID string) {
-	return sanitizeTagValue(ri.UserAgent),
-		sanitizeTagValue(ri.SDKWrapper),
-		sanitizeRouteValue(ri.Route),
-		sanitizeTagValue(ri.Method),
-		sanitizeTagValue(ri.ApplicationID),
-		sanitizeTagValue(ri.ApplicationVersion),
-		sanitizeTagValue(ri.InstanceID)
+// StartActiveRequest records the start of a request: it adds one to launchdarkly.relay.requests,
+// increments http.server.active_requests, and returns a function that decrements the latter again. The
+// returned function must be called exactly once, when the request is finished.
+//
+// launchdarkly.relay.requests is counted here, at the start of the request, rather than at the end.
+// Streaming requests hold the connection open for an unbounded time, so counting them on completion
+// would report a connection minutes or hours after it was made, and never report one that is still
+// open. Counting at the start is also what makes the metric a cumulative count of stream connections
+// established, once narrowed to the stream endpoint type.
+//
+// The attribute set is computed once, up front, and shared by all three calls. Anything only known
+// after the handler runs (status code, error type) therefore cannot be reported on these metrics: a
+// mismatched attribute set between the increment and the decrement would leak a permanently non-zero
+// active_requests series. http.server.request.duration carries those attributes instead.
+func StartActiveRequest(instruments *Instruments, em *EnvironmentManager, ri RequestInfo) func() {
+	if instruments == nil || em == nil {
+		return func() {}
+	}
+
+	// Built once and shared by every call, so that they can't drift apart.
+	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, ri))
+	instruments.requests.Add(context.Background(), 1, attrs)
+	instruments.connections.Add(context.Background(), 1, attrs)
+	return func() {
+		instruments.connections.Add(context.Background(), -1, attrs)
+	}
 }
 
-// WithGauge increments the specified metric before running the function and then decrements it (for use with
-// the active connection metrics).
-func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
-	if em == nil || !measure.recordConnections {
+// WithStreamConnection runs a function while counting it as an active stream connection in the data
+// that Relay reports back to LaunchDarkly.
+//
+// This is deliberately limited to streaming endpoints, unlike the http.server.active_requests
+// instrument, which covers every request Relay serves. LaunchDarkly's notion of a "connection" is a
+// held-open stream, so counting polls or event posts here would misreport usage.
+func WithStreamConnection(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure) {
+	if em == nil || !measure.recordConnections || em.collector == nil {
 		f()
 		return
 	}
 
-	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, ri.URLScheme, appID, appVersion, instanceID)
-
-	if instruments != nil {
-		instruments.connections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
-		defer instruments.connections.Add(context.Background(), -1, metric.WithAttributeSet(attrs))
-	}
-
-	if em.collector != nil {
-		em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, 1)
-		defer em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, -1)
-	}
+	ua, wrapper := sanitizeUsageTagValue(ri.UserAgent), sanitizeUsageTagValue(ri.SDKWrapper)
+	em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, 1)
+	defer em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, -1)
 
 	f()
 }
@@ -161,31 +194,29 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 // WithCount runs a function and records polling metrics if applicable.
 func WithCount(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure) {
 	if em != nil && measure.recordPolling && em.collector != nil {
-		ua, wrapper, _, _, _, _, _ := ri.sanitized()
-		em.collector.RecordPollingRequest(measure.platformCategory, ua, wrapper)
+		em.collector.RecordPollingRequest(measure.platformCategory,
+			sanitizeUsageTagValue(ri.UserAgent), sanitizeUsageTagValue(ri.SDKWrapper))
 	}
 
 	f()
 }
 
 // RecordEventsReceivedBytes records the number of event bytes received.
-func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
+func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, bytes int64) {
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, ri.URLScheme, appID, appVersion, instanceID)
+	attrs := buildRequestAttributes(em.envKVs, ri)
 	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.
 // Duration is recorded in seconds per OTEL HTTP semantic conventions.
-func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, duration time.Duration, measure Measure) {
-	if em == nil || instruments == nil || !measure.recordDuration {
+func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, duration time.Duration) {
+	if em == nil || instruments == nil {
 		return
 	}
-	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildDurationAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID, ri.URLScheme, ri.ProtocolVersion, ri.ErrorType, ri.StatusCode)
+	attrs := buildDurationAttributes(em.envKVs, ri)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }
 
@@ -232,14 +263,26 @@ func (r *EventMetricsRecorder) RecordEventsBytesSent(bytes int) {
 }
 
 // RecordEventsFailedSend records the number of events that could not be delivered after all retries.
-// The status code from the metadata is included as an attribute on the metric.
+//
+// Every measurement on this instrument is a failure, so it always carries error.type. When the events
+// service answered, that is the status code as a string, alongside http.response.status_code. A failure
+// that happened before any response -- a network error, a timeout -- reports the unclassified sentinel
+// and no status code, because there was none: the metadata reports 0 in that case, and publishing 0 as
+// a status code would invent a response that never arrived.
 func (r *EventMetricsRecorder) RecordEventsFailedSend(count int, metadata ldevents.EventSendFailureMetadata) {
 	if r.instruments == nil || count <= 0 {
 		return
 	}
-	kvs := make([]attribute.KeyValue, len(r.envKVs), len(r.envKVs)+1)
+	kvs := make([]attribute.KeyValue, len(r.envKVs), len(r.envKVs)+2)
 	copy(kvs, r.envKVs)
-	kvs = append(kvs, statusCodeAttrKey.Int(metadata.StatusCode))
+	if metadata.StatusCode > 0 {
+		kvs = append(kvs,
+			httpResponseStatusAttrKey.Int(metadata.StatusCode),
+			errorTypeAttrKey.String(strconv.Itoa(metadata.StatusCode)),
+		)
+	} else {
+		kvs = append(kvs, errorTypeAttrKey.String(errorTypeOther))
+	}
 	attrs := attribute.NewSet(kvs...)
 	r.instruments.eventsFailedSend.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
 }

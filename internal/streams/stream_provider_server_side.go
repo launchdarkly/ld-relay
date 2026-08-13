@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
@@ -307,7 +308,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		// whether the client needs a full basis at all. The read that supplies the
 		// serialization occurs after the budget admits us, so time spent in the queue
 		// cannot make the payload old.
-		snapshot, selector, err := r.peek(id)
+		snapshot, selector, err := r.peek(ctx, id)
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
 			return
@@ -361,7 +362,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			// the serialization itself, the same as before the limiter existed. (A client
 			// that misses a delta in that window becomes correct on its next full-basis
 			// transfer, not on the live stream.)
-			snapshot, selector, err = r.peek(id)
+			snapshot, selector, err = r.peek(ctx, id)
 			if err != nil {
 				r.logger.Error("error getting all flags after admission", "error", err)
 				release()
@@ -408,9 +409,9 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 
 		var events []eventsource.Event
 		if r.isV2 {
-			events = r.serializeBasisV2(id, snapshot, selector)
+			events = r.serializeBasisV2(ctx, id, snapshot, selector)
 		} else {
-			events = r.serializePutV1(snapshot)
+			events = r.serializePutV1(ctx, snapshot)
 		}
 		r.sendEvents(ctx, out, events)
 	}()
@@ -456,12 +457,12 @@ type peekResult struct {
 // of reconnects at the same basis, the usual condition after a restart, continues to share
 // one read. The result holds references to the stored data, not a serialized copy, so it
 // is cheap.
-func (r *serverSideEnvStreamRepository) peek(id string) (
+func (r *serverSideEnvStreamRepository) peek(ctx context.Context, id string) (
 	map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
 	subsystems.Selector,
 	error,
 ) {
-	data, err, _ := r.flightGroup.Do("snapshot:"+id, func() (interface{}, error) {
+	data, err := tracing.SingleflightDo(ctx, &r.flightGroup, "snapshot:"+id, func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			return nil, err
@@ -479,9 +480,10 @@ func (r *serverSideEnvStreamRepository) peek(id string) (
 // snapshot that was read before. A single flight removes duplicate work, so concurrent
 // reconnects share one serialization.
 func (r *serverSideEnvStreamRepository) serializePutV1(
+	ctx context.Context,
 	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
 ) []eventsource.Event {
-	data, _, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
+	data, _ := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV1", func() (interface{}, error) {
 		allData := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: removeDeleted(snapshot[ldstoreimpl.Features()])},
 			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(snapshot[ldstoreimpl.Segments()])},
@@ -502,11 +504,12 @@ func (r *serverSideEnvStreamRepository) serializePutV1(
 // single flight with a basis key removes duplicate work, so concurrent reconnects at the
 // same basis share one serialization.
 func (r *serverSideEnvStreamRepository) serializeBasisV2(
+	ctx context.Context,
 	basis string,
 	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
 	selector subsystems.Selector,
 ) []eventsource.Event {
-	data, _, _ := r.flightGroup.Do("getReplayEventV2:"+basis, func() (interface{}, error) {
+	data, _ := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV2:"+basis, func() (interface{}, error) {
 		changes := []subsystems.Change{}
 		kinds := map[ldstoretypes.DataKind]subsystems.ObjectKind{
 			ldstoreimpl.Features(): subsystems.FlagKind,

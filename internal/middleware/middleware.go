@@ -115,77 +115,93 @@ func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
-			defer span.End()
-			span.SetAttributes(tracing.SDKKindKey.String(string(sdkKind)))
-			req = req.WithContext(ctx)
+			// Run authentication in its own scope so the span ends before we
+			// hand off to the next handler. Otherwise the deferred span.End()
+			// would fire only after the whole chain returns, and the auth span
+			// would incorrectly encompass all downstream handling time.
+			//
+			// If authentication succeeds, the incoming request context is modified
+			// to include environment information.
+			ok := func() bool {
+				ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
+				defer span.End()
+				span.SetAttributes(tracing.SDKKindKey.String(string(sdkKind)))
+				authScopedReq := req.WithContext(ctx)
 
-			credential, err := sdks.GetCredential(sdkKind, req)
-			if err != nil {
-				span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
-				span.SetStatus(codes.Error, "invalid credential")
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			queryValues := req.URL.Query()
-			filterKey := config.FilterKey(queryValues.Get("filter"))
-
-			clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, credential))
-
-			if envs.IsNotReady(err) {
-				span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
-				span.SetStatus(codes.Error, "not ready")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
-				return
-			}
-
-			if envs.IsPayloadFilterNotFound(err) {
-				span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
-				span.SetStatus(codes.Error, "filter not found")
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
-				return
-			}
-
-			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
-				span.SetAttributes(tracing.AuthResultKey.String("not_found"))
-				span.SetStatus(codes.Error, "environment not found")
-				// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
-				// Our error behavior here is slightly different for JS/browser clients
-				if sdkKind == basictypes.JSClientSDK {
-					w.WriteHeader(http.StatusNotFound)
-					_, _ = w.Write([]byte(httpStatusMessageMissingEnvURLParam))
-				} else {
+				credential, err := sdks.GetCredential(sdkKind, authScopedReq)
+				if err != nil {
+					span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
+					span.SetStatus(codes.Error, "invalid credential")
 					w.WriteHeader(http.StatusUnauthorized)
-					_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+					return false
 				}
+
+				queryValues := authScopedReq.URL.Query()
+				filterKey := config.FilterKey(queryValues.Get("filter"))
+
+				clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, credential))
+
+				if envs.IsNotReady(err) {
+					span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
+					span.SetStatus(codes.Error, "not ready")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
+					return false
+				}
+
+				if envs.IsPayloadFilterNotFound(err) {
+					span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
+					span.SetStatus(codes.Error, "filter not found")
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
+					return false
+				}
+
+				if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+					span.SetAttributes(tracing.AuthResultKey.String("not_found"))
+					span.SetStatus(codes.Error, "environment not found")
+					// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
+					// Our error behavior here is slightly different for JS/browser clients
+					if sdkKind == basictypes.JSClientSDK {
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = w.Write([]byte(httpStatusMessageMissingEnvURLParam))
+					} else {
+						w.WriteHeader(http.StatusUnauthorized)
+						_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+					}
+					return false
+				}
+
+				if clientCtx.GetClient() == nil {
+					span.SetAttributes(tracing.AuthResultKey.String("client_not_initialized"))
+					span.SetStatus(codes.Error, "client not initialized")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
+					return false
+				}
+
+				if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
+					w.Header().Set(ldEnvIDHeader, string(envID))
+				}
+
+				span.SetAttributes(tracing.AuthResultKey.String("success"))
+
+				contextInfo := EnvContextInfo{
+					Env:        clientCtx,
+					Credential: credential,
+				}
+				downstreamCtx := WithEnvContextInfo(req.Context(), contextInfo)
+				if sdkKind == basictypes.JSClientSDK {
+					downstreamCtx = browser.WithCORSContext(downstreamCtx, clientCtx.GetJSClientContext())
+				}
+
+				req = req.WithContext(downstreamCtx)
+				return true
+			}()
+			if !ok {
 				return
 			}
 
-			if clientCtx.GetClient() == nil {
-				span.SetAttributes(tracing.AuthResultKey.String("client_not_initialized"))
-				span.SetStatus(codes.Error, "client not initialized")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
-				return
-			}
-
-			if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
-				w.Header().Set(ldEnvIDHeader, string(envID))
-			}
-
-			span.SetAttributes(tracing.AuthResultKey.String("success"))
-
-			contextInfo := EnvContextInfo{
-				Env:        clientCtx,
-				Credential: credential,
-			}
-			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
-			if sdkKind == basictypes.JSClientSDK {
-				req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
-			}
 			next.ServeHTTP(w, req)
 		})
 	}
@@ -205,77 +221,93 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 				return
 			}
 
-			ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
-			defer span.End()
-			req = req.WithContext(ctx)
+			// Run authentication in its own scope so the span ends before we
+			// hand off to the next handler. Otherwise the deferred span.End()
+			// would fire only after the whole chain returns, and the auth span
+			// would incorrectly encompass all downstream handling time.
+			//
+			// If authentication succeeds, the incoming request context is modified
+			// to include environment information.
+			ok := func() bool {
+				ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
+				defer span.End()
+				authScopedReq := req.WithContext(ctx)
 
-			token, err := sdks.FetchClientSideAuthToken(req)
-			if err != nil {
-				span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
-				span.SetStatus(codes.Error, "invalid credential")
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+				token, err := sdks.FetchClientSideAuthToken(authScopedReq)
+				if err != nil {
+					span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
+					span.SetStatus(codes.Error, "invalid credential")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+					return false
+				}
+
+				var cred credential.SDKCredential
+				if strings.HasPrefix(token, "mob-") {
+					cred = config.MobileKey(token)
+					span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.MobileSDK)))
+				} else {
+					cred = config.EnvironmentID(token)
+					span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.JSClientSDK)))
+				}
+
+				queryValues := authScopedReq.URL.Query()
+				filterKey := config.FilterKey(queryValues.Get("filter"))
+
+				clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, cred))
+
+				if envs.IsNotReady(err) {
+					span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
+					span.SetStatus(codes.Error, "not ready")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
+					return false
+				}
+
+				if envs.IsPayloadFilterNotFound(err) {
+					span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
+					span.SetStatus(codes.Error, "filter not found")
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
+					return false
+				}
+
+				if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+					span.SetAttributes(tracing.AuthResultKey.String("not_found"))
+					span.SetStatus(codes.Error, "environment not found")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+					return false
+				}
+
+				if clientCtx.GetClient() == nil {
+					span.SetAttributes(tracing.AuthResultKey.String("client_not_initialized"))
+					span.SetStatus(codes.Error, "client not initialized")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
+					return false
+				}
+
+				if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
+					w.Header().Set(ldEnvIDHeader, string(envID))
+				}
+
+				span.SetAttributes(tracing.AuthResultKey.String("success"))
+
+				contextInfo := EnvContextInfo{
+					Env:        clientCtx,
+					Credential: cred,
+				}
+				downstreamCtx := WithEnvContextInfo(req.Context(), contextInfo)
+				downstreamCtx = browser.WithCORSContext(downstreamCtx, clientCtx.GetJSClientContext())
+
+				req = req.WithContext(downstreamCtx)
+				return true
+			}()
+			if !ok {
 				return
 			}
 
-			var cred credential.SDKCredential
-			if strings.HasPrefix(token, "mob-") {
-				cred = config.MobileKey(token)
-				span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.MobileSDK)))
-			} else {
-				cred = config.EnvironmentID(token)
-				span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.JSClientSDK)))
-			}
-
-			queryValues := req.URL.Query()
-			filterKey := config.FilterKey(queryValues.Get("filter"))
-
-			clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, cred))
-
-			if envs.IsNotReady(err) {
-				span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
-				span.SetStatus(codes.Error, "not ready")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
-				return
-			}
-
-			if envs.IsPayloadFilterNotFound(err) {
-				span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
-				span.SetStatus(codes.Error, "filter not found")
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
-				return
-			}
-
-			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
-				span.SetAttributes(tracing.AuthResultKey.String("not_found"))
-				span.SetStatus(codes.Error, "environment not found")
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
-				return
-			}
-
-			if clientCtx.GetClient() == nil {
-				span.SetAttributes(tracing.AuthResultKey.String("client_not_initialized"))
-				span.SetStatus(codes.Error, "client not initialized")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
-				return
-			}
-
-			if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
-				w.Header().Set(ldEnvIDHeader, string(envID))
-			}
-
-			span.SetAttributes(tracing.AuthResultKey.String("success"))
-
-			contextInfo := EnvContextInfo{
-				Env:        clientCtx,
-				Credential: cred,
-			}
-			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
-			req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
 			next.ServeHTTP(w, req)
 		})
 	}

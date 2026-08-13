@@ -32,6 +32,7 @@ type metricsMiddlewareTestParams struct {
 	env     relayenv.EnvContext
 	envName string
 	reader  sdkmetric.Reader
+	manager *metrics.Manager
 }
 
 func (p metricsMiddlewareTestParams) collectMetrics(t *testing.T) *metricdata.ResourceMetrics {
@@ -75,47 +76,152 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 		env:     env,
 		envName: envName,
 		reader:  reader,
+		manager: manager,
 	})
 }
 
-func TestCountConnections(t *testing.T) {
-	t.Run("browser", func(t *testing.T) {
-		testCountConnections(t, CountBrowserConns, "browser")
-	})
-	t.Run("mobile", func(t *testing.T) {
-		testCountConnections(t, CountMobileConns, "mobile")
-	})
-	t.Run("server", func(t *testing.T) {
-		testCountConnections(t, CountServerConns, "server")
-	})
+// The CountXConns middlewares feed only the stream-connection counts that Relay reports back to
+// LaunchDarkly. http.server.active_requests is handled by RequestMetrics, which wraps every endpoint,
+// so counting here as well would double count every streaming request.
+func TestCountConnectionsDoesNotRecordActiveRequests(t *testing.T) {
+	specs := []struct {
+		name    string
+		countFn func(http.Handler) http.Handler
+	}{
+		{name: "browser", countFn: CountBrowserConns},
+		{name: "mobile", countFn: CountMobileConns},
+		{name: "server", countFn: CountServerConns},
+	}
+
+	for _, tt := range specs {
+		t.Run(tt.name, func(t *testing.T) {
+			metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+				req, _ := http.NewRequest("GET", "", nil)
+				req.Header.Set("User-Agent", metricsTestUserAgent)
+				req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+
+				tt.countFn(nullHandler()).ServeHTTP(httptest.NewRecorder(), req)
+
+				rm := p.collectMetrics(t)
+				assert.Nil(t, st.FindMetricByName(rm, "http.server.active_requests"),
+					"stream connection counting must not touch the active requests instrument")
+			})
+		})
+	}
 }
 
-func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler, category string) {
+// Active requests must be tracked for every kind of endpoint, not just streams, per the OTEL semantic
+// convention for http.server.active_requests.
+func TestActiveRequests(t *testing.T) {
+	endpointTypes := []metrics.EndpointType{
+		metrics.EndpointTypeStream,
+		metrics.EndpointTypePoll,
+		metrics.EndpointTypeEvents,
+		metrics.EndpointTypeGoals,
+	}
+
+	for _, endpointType := range endpointTypes {
+		t.Run(string(endpointType), func(t *testing.T) {
+			metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+				router := mux.NewRouter()
+				router.Use(RequestMetrics(endpointType))
+				router.Handle("/test-route", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// While inside the handler, the request should be counted as active
+					rm := p.collectMetrics(t)
+					m := st.FindMetricByName(rm, "http.server.active_requests")
+					require.NotNil(t, m, "active requests metric not found")
+					assertMetricHasValue(t, m, p.envName, 1)
+					assertMetricHasAttribute(t, m, "launchdarkly.relay.endpoint.type", string(endpointType))
+				})).Methods("GET")
+
+				req, _ := http.NewRequest("GET", "/test-route", nil)
+				req.Header.Set("User-Agent", metricsTestUserAgent)
+				req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+				router.ServeHTTP(httptest.NewRecorder(), req)
+
+				// Once the request finishes it should return to 0, on the same series
+				rm := p.collectMetrics(t)
+				m := st.FindMetricByName(rm, "http.server.active_requests")
+				require.NotNil(t, m, "active requests metric not found")
+				assertMetricHasValue(t, m, p.envName, 0)
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok)
+				assert.Len(t, sum.DataPoints, 1, "increment and decrement should share one attribute set")
+			})
+		})
+	}
+}
+
+// A streaming response is counted as an active request for as long as it is held open, even though its
+// duration is deliberately not recorded.
+func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
-		req, _ := http.NewRequest("GET", "", nil)
+		router := mux.NewRouter()
+		router.Use(RequestMetrics(metrics.EndpointTypeStream))
+		router.Handle("/stream", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+
+			rm := p.collectMetrics(t)
+			m := st.FindMetricByName(rm, "http.server.active_requests")
+			require.NotNil(t, m, "active requests metric not found")
+			assertMetricHasValue(t, m, p.envName, 1)
+		})).Methods("GET")
+
+		req, _ := http.NewRequest("GET", "/stream", nil)
 		req.Header.Set("User-Agent", metricsTestUserAgent)
 		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
-		rr := httptest.NewRecorder()
+		router.ServeHTTP(httptest.NewRecorder(), req)
 
-		countFn(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// While inside the handler, connections should be active
-			rm := p.collectMetrics(t)
-			connMetric := st.FindMetricByName(rm, "http.server.active_requests")
-			require.NotNil(t, connMetric, "connections metric not found")
-			assertMetricHasValue(t, connMetric, p.envName, category, 1)
-		})).ServeHTTP(rr, req)
-
-		// After handler returns, connection gauge should be 0
 		rm := p.collectMetrics(t)
-		connMetric := st.FindMetricByName(rm, "http.server.active_requests")
-		require.NotNil(t, connMetric, "connections metric not found")
-		assertMetricHasValue(t, connMetric, p.envName, category, 0)
+		m := st.FindMetricByName(rm, "http.server.active_requests")
+		require.NotNil(t, m)
+		assertMetricHasValue(t, m, p.envName, 0)
+
+		assert.Nil(t, st.FindMetricByName(rm, "http.server.request.duration"),
+			"duration must not be recorded for a streaming response")
 	})
+}
+
+// Requests with no environment -- the status endpoints and anything that matched no route -- still get
+// counted, reporting the not_provided sentinel for launchdarkly.environment.name.
+func TestUnscopedActiveRequests(t *testing.T) {
+	specs := []struct {
+		name         string
+		endpointType metrics.EndpointType
+	}{
+		{name: "status", endpointType: metrics.EndpointTypeStatus},
+		{name: "unmatched", endpointType: metrics.EndpointTypeNotProvided},
+	}
+
+	for _, tt := range specs {
+		t.Run(tt.name, func(t *testing.T) {
+			metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+				handler := UnscopedActiveRequests(p.manager, tt.endpointType)(
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						rm := p.collectMetrics(t)
+						m := st.FindMetricByName(rm, "http.server.active_requests")
+						require.NotNil(t, m, "active requests metric not found")
+						assertMetricHasValue(t, m, "not_provided", 1)
+						assertMetricHasAttribute(t, m, "launchdarkly.relay.endpoint.type", string(tt.endpointType))
+					}))
+
+				// No environment context is attached, exactly as for a real status or unmatched request
+				req, _ := http.NewRequest("GET", "/status", nil)
+				handler.ServeHTTP(httptest.NewRecorder(), req)
+
+				rm := p.collectMetrics(t)
+				m := st.FindMetricByName(rm, "http.server.active_requests")
+				require.NotNil(t, m)
+				assertMetricHasValue(t, m, "not_provided", 0)
+			})
+		})
+	}
 }
 
 func TestRequestDuration(t *testing.T) {
 	router := mux.NewRouter()
-	router.Use(DurationMetrics(metrics.ServerDuration))
+	router.Use(RequestMetrics(metrics.EndpointTypePoll))
 	router.Handle("/test-route", nullHandler()).Methods("GET")
 
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
@@ -136,7 +242,7 @@ func TestRequestDuration(t *testing.T) {
 
 func TestEventBytesMetrics(t *testing.T) {
 	router := mux.NewRouter()
-	router.Use(EventBytesMetrics(metrics.ServerPlatformCategory))
+	router.Use(EventBytesMetrics())
 	router.Handle("/events", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// Consume the body so counting reader sees the bytes
 		_, _ = io.ReadAll(req.Body)
@@ -153,7 +259,7 @@ func TestEventBytesMetrics(t *testing.T) {
 		rm := p.collectMetrics(t)
 		bytesMetric := st.FindMetricByName(rm, "launchdarkly.relay.events.received.size")
 		require.NotNil(t, bytesMetric, "events received bytes metric not found")
-		assertMetricHasValue(t, bytesMetric, p.envName, "server", 35)
+		assertMetricHasValue(t, bytesMetric, p.envName, 35)
 	})
 }
 
@@ -185,20 +291,32 @@ func TestParseApplicationTags(t *testing.T) {
 }
 
 // assertMetricHasValue checks that a metric has the expected value for the given environment and platform.
-func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
+func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName string, expected int64) {
 	t.Helper()
 	sum, ok := m.Data.(metricdata.Sum[int64])
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
 	found := false
 	for _, dp := range sum.DataPoints {
-		platVal, platOK := dp.Attributes.Value(attribute.Key("platform.category"))
-		envVal, envOK := dp.Attributes.Value(attribute.Key("environment.name"))
-		if platOK && envOK && platVal.AsString() == platform && envVal.AsString() == envName {
-			assert.Equal(t, expected, dp.Value, "unexpected value for %s (platform=%s, env=%s)", m.Name, platform, envName)
+		envVal, envOK := dp.Attributes.Value(attribute.Key("launchdarkly.environment.name"))
+		if envOK && envVal.AsString() == envName {
+			assert.Equal(t, expected, dp.Value, "unexpected value for %s (env=%s)", m.Name, envName)
 			found = true
 		}
 	}
-	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
+	assert.True(t, found, "no data point found for %s with env=%s", m.Name, envName)
+}
+
+// assertMetricHasAttribute checks that every data point of a metric carries the expected attribute value.
+func assertMetricHasAttribute(t *testing.T, m *metricdata.Metrics, key, expected string) {
+	t.Helper()
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
+	require.NotEmpty(t, sum.DataPoints)
+	for _, dp := range sum.DataPoints {
+		val, found := dp.Attributes.Value(attribute.Key(key))
+		require.True(t, found, "%s attribute not present on %s", key, m.Name)
+		assert.Equal(t, expected, val.AsString())
+	}
 }
 
 // deadlineProbeWriter is a ResponseWriter that records whether SetWriteDeadline reached it
