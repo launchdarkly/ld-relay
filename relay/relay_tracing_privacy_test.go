@@ -120,13 +120,22 @@ func TestEndUserContextIsNotExportedInSpans(t *testing.T) {
 // field carries invalid UTF-8. OTLP cannot serialize such a span: the marshal fails and the whole export
 // batch is dropped, so one bad request costs every span batched alongside it.
 //
-// This deliberately checks *every* string attribute rather than the three the tracing instrumentation
-// is known to derive from request data (user_agent.original, client.address, url.path). If it starts
-// recording another one, this fails and points at what SanitizeRequestSpan has to cover.
+// This deliberately checks *every* string attribute, and poisons *every* request field the tracing
+// instrumentation reads, rather than naming the attributes it derives from them. Relay named that list
+// twice and missed an attribute both times. tracing.NewUTF8Sanitizer now repairs whatever the
+// instrumentation recorded, so this test does not have to track the list either -- it only has to keep
+// poisoning the inputs.
+//
+// The fields are the Host, the User-Agent, X-Forwarded-For, the path, the peer address, the protocol
+// and the method. Reachability differs per field and does not matter here: an unreachable field costs
+// nothing to poison, and embedding relay behind another application widens what a client controls. The
+// Host is reachable against the standalone binary today -- an HTTP/1.1 client cannot deliver a Host
+// with a byte outside US-ASCII, because net/http answers it with 400, but the HTTP/2 server passes the
+// :authority pseudo-header through untouched, and relay serves HTTP/2 whenever TLS is configured.
 func TestSpanAttributesAreValidUTF8(t *testing.T) {
 	const invalid = "\xff\xfe"
 
-	recorder := installSpanRecorder(t)
+	recorder := installSanitizedSpanRecorder(t)
 
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(st.EnvMain)
@@ -135,6 +144,12 @@ func TestSpanAttributesAreValidUTF8(t *testing.T) {
 		poison := func(req *http.Request) *http.Request {
 			req.Header.Set("User-Agent", "agent-"+invalid)
 			req.Header.Set("X-Forwarded-For", "1.2.3.4"+invalid+", 5.6.7.8")
+			req.Host = "relay-" + invalid + ".example.com:8030"
+			// The server sets these two, so a client cannot reach them directly. Middleware in front
+			// of an embedded relay can rewrite RemoteAddr from a forwarded header, which makes it
+			// client-controlled, and both are cheap to cover.
+			req.RemoteAddr = "10.0.0.1" + invalid + ":4242"
+			req.Proto = "HTTP/1." + invalid
 			return req
 		}
 

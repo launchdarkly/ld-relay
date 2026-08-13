@@ -34,7 +34,9 @@ func NewTracingProvider(cfg TracingConfig, logger *slog.Logger) (*TracingProvide
 	res := NewResource(logger)
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		// Wrapping the exporter, rather than adding a span processor, keeps the UTF-8 repair off the
+		// request path: the batcher calls the exporter from its own goroutine.
+		sdktrace.WithBatcher(NewUTF8SanitizingExporter(exporter)),
 		sdktrace.WithResource(res),
 	)
 

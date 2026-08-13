@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
@@ -20,27 +19,20 @@ const contextPathVar = "context"
 // conventions use this placeholder for the same purpose when scrubbing a URL.
 const redactedValue = "REDACTED"
 
-// SanitizeRequestSpan corrects two problems with the attributes the HTTP tracing middleware records on
-// the request span. Attributes cannot be removed from a span once set, but they are deduplicated
-// last-write-wins when they are read, so overwriting a value here is what keeps the original out of the
-// exported trace.
+// SanitizeRequestSpan removes end-user data from the request span.
 //
-// First, url.path holds the raw request path, which on routes that take an evaluation context contains
-// the end user's data: keys, names, emails and custom attributes. Only that one segment is replaced,
-// with the REDACTED placeholder the semantic conventions use for scrubbing a URL, so the rest of the
-// path -- which identifies the endpoint and the environment, and is not sensitive -- survives. Routes
-// with no context variable keep their real path.
+// url.path holds the raw request path, which on routes that take an evaluation context contains the
+// end user's data: keys, names, emails and custom attributes. Only that one segment is replaced, with
+// the REDACTED placeholder the semantic conventions use for scrubbing a URL, so the rest of the path
+// -- which identifies the endpoint and the environment, and is not sensitive -- survives. Routes with
+// no context variable keep their real path.
 //
-// Second, three of the recorded attributes come from request data that is not restricted to valid
-// UTF-8, and OTLP cannot serialize a span carrying an invalid byte -- the marshal fails and the whole
-// export batch is dropped. They are:
+// Attributes cannot be removed from a span once set, but they are deduplicated last-write-wins when
+// they are read, so overwriting the value here is what keeps the original out of the exported trace.
 //
-//	user_agent.original  the User-Agent header
-//	client.address       the X-Forwarded-For header, used unvalidated
-//	url.path             the percent-decoded request path
-//
-// This list is specific to the instrumentation in use and will need revisiting if it starts recording
-// further attributes from request data; TestSpanAttributesAreValidUTF8 fails if that happens.
+// This middleware does not repair invalid UTF-8. tracing.NewUTF8Sanitizer does that for every span,
+// which covers each attribute the instrumentation derives from request data without naming them. The
+// redacted path is the one exception: it is written after that sanitizer runs, so it is sanitized here.
 //
 // This must be registered after the middleware that starts the request span.
 func SanitizeRequestSpan(next http.Handler) http.Handler {
@@ -51,14 +43,6 @@ func SanitizeRequestSpan(next http.Handler) http.Handler {
 				template, _ := mux.CurrentRoute(r).GetPathTemplate()
 				redacted := redactContextSegment(r.URL.Path, contextValue, template)
 				span.SetAttributes(semconv.URLPath(util.SanitizeUTF8(redacted)))
-			} else if !utf8.ValidString(r.URL.Path) {
-				span.SetAttributes(semconv.URLPath(util.SanitizeUTF8(r.URL.Path)))
-			}
-			if ua := r.UserAgent(); !utf8.ValidString(ua) {
-				span.SetAttributes(semconv.UserAgentOriginal(util.SanitizeUTF8(ua)))
-			}
-			if xff := r.Header.Get("X-Forwarded-For"); !utf8.ValidString(xff) {
-				span.SetAttributes(semconv.ClientAddress(util.SanitizeUTF8(clientAddressFromXFF(xff))))
 			}
 		}
 		next.ServeHTTP(w, r)
@@ -86,15 +70,4 @@ func redactContextSegment(path, contextValue, template string) string {
 		return template
 	}
 	return strings.Join(segments, "/")
-}
-
-// clientAddressFromXFF mirrors how the tracing instrumentation derives client.address from
-// X-Forwarded-For: the first entry, with no validation of its contents.
-func clientAddressFromXFF(xForwardedFor string) string {
-	for i := range len(xForwardedFor) {
-		if xForwardedFor[i] == ',' {
-			return xForwardedFor[:i]
-		}
-	}
-	return xForwardedFor
 }

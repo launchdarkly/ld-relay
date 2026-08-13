@@ -283,3 +283,35 @@ func TestPollingEndpointSpansDoNotLeakOnEarlyReturn(t *testing.T) {
 		assert.Zero(t, countStarted(started, tracing.SpanWriteResponse))
 	})
 }
+
+// spanCapture collects exported spans.
+type spanCapture struct {
+	spans []sdktrace.ReadOnlySpan
+}
+
+func (c *spanCapture) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
+	c.spans = append(c.spans, spans...)
+	return nil
+}
+
+func (c *spanCapture) Shutdown(context.Context) error { return nil }
+
+func (c *spanCapture) Ended() []sdktrace.ReadOnlySpan { return c.spans }
+
+// installSanitizedSpanRecorder is installSpanRecorder for the tests that assert on what actually
+// reaches the exporter. The UTF-8 sanitizer wraps the exporter rather than acting as a span processor,
+// so a SpanRecorder alone never sees its work. WithSyncer exports on span end.
+func installSanitizedSpanRecorder(t *testing.T) *spanCapture {
+	t.Helper()
+	previous := otel.GetTracerProvider()
+	capture := &spanCapture{}
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(tracing.NewUTF8SanitizingExporter(capture)),
+	)
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		_ = provider.Shutdown(context.Background())
+		otel.SetTracerProvider(previous)
+	})
+	return capture
+}
