@@ -54,6 +54,13 @@ Note that resource attributes are **not** copied onto every series. Prometheus r
 `target_info`, so a query that needs the process identity has to join against it -- or use the
 `instance` label, which carries the same value.
 
+If you supply your own `service.instance.id`, give each process a distinct value. The attribute is what
+tells one Relay Proxy apart from another, so a value shared across replicas -- a literal in a ConfigMap,
+for instance -- merges their series and their `target_info`, and the `instance` label no longer
+identifies a process. Note also that the identifier Relay generates is the same one it reports to
+LaunchDarkly with its usage data; overriding the attribute changes what your telemetry backend sees, not
+what LaunchDarkly sees, so the two no longer match.
+
 ## Request attributes
 
 The request metrics -- `http.server.active_requests`, `launchdarkly.relay.requests`,
