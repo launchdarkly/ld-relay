@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/mux"
 	h "github.com/klauspost/compress/gzhttp"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 )
 
 const (
@@ -45,7 +46,14 @@ func (r *Relay) makeRouter() *mux.Router {
 	// Host header. Its parameter is the "primary server name", not an instrumentation name: a
 	// non-empty value overrides the real host on every span, so passing a service name here would
 	// report that name as the address the client connected to.
-	router.Use(otelmux.Middleware(""))
+	//
+	// Relay records its own request metrics, with an attribute set trimmed of high-cardinality
+	// dimensions, so otelmux's parallel HTTP server instruments must stay off. Without a meter
+	// provider of its own, otelmux takes the global one, which is a no-op that starts delegating the
+	// moment anything calls otel.SetMeterProvider. It would then report a second
+	// http.server.request.duration, under its own scope and with its own buckets, keyed on the
+	// client-controlled Host. Pinning a no-op provider keeps that from ever switching on.
+	router.Use(otelmux.Middleware("", otelmux.WithMeterProvider(metricnoop.NewMeterProvider())))
 	// Must come after the tracing middleware, which records the raw request path on the span it starts.
 	router.Use(middleware.SanitizeRequestSpan)
 	if r.config.HTTP.EnableCompression {

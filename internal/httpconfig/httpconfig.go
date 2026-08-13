@@ -16,6 +16,7 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 )
 
 var (
@@ -99,8 +100,19 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 // Client creates a new HTTP client instance that isn't for SDK use. The
 // returned client's transport is wrapped with OpenTelemetry instrumentation
 // so that outgoing requests propagate trace context when a span is active.
+//
+// Trace context is the whole point of the wrap, so the instrumentation gets a no-op meter provider.
+// Without one it takes the global provider, which is a no-op that starts delegating the moment
+// anything calls otel.SetMeterProvider, and Relay's outbound HTTP metrics would switch on as a side
+// effect of an unrelated change. Nothing calls that today, so pinning the provider makes the current
+// behavior explicit rather than changing it. Reporting these metrics should be a deliberate decision,
+// with its own choice of attributes and cardinality limits, not an accident.
+//
+// Note this differs from the reason otelmux gets the same treatment. There, the instruments would
+// duplicate request metrics Relay already records. Here Relay records no outbound metrics at all.
 func (c HTTPConfig) Client() *http.Client {
 	client := c.SDKHTTPConfig.CreateHTTPClient()
-	client.Transport = otelhttp.NewTransport(client.Transport)
+	client.Transport = otelhttp.NewTransport(client.Transport,
+		otelhttp.WithMeterProvider(metricnoop.NewMeterProvider()))
 	return client
 }

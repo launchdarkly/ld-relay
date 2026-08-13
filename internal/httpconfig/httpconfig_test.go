@@ -1,6 +1,7 @@
 package httpconfig
 
 import (
+	"context"
 	"crypto/x509"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,11 @@ import (
 	"github.com/launchdarkly/go-configtypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,4 +178,51 @@ func assertProxyLogMessage(t *testing.T, mockHandler *logtest.MockHandler, expec
 		}
 	}
 	assert.True(t, found, "expected to find 'using proxy server' log entry at Info level")
+}
+
+// TestClientRecordsNoMetrics guards the meter provider passed to otelhttp. The instrumentation builds
+// its own HTTP client instruments, and without a provider of its own it takes the global one. The
+// global provider is a no-op that delegates retroactively, so those instruments would come to life the
+// moment any code called otel.SetMeterProvider. Relay wraps the transport for trace context
+// propagation only; reporting outbound HTTP metrics should be a deliberate decision.
+func TestClientRecordsNoMetrics(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	previous := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() {
+		_ = provider.Shutdown(context.Background())
+		otel.SetMeterProvider(previous)
+	})
+
+	handler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(http.StatusOK))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "abc", slog.Default())
+	require.NoError(t, err)
+
+	resp, err := hc.Client().Get(server.URL)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+
+	var collected metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &collected))
+
+	for _, scope := range collected.ScopeMetrics {
+		if scope.Scope.Name != otelhttp.ScopeName {
+			continue
+		}
+		for _, m := range scope.Metrics {
+			assert.Fail(t, "otelhttp recorded a metric through the global meter provider",
+				"scope %q reported %q", scope.Scope.Name, m.Name)
+		}
+	}
+
+	// A canary proves the reader would have seen a metric, so the assertion above is not vacuous.
+	counter, err := provider.Meter("canary").Int64Counter("canary.requests")
+	require.NoError(t, err)
+	counter.Add(context.Background(), 1)
+	require.NoError(t, reader.Collect(context.Background(), &collected))
+	require.NotEmpty(t, collected.ScopeMetrics, "the manual reader collected nothing at all")
 }
