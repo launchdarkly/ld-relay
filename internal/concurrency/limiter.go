@@ -38,6 +38,11 @@ type Stats struct {
 	Waiting       int
 	Admitted      int64
 	Rejected      int64
+	// The rejection causes. Their sum is Rejected. A full budget is the only cause that
+	// shows saturation; the other two are normal client and process lifecycle.
+	RejectedFull       int64
+	RejectedClientGone int64
+	RejectedShutdown   int64
 }
 
 // Limiter bounds concurrency with two limits: a maximum number of slots held at once and
@@ -71,6 +76,11 @@ type Limiter struct {
 
 	admitted atomic.Int64
 	rejected atomic.Int64
+	// The rejection causes, split so that operators can tell saturation apart from the
+	// normal client and process lifecycle.
+	rejectedFull       atomic.Int64
+	rejectedClientGone atomic.Int64
+	rejectedShutdown   atomic.Int64
 }
 
 // New builds a Limiter. name identifies the limiter in logs and metrics.
@@ -115,18 +125,18 @@ func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 	// is free: Close is an admission barrier, and a dead request would only waste the slot.
 	select {
 	case <-l.shutdown:
-		return l.reject()
+		return l.reject(&l.rejectedShutdown)
 	default:
 	}
 	if ctx.Err() != nil {
-		return l.reject()
+		return l.reject(&l.rejectedClientGone)
 	}
 
 	// Reserve one unit of the budget's total capacity (slots plus queue). Rejecting on
 	// overflow here is what bounds the queue.
 	if l.inFlight.Add(1) > l.maxOccupancy {
 		l.inFlight.Add(-1)
-		return l.reject()
+		return l.reject(&l.rejectedFull)
 	}
 
 	// Take a free slot if one is available.
@@ -146,11 +156,11 @@ func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 	case <-ctx.Done():
 		l.parked.Add(-1)
 		l.inFlight.Add(-1)
-		return l.reject()
+		return l.reject(&l.rejectedClientGone)
 	case <-l.shutdown:
 		l.parked.Add(-1)
 		l.inFlight.Add(-1)
-		return l.reject()
+		return l.reject(&l.rejectedShutdown)
 	}
 }
 
@@ -162,7 +172,7 @@ func (l *Limiter) admit() (func(), bool) {
 	case <-l.shutdown:
 		l.tokens <- struct{}{} // never blocks: this slot's buffer capacity is unoccupied
 		l.inFlight.Add(-1)
-		return l.reject()
+		return l.reject(&l.rejectedShutdown)
 	default:
 	}
 	l.admitted.Add(1)
@@ -177,8 +187,9 @@ func (l *Limiter) admit() (func(), bool) {
 	}, true
 }
 
-func (l *Limiter) reject() (func(), bool) {
+func (l *Limiter) reject(cause *atomic.Int64) (func(), bool) {
 	l.rejected.Add(1)
+	cause.Add(1)
 	return func() {}, false
 }
 
@@ -216,12 +227,15 @@ func (l *Limiter) Stats() Stats {
 		return Stats{Enabled: false}
 	}
 	return Stats{
-		Enabled:       true,
-		MaxConcurrent: cap(l.tokens),
-		MaxQueued:     l.maxQueued,
-		Held:          cap(l.tokens) - len(l.tokens),
-		Waiting:       int(l.parked.Load()),
-		Admitted:      l.admitted.Load(),
-		Rejected:      l.rejected.Load(),
+		Enabled:            true,
+		MaxConcurrent:      cap(l.tokens),
+		MaxQueued:          l.maxQueued,
+		Held:               cap(l.tokens) - len(l.tokens),
+		Waiting:            int(l.parked.Load()),
+		Admitted:           l.admitted.Load(),
+		Rejected:           l.rejected.Load(),
+		RejectedFull:       l.rejectedFull.Load(),
+		RejectedClientGone: l.rejectedClientGone.Load(),
+		RejectedShutdown:   l.rejectedShutdown.Load(),
 	}
 }
