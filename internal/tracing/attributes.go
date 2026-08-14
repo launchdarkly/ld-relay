@@ -49,6 +49,18 @@ const (
 	// another request's trace carries it.
 	SingleflightSharedKey = attribute.Key("launchdarkly.relay.singleflight.shared")
 
+	// InitAdmittedKey reports whether the request was admitted by the shared
+	// initialization-delivery budget. It appears only on requests that asked for a slot.
+	InitAdmittedKey = attribute.Key("launchdarkly.relay.init.admitted")
+
+	// InitQueueWaitDurationKey is the time in seconds the request waited for an
+	// initialization-delivery slot. It appears only on requests that asked for a slot.
+	InitQueueWaitDurationKey = attribute.Key("launchdarkly.relay.init.queue.wait.duration")
+
+	// InitShedReasonKey is the cause of an initialization-delivery rejection: budget_full,
+	// client_gone, or shutdown. It appears only on requests the budget rejected.
+	InitShedReasonKey = attribute.Key("launchdarkly.relay.init.shed.reason")
+
 	// SingleflightWaitDurationKey reports, on the request span of a request that received its
 	// payload from a flight another request was already executing, how long it spent waiting for
 	// that flight. The value is in seconds, OTel's base unit for a duration, so the unit stays out

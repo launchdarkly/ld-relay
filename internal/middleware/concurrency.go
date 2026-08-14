@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type initLimiterCtxKey struct{}
@@ -35,8 +38,18 @@ func AcquireInitSlot(limiter *concurrency.Limiter, w http.ResponseWriter, r *htt
 	if !limiter.Enabled() {
 		return func() {}, true
 	}
+	// The request span, from the router's tracing middleware, records how the budget
+	// treated this request: whether it was admitted, how long it waited for a slot, and,
+	// for a rejection, the cause. The span is a no-op when tracing is disabled.
+	span := trace.SpanFromContext(r.Context())
+	start := time.Now()
 	rel, ok := limiter.Acquire(r.Context())
+	span.SetAttributes(
+		tracing.InitAdmittedKey.Bool(ok),
+		tracing.InitQueueWaitDurationKey.Float64(time.Since(start).Seconds()),
+	)
 	if !ok {
+		span.SetAttributes(tracing.InitShedReasonKey.String(shedReason(r, limiter)))
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds()))
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -103,6 +116,19 @@ func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration) fun
 func AcquireInitSlotFromContext(w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
 	holder, _ := r.Context().Value(initLimiterCtxKey{}).(initLimiterHolder)
 	return AcquireInitSlot(holder.limiter, w, r)
+}
+
+// shedReason names the cause of a rejection, with the same decision order as the stream
+// shed path: a context that already ended means the client is gone, a closed limiter means
+// shutdown, and anything else is a full budget.
+func shedReason(r *http.Request, limiter *concurrency.Limiter) string {
+	if r.Context().Err() != nil {
+		return "client_gone"
+	}
+	if limiter.Closed() {
+		return "shutdown"
+	}
+	return "budget_full"
 }
 
 // retryAfterSeconds returns a small jittered Retry-After (in seconds) so a shed herd does
