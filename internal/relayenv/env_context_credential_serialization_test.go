@@ -1,10 +1,10 @@
 package relayenv
 
 // Regression for the deferred-flip concurrency hazard: the cleanup ticker's triggerCredentialChanges
-// must be serialized against reconcileCredentials via reconcileMu. Because Reconcile queues the new
+// must be serialized against reconcileCredentials via reconcileSem. Because Reconcile queues the new
 // anchor's addition but defers the pointer flip to CommitAnchor, a ticker that drained that addition in
 // the window between them would run addCredential with the anchor still on the old key, skip the new
-// anchor's startSDKClient, and leave the env with no upstream client. reconcileMu closes that window.
+// anchor's startSDKClient, and leave the env with no upstream client. reconcileSem closes that window.
 
 import (
 	"testing"
@@ -33,10 +33,10 @@ func TestCredentialTickerIsSerializedAgainstReconcile(t *testing.T) {
 
 	envImpl := env.(*envContextImpl)
 
-	// Stand in for an in-flight reconcileCredentials by holding reconcileMu: while it is held, the
+	// Stand in for an in-flight reconcileCredentials by holding reconcileSem: while it is held, the
 	// cleanup ticker's triggerCredentialChanges must NOT run (that is exactly the interleaving that would
 	// steal a queued addition mid-re-anchor).
-	envImpl.reconcileMu.Lock()
+	envImpl.acquireReconcile()
 
 	tickerDone := make(chan struct{})
 	go func() {
@@ -46,17 +46,17 @@ func TestCredentialTickerIsSerializedAgainstReconcile(t *testing.T) {
 
 	select {
 	case <-tickerDone:
-		envImpl.reconcileMu.Unlock()
-		t.Fatal("triggerCredentialChanges ran while reconcileMu was held: the ticker is not serialized against reconcile")
+		envImpl.releaseReconcile()
+		t.Fatal("triggerCredentialChanges ran while reconcileSem was held: the ticker is not serialized against reconcile")
 	case <-time.After(100 * time.Millisecond):
-		// Expected: the ticker is blocked on reconcileMu.
+		// Expected: the ticker is blocked acquiring reconcileSem.
 	}
 
-	// Once the "reconcile" releases the lock, the ticker proceeds.
-	envImpl.reconcileMu.Unlock()
+	// Once the "reconcile" releases it, the ticker proceeds.
+	envImpl.releaseReconcile()
 	select {
 	case <-tickerDone:
 	case <-time.After(time.Second):
-		t.Fatal("triggerCredentialChanges did not proceed after reconcileMu was released")
+		t.Fatal("triggerCredentialChanges did not proceed after reconcileSem was released")
 	}
 }

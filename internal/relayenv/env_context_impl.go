@@ -127,11 +127,15 @@ type envContextImpl struct {
 	offline                   bool
 	closed                    bool
 
-	// reconcileMu serializes reconcileCredentials calls — only one runs at a time, including the
+	// reconcileSem serializes reconcileCredentials calls — only one runs at a time, including the
 	// synchronous re-anchor sequence inside it. Held separately from mu so that GetClient / GetStore /
 	// GetEvaluator / addCredential continue to run during the (potentially seconds-long) SDK client
 	// construction when re-anchoring to a new key.
-	reconcileMu sync.Mutex
+	//
+	// It is a capacity-1 channel rather than a sync.Mutex because one holder — the cleanup ticker — must
+	// be able to abandon its wait, and a mutex acquisition cannot be selected on. See
+	// acquireReconcileUnlessStopping.
+	reconcileSem chan struct{}
 
 	// anchorClientGen counts how many times the upstream anchor client has been (re)established. A
 	// re-anchor commit bumps it. startSDKClient builds its client without c.mu, so a slow build can
@@ -205,6 +209,7 @@ func NewEnvContext(
 		creationTime:              time.Now(),
 		filterKey:                 params.EnvConfig.FilterKey,
 		keyRotator:                credential.NewRotator(params.Loggers),
+		reconcileSem:              make(chan struct{}, 1),
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
@@ -553,6 +558,35 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
+// acquireReconcile blocks until this goroutine holds reconcileSem, and releaseReconcile hands it back.
+// Together they are the mutex that reconcileSem stands in for.
+func (c *envContextImpl) acquireReconcile() {
+	c.reconcileSem <- struct{}{}
+}
+
+func (c *envContextImpl) releaseReconcile() {
+	<-c.reconcileSem
+}
+
+// acquireReconcileUnlessStopping is acquireReconcile for the cleanup ticker, which cannot afford to wait
+// unconditionally: reconcileSem is held across the re-anchor's SDK client build, which blocks for up to
+// sdkInitTimeout, and Close() blocks on doneMonitoringCredentials until the ticker goroutine observes
+// stopMonitoringCredentials. A plain acquisition would therefore pin Close() behind the whole build.
+// Giving up on the stop signal costs nothing: the pass this ticker would have run only expires
+// credentials in an environment that is being torn down anyway.
+//
+// Returns true when reconcileSem was acquired (the caller must releaseReconcile), false when the env is
+// shutting down. It is the ticker's wait that is abandoned, not the serialization guarantee: a ticker
+// that does acquire still runs its pass exclusively against reconcileCredentials.
+func (c *envContextImpl) acquireReconcileUnlessStopping() bool {
+	select {
+	case c.reconcileSem <- struct{}{}:
+		return true
+	case <-c.stopMonitoringCredentials:
+		return false
+	}
+}
+
 func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 	c.reconcileCredentials(newSet, time.Now())
 }
@@ -566,13 +600,13 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // anchor is up. addCredential opens an upstream client only for the anchor -- non-anchor server keys
 // are routed without a second connection.
 //
-// reconcileMu serializes this whole method against concurrent reconciles and the cleanup ticker (see
+// reconcileSem serializes this whole method against concurrent reconciles and the cleanup ticker (see
 // triggerCredentialChanges). See reanchor for the SDK-anchor swap; MobilePrimaryRepoint is handled
 // inline below (a primary-mobile change to an already-accepted key isn't in additions, so addCredential
 // won't repoint event forwarding for it).
 func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
-	c.reconcileMu.Lock()
-	defer c.reconcileMu.Unlock()
+	c.acquireReconcile()
+	defer c.releaseReconcile()
 
 	result := c.keyRotator.Reconcile(newSet, now)
 	additions, expirations := c.keyRotator.StepTime(now)
@@ -665,7 +699,7 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 			why = "offline — no client build"
 		} else {
 			// Build the new client without the lock: sdkClientFactory can block for up to sdkInitTimeout,
-			// and holding c.mu that long would stall every GetClient/GetStore caller (see reconcileMu).
+			// and holding c.mu that long would stall every GetClient/GetStore caller (see reconcileSem).
 			// reanchor's deferred Unlock releases the lock we re-acquire here on return.
 			c.mu.Unlock()
 			client := c.buildNewAnchorClient(newAnchor, previousAnchor)
@@ -678,7 +712,7 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 			}
 			if c.closed {
 				// The env was torn down while the lock was released for the build (Close() does not hold
-				// reconcileMu, so it can run concurrently); its client-teardown loop has already finished and
+				// reconcileSem, so it can run concurrently); its client-teardown loop has already finished and
 				// would never close this one, so discard the freshly-built client rather than install it into
 				// a closed env (mirrors the guard in startSDKClient).
 				_ = client.Close()
@@ -832,15 +866,21 @@ func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredentia
 // and expirations. It runs on the cleanup ticker (cleanupExpiredCredentials), so it can fire at any
 // moment — including while a synchronous re-anchor is in flight inside reconcileCredentials.
 //
-// It takes reconcileMu for the whole StepTime + add/remove pass so the ticker is serialized against
+// It holds reconcileSem for the whole StepTime + add/remove pass so the ticker is serialized against
 // reconcileCredentials exactly the way concurrent reconciles already are. Without it, a credential
 // expiry firing during an in-flight re-anchor would drain the same StepTime queue the reconcile
 // relies on (the ticker could steal additions a reconcile just queued) and could removeCredential —
 // closing a client — partway through the re-anchor sequence. reconcileCredentials never calls this,
-// so taking reconcileMu here introduces no re-entrancy.
+// so acquiring reconcileSem here introduces no re-entrancy.
+//
+// The acquisition is abandoned if the env is shutting down: it returns without doing a pass, because
+// Close() waits for this goroutine to exit and must not be held up for the length of an in-flight
+// client build (see acquireReconcileUnlessStopping).
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
-	c.reconcileMu.Lock()
-	defer c.reconcileMu.Unlock()
+	if !c.acquireReconcileUnlessStopping() {
+		return
+	}
+	defer c.releaseReconcile()
 
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
@@ -1020,6 +1060,10 @@ func (c *envContextImpl) Close() error {
 	c.clients = make(map[config.SDKKey]sdks.LDClientContext)
 	c.mu.Unlock()
 
+	// Stop the credential cleanup ticker and wait for its goroutine to exit before tearing down the
+	// machinery its pass touches (envStreams, the dispatcher, metrics). This wait is only as short as the
+	// ticker's slowest path to observing the stop signal, so nothing on that path may block indefinitely
+	// on work Close() does not control — see acquireReconcileUnlessStopping.
 	close(c.stopMonitoringCredentials)
 	<-c.doneMonitoringCredentials
 

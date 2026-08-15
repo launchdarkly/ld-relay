@@ -221,13 +221,13 @@ func TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient(t *testing.T) {
 }
 
 // TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized exercises the concurrency gap closed
-// by serializing the cleanup ticker against reconcileMu: a credential expiry firing (via the ticker
+// by serializing the cleanup ticker against reconcileSem: a credential expiry firing (via the ticker
 // path, triggerCredentialChanges) while a synchronous re-anchor is mid-build must not run its
 // StepTime + add/remove pass concurrently with the in-flight re-anchor. Both paths drain the same
 // StepTime queue and can close clients, so they must be serialized the way concurrent reconciles are.
 //
 // The test wedges a re-anchor open by blocking the new anchor's client build, then fires the ticker
-// from another goroutine and asserts (a) the ticker is blocked while the re-anchor holds reconcileMu,
+// from another goroutine and asserts (a) the ticker is blocked while the re-anchor holds reconcileSem,
 // (b) it completes once the re-anchor releases it, and (c) the final state is consistent — the new
 // anchor committed, the expiring non-anchor key dropped, the demoted old anchor still accepted in
 // grace (though its client was closed when the re-anchor committed).
@@ -243,7 +243,7 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	tickerTime := now.Add(time.Hour)            // between the two expiries: drops only the expiring key
 
 	// The new anchor's client build blocks until releaseBuild is closed, holding the re-anchor (and
-	// thus reconcileMu) open so the ticker has a window to (try to) run concurrently.
+	// thus reconcileSem) open so the ticker has a window to (try to) run concurrently.
 	buildEntered := make(chan struct{})
 	releaseBuild := make(chan struct{})
 
@@ -281,7 +281,7 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	require.Contains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncExpiringKey))
 
 	// Re-anchor onto a brand-new key while keeping both the demoted old anchor and the expiring key
-	// accepted. The build will block, holding reconcileMu.
+	// accepted. The build will block, holding reconcileSem.
 	reanchorSet, err := credential.NewAcceptedSetBuilder().
 		WithAnchor(credential.SDKKeyParams{Value: reanchorSyncTestKey2}).
 		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: &graceExpiry}).
@@ -297,11 +297,11 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 		envImpl.reconcileCredentials(reanchorSet, now)
 	}()
 
-	// Wait until the re-anchor is wedged open inside the client build (holding reconcileMu).
+	// Wait until the re-anchor is wedged open inside the client build (holding reconcileSem).
 	<-buildEntered
 
-	// Fire the cleanup ticker's work while the re-anchor holds reconcileMu. With the ticker serialized
-	// against reconcileMu, this must block until the re-anchor releases it.
+	// Fire the cleanup ticker's work while the re-anchor holds reconcileSem. With the ticker serialized
+	// against reconcileSem, this must block until the re-anchor releases it.
 	tickerDone := make(chan struct{})
 	go func() {
 		defer close(tickerDone)
@@ -311,18 +311,18 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	select {
 	case <-tickerDone:
 		t.Fatal("the cleanup ticker ran its StepTime + add/remove pass concurrently with an in-flight " +
-			"re-anchor; reconcileMu did not serialize the ticker against reconcileCredentials")
+			"re-anchor; reconcileSem did not serialize the ticker against reconcileCredentials")
 	case <-time.After(100 * time.Millisecond):
-		// Expected: the ticker is blocked on reconcileMu.
+		// Expected: the ticker is blocked on reconcileSem.
 	}
 
-	// Release the build; the re-anchor finishes and drops reconcileMu, unblocking the ticker.
+	// Release the build; the re-anchor finishes and drops reconcileSem, unblocking the ticker.
 	close(releaseBuild)
 	<-reconcileDone
 	select {
 	case <-tickerDone:
 	case <-time.After(time.Second):
-		t.Fatal("the cleanup ticker did not complete after the re-anchor released reconcileMu")
+		t.Fatal("the cleanup ticker did not complete after the re-anchor released reconcileSem")
 	}
 
 	// Final state is consistent: the new anchor committed and serves its client, the expiring

@@ -7,6 +7,7 @@ package relayenv
 // installing it, and leave no client behind.
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const reanchorCloseNewAnchor = config.SDKKey("reanchor-close-new-anchor")
+const (
+	reanchorCloseNewAnchor    = config.SDKKey("reanchor-close-new-anchor")
+	reanchorCloseTickerAnchor = config.SDKKey("reanchor-close-ticker-anchor")
+)
 
 // TestReanchorClosedDuringInFlightBuild wedges the new anchor's synchronous client build, calls Close()
 // from another goroutine, and then releases the build. Close must return within a generous deadline
@@ -78,7 +82,7 @@ func TestReanchorClosedDuringInFlightBuild(t *testing.T) {
 
 	<-entered // the build is wedged: the re-anchor is mid-flight, pre-commit.
 
-	// Close from another goroutine. It does not hold reconcileMu, and the re-anchor released c.mu around
+	// Close from another goroutine. It does not hold reconcileSem, and the re-anchor released c.mu around
 	// the build, so Close can proceed to tear down the env while the build is still blocked.
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- env.Close() }()
@@ -106,4 +110,90 @@ func TestReanchorClosedDuringInFlightBuild(t *testing.T) {
 
 	// GetClient after Close returns nil without panicking.
 	assert.Nil(t, env.GetClient(), "GetClient returns nil after Close, with no panic")
+}
+
+// TestReanchorClosedDuringInFlightBuildWithCleanupTickerWaiting is the same teardown-during-build
+// scenario as above, with the one interleaving that used to make Close() block for the full SDK init
+// timeout: the credential cleanup ticker is parked in its reconcileSem acquisition when Close() runs.
+//
+// The re-anchor holds reconcileSem across the client build, so a ticker that fired during the build
+// waits there; Close() then blocks on doneMonitoringCredentials, which only the ticker goroutine closes,
+// and the ticker cannot reach the stop signal until the build releases reconcileSem. The ticker must
+// therefore abandon its acquisition when the stop signal arrives rather than waiting it out.
+//
+// The build is wedged until after Close() has returned (or timed out), which in production is up to
+// Main.InitTimeout of stalled teardown per environment.
+func TestReanchorClosedDuringInFlightBuildWithCleanupTickerWaiting(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	inner := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	// Released explicitly once Close's outcome is known, and by the deferred call on an early failure so
+	// a wedged build never outlives the test.
+	var releaseOnce sync.Once
+	releaseBuild := func() { releaseOnce.Do(func() { close(gate) }) }
+	defer releaseBuild()
+
+	gatedFactory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == reanchorCloseTickerAnchor {
+			entered <- struct{}{}
+			<-gate
+		}
+		return inner(sdkKey, cfg, timeout)
+	}
+
+	// A 1ms cleanup interval makes the ticker fire many times over during the wedged build, so it is
+	// parked on reconcileSem well before Close() is called. Being early or late here can only weaken what
+	// the test exercises, never fail it spuriously.
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnvWithCleanupInterval(t, envConfig, gatedFactory, mockLog.Loggers, readyCh, time.Millisecond)
+	defer env.Close() // idempotent; the test closes explicitly below, this guards early failures
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	originalClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == originalClient }, time.Second, 10*time.Millisecond)
+
+	start := time.Unix(2000, 0)
+	set, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: reanchorCloseTickerAnchor}).
+		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: util.PtrOrNil(start.Add(time.Hour))}).
+		Build()
+	require.NoError(t, err)
+	reconcileDone := make(chan struct{})
+	go func() {
+		defer close(reconcileDone)
+		env.(*envContextImpl).reconcileCredentials(set, start)
+	}()
+
+	<-entered                         // the build is wedged, holding reconcileSem
+	time.Sleep(20 * time.Millisecond) // ~20 tick opportunities: the ticker is waiting on reconcileSem
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- env.Close() }()
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked behind the cleanup ticker's reconcileSem wait instead of returning while " +
+			"the re-anchor build was wedged")
+	}
+
+	// Teardown after Close is unchanged by the ticker's early exit: the late client is discarded rather
+	// than installed, and nothing remains.
+	releaseBuild()
+	<-reconcileDone
+
+	lateClient := requireClientReady(t, clientCh)
+	lateClient.AwaitClose(t, time.Second)
+
+	envImpl := env.(*envContextImpl)
+	envImpl.mu.RLock()
+	remaining := len(envImpl.clients)
+	envImpl.mu.RUnlock()
+	assert.Equal(t, 0, remaining, "no client remains installed after Close during an in-flight re-anchor")
 }

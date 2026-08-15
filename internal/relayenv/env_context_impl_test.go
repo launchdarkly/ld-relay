@@ -76,6 +76,22 @@ func makeBasicEnvWithMapper(t *testing.T, envConfig config.EnvConfig, clientFact
 	return env
 }
 
+// makeBasicEnvWithCleanupInterval is makeBasicEnv for tests that need the credential cleanup ticker to
+// fire on a test-scale interval instead of defaultCredentialCleanupInterval.
+func makeBasicEnvWithCleanupInterval(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
+	loggers ldlog.Loggers, readyCh chan EnvContext, cleanupInterval time.Duration) EnvContext {
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:                      EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:                        envConfig,
+		ClientFactory:                    clientFactory,
+		Loggers:                          loggers,
+		ConnectionMapper:                 mockConnectionMapper{},
+		ExpiredCredentialCleanupInterval: cleanupInterval,
+	}, readyCh)
+	require.NoError(t, err)
+	return env
+}
+
 type mockConnectionMapper struct {
 }
 
