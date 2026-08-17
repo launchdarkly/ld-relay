@@ -17,7 +17,7 @@ const (
 
 // CurrentModelVersion is the version of the serialization format.
 // Increment this when the shape of EnvironmentRep or FilterRep changes.
-const CurrentModelVersion = 1
+const CurrentModelVersion = 2
 
 // CachedItem is the versioned envelope stored in the cache. It wraps the actual data
 // with kind and version metadata so we can detect and handle format changes on read.
