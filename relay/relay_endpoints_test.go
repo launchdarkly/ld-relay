@@ -62,18 +62,8 @@ func TestReportFlagEvalRejectsOversizedBodyWhenLimitConfigured(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.Code)
 }
 
-func TestReportFlagEvalAllowsLargeBodyWhenNoLimitConfigured(t *testing.T) {
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/json")
-	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
-
-	req := buildPreRoutedRequest("REPORT", jsonhelpers.ToJSON(st.BasicUserForTestFlags), headers, nil, ctx)
-	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(basictypes.JSClientSDK, ct.OptBase2Bytes{})(resp, req)
-
-	assert.Equal(t, http.StatusOK, resp.Code)
-}
-
+// An unset body limit (ct.OptBase2Bytes{}) is not enforced: the test below issues the same REPORT with
+// no limit configured and gets a 200, so it covers that branch as well as the body it asserts on.
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")

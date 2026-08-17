@@ -164,25 +164,69 @@ func rotatedAnchorRep(newAnchor config.SDKKey, version int) envfactory.Environme
 	}
 }
 
-// A valid non-anchor key authenticates downstream; one upstream connection serves all accepted keys.
+// Accepted-set authentication and per-credential rejection within a multi-key environment: every
+// accepted credential authenticates downstream (anchor and non-anchor alike) while the anchor owns the
+// one upstream connection, a credential outside the accepted set is rejected, and a key the next payload
+// drops from the set stops authenticating.
+//
+// The RAC case removes its two non-anchor keys by marking them scoped to a view rather than by omitting
+// them from the arrays. BuildAcceptedSet filters a view-scoped key, so the desired set it produces —
+// and therefore the revocation path — is identical either way, and doing it this way additionally keeps
+// the RAC *update* call site's view-scoped WARN under test. Removal by omission on the RAC path is
+// covered, with a live stream being torn down, by
+// TestConcurrentKeysRAC_ConnectedStreamClosedWhenKeyRevokedByOmission.
 
-func TestConcurrentKeysRAC_NonAnchorKeysAuthenticate(t *testing.T) {
+func TestConcurrentKeysRAC_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
+	cfg := testAutoConfDefaultConfig
+	// A short cleanup interval so the expiry ticker runs during the test: a revoked key must be gone
+	// outright, never left scheduled for a later drop.
+	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
 	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
+	autoConfTest(t, cfg, &putEvent, func(p autoConfTestParams) {
 		// The anchor opens the single upstream client; no second client for the non-anchor key.
 		anchorClient := p.awaitClient()
 		assert.Equal(t, anchorSDKKey, anchorClient.Key)
 		p.shouldNotCreateClient(200 * time.Millisecond)
 
-		_ = p.awaitEnvironment(multiKeyEnvID)
+		env := p.awaitEnvironment(multiKeyEnvID)
 
-		// Every accepted credential authenticates downstream, anchor and non-anchor alike.
+		// (a) Accepted siblings authenticate; a credential outside the accepted set is rejected.
 		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+		p.assertSDKEndpointsAvailability(false,
+			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
+
+		// (b) Drop the extra keys from the accepted set via a patch that marks them scoped to a view;
+		//     they must then be rejected, while the anchor (still accepted) keeps authenticating.
+		removed := multiKeyEnvRep(
+			[]envfactory.ConcurrentKeyRep{
+				{Key: "anchor-sdk", Value: string(anchorSDKKey)},
+				{Key: "extra-sdk", Value: string(extraSDKKey), HasViews: true},
+			},
+			[]envfactory.ConcurrentKeyRep{
+				{Key: "anchor-mob", Value: string(anchorMobileKey)},
+				{Key: "extra-mob", Value: string(extraMobileKey), HasViews: true},
+			},
+			2,
+		)
+		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(removed))
+
+		awaitCredentialRemoved(t, p.relay, extraSDKKey)
+		awaitCredentialRemoved(t, p.relay, extraMobileKey)
+
+		p.assertSDKEndpointsAvailability(false, extraSDKKey, extraMobileKey, "")
+		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
+
+		// The anchor value never changed, so this was not a re-anchor: it still owns the connection.
+		assert.Equal(t, anchorSDKKey, env.GetAcceptedKeys().Anchor)
+
+		// The RAC update handler names each rejected identifier so an operator can find it in the UI.
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn,
+			multiKeyIdentifiers.GetDisplayName()+".*rejecting credentials scoped to a view: extra-sdk, extra-mob")
 	})
 }
 
-func TestConcurrentKeysOffline_NonAnchorKeysAuthenticate(t *testing.T) {
+func TestConcurrentKeysOffline_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
 	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
 		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
 
@@ -194,53 +238,13 @@ func TestConcurrentKeysOffline_NonAnchorKeysAuthenticate(t *testing.T) {
 
 		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+		p.assertSDKEndpointsAvailability(false,
+			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
 
 		// Flag data flows through the shared store that the single anchor connection populates.
 		flags, err := env.GetStore().GetAll(ldstoreimpl.Features())
 		require.NoError(t, err)
 		assert.NotEmpty(t, flags)
-	})
-}
-
-// Per-credential rejection within a multi-key environment.
-
-func TestConcurrentKeysRAC_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
-	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
-		_ = p.awaitClient()
-		_ = p.awaitEnvironment(multiKeyEnvID)
-
-		// (a) Accepted siblings authenticate; a credential outside the accepted set is rejected.
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(false,
-			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
-
-		// (b) Remove the extra keys via a patch that carries only the anchor; they must then be
-		//     rejected, while the anchor (still accepted) keeps authenticating.
-		anchorOnly := multiKeyEnvRep(
-			[]envfactory.ConcurrentKeyRep{{Key: "anchor-sdk", Value: string(anchorSDKKey)}},
-			[]envfactory.ConcurrentKeyRep{{Key: "anchor-mob", Value: string(anchorMobileKey)}},
-			2,
-		)
-		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(anchorOnly))
-
-		awaitCredentialRemoved(t, p.relay, extraSDKKey)
-
-		p.assertSDKEndpointsAvailability(false, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	})
-}
-
-func TestConcurrentKeysOffline_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
-	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-		_ = p.awaitClient()
-		_ = p.awaitEnvironment(multiKeyEnvID)
-
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(false,
-			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
 
 		// Reload with only the anchor accepted; the extra keys are dropped immediately (omitted).
 		p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(
@@ -255,63 +259,12 @@ func TestConcurrentKeysOffline_RejectsCredentialsOutsideAcceptedSet(t *testing.T
 	})
 }
 
-// A connected SDK is disconnected when its (non-anchor) key expires.
+// A key past its expiry stops authenticating.
 //
-// The downstream SDK connects on a non-anchor key while that key is still permanent, so the
-// connection establishes independent of expiry timing. We then give the connected key a near-future
-// expiry; once the timestamp passes, the cleanup ticker must drop the key AND disconnect the open
-// stream. Covered for both an SDK key and a mobile key. (The live open-connection teardown is
-// verified on the offline path, which uses a real SDK client that actually serves stream data; the
-// RAC equivalent — TestConcurrentKeysRAC_KeyExpiryRemovesCredential — verifies the same expiry->reject
-// outcome at the auth layer, since FakeLDClient does not serve stream data.)
-func TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyExpires(t *testing.T) {
-	// The server-side stream (/all) emits "put"; the mobile streams (/meval, /mping) emit "ping".
-	run := func(t *testing.T, streamPath, firstEvent string, connectKey credential.SDKCredential, expiringSDK bool) {
-		cfg := config.Config{}
-		cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
-		offlineModeTest(t, cfg, func(p offlineModeTestParams) {
-			p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-			_ = p.awaitClient()
-			env := p.awaitEnvironment(multiKeyEnvID)
-			require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
-
-			req := sharedtest.BuildRequestWithAuth("GET", streamPath, connectKey, nil)
-			sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
-				// Confirm the stream is live before we expire the key.
-				sharedtest.AwaitEventOfType(t, eventCh, firstEvent, 5*time.Second)
-
-				// Give the connected non-anchor key a near-future expiry; keep the anchor permanent.
-				expiry := time.Now().Add(100 * time.Millisecond)
-				sdkKeys := []envfactory.AcceptedSDKKey{{Value: anchorSDKKey}, {Value: extraSDKKey}}
-				mobileKeys := []envfactory.AcceptedMobileKey{{Value: anchorMobileKey}, {Value: extraMobileKey}}
-				if expiringSDK {
-					sdkKeys[1].Expiry = expiry
-				} else {
-					mobileKeys[1].Expiry = expiry
-				}
-				p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(sdkKeys, mobileKeys))
-
-				// The cleanup ticker drops the expired key and disconnects this stream.
-				awaitStreamClosed(t, eventCh, 5*time.Second)
-			})
-
-			// After expiry: the dropped key no longer authenticates; the anchor (sibling) still does.
-			if expiringSDK {
-				p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
-			} else {
-				p.assertSDKEndpointsAvailability(false, "", extraMobileKey, "")
-			}
-			p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		})
-	}
-
-	t.Run("sdk key", func(t *testing.T) { run(t, "/all", "put", extraSDKKey, true) })
-	t.Run("mobile key", func(t *testing.T) {
-		// base64 of {"key":"userkey","kind":"user"} — a valid context, not the legacy user format.
-		run(t, "/meval/eyJrZXkiOiJ1c2Vya2V5Iiwia2luZCI6InVzZXIifQ==", "ping", extraMobileKey, false)
-	})
-}
-
+// The live open-connection teardown is verified on the offline path, which uses a real SDK client that
+// actually serves stream data (TestConcurrentKeysOffline_SiblingStreamSurvivesWhileExpiringKeyDisconnects);
+// the RAC equivalent below verifies the same expiry->reject outcome at the auth layer, since FakeLDClient
+// does not serve stream data.
 func TestConcurrentKeysRAC_KeyExpiryRemovesCredential(t *testing.T) {
 	cfg := testAutoConfDefaultConfig
 	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
@@ -411,35 +364,12 @@ func TestConcurrentKeysRAC_KeyWithFutureExpiryStillAuthenticates(t *testing.T) {
 
 // Rotating the anchor in the accepted set.
 //
-// Both tests run on the FakeLDClient harness, so they verify the routing/credential-level behavior
-// of an anchor swap. The real-upstream store handover (avoiding an empty-store window) and
-// rollback-on-init-failure robustness is covered by the re-anchor tests in internal/relayenv.
-
-// When a new anchor arrives via RAC (sdkKey.value changes to a brand-new key), the upstream client
-// swaps to the new anchor and the old anchor is dropped, while the non-anchor key stays accepted.
-func TestConcurrentKeysRAC_RotatingAnchorUpdatesUpstreamClient(t *testing.T) {
-	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-		assert.Equal(t, anchorSDKKey, client1.Key)
-		_ = p.awaitEnvironment(multiKeyEnvID)
-
-		// A new anchor arrives; the old anchor is rotated out, the non-anchor extra key is retained.
-		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(rotatedAnchorRep(rotatedAnchorSDKKey, 2)))
-
-		// The new anchor opens the single upstream client; the old anchor's client closes.
-		client2 := p.awaitClient()
-		assert.Equal(t, rotatedAnchorSDKKey, client2.Key)
-		client1.AwaitClose(t, 5*time.Second)
-
-		awaitCredentialRemoved(t, p.relay, anchorSDKKey)
-
-		// The new anchor and the retained non-anchor key authenticate; the old anchor no longer does.
-		p.assertSDKEndpointsAvailability(true, rotatedAnchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
-		p.assertSDKEndpointsAvailability(false, anchorSDKKey, "", "")
-	})
-}
+// The credential-level routing outcome of an anchor swap on the FakeLDClient harness — new anchor's
+// client opened, old client closed, no client for the non-anchor keys, old anchor dropped — is covered
+// by TestConcurrentKeysRAC_MixedUpdateAddsReanchorsAndRemovesInOnePayload, which does the same swap in a
+// payload that also adds and removes a key. The real-upstream store handover (avoiding an empty-store
+// window) and rollback-on-init-failure robustness are covered by the re-anchor tests in
+// internal/relayenv.
 
 // A downstream SDK connected on a non-anchor key stays connected when the anchor is rotated out from
 // under it. This uses a real (dummy) SDK client + RAC mock — rather than the FakeLDClient harness —
@@ -494,60 +424,10 @@ func TestConcurrentKeysRAC_NonAnchorConnectionSurvivesAnchorRotation(t *testing.
 	h.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
 }
 
-// multiKeyArchiveEnvWithAnchor is multiKeyArchiveEnv with a caller-chosen anchor SDK key, used to
-// rotate the anchor across an archive reload. The chosen anchor must also appear in sdkKeys.
-func multiKeyArchiveEnvWithAnchor(anchor config.SDKKey, sdkKeys []envfactory.AcceptedSDKKey, mobileKeys []envfactory.AcceptedMobileKey) filedata.ArchiveEnvironment {
-	env := multiKeyArchiveEnv(sdkKeys, mobileKeys)
-	env.Params.SDKKey = anchor
-	return env
-}
-
-// Rotating the anchor via an offline archive reload.
-//
-// A downstream SDK connected on a non-anchor key keeps its stream when the archive reloads with the
-// anchor rotated to a brand-new key: the new anchor authenticates, the old anchor stops, and the
-// non-anchor sibling is undisturbed. Offline re-anchoring reuses the environment's single file-data
-// client rather than swapping an upstream connection (that swap is the RAC path, exercised by
-// TestConcurrentKeysRAC_RotatingAnchorUpdatesUpstreamClient), so no new client is built and the open
-// connection survives. The non-anchor expiry-via-reload half of the offline reload-rotation scenario is
-// covered by TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyExpires.
-func TestConcurrentKeysOffline_AnchorRotationViaArchiveReload(t *testing.T) {
-	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-		anchorClient := p.awaitClient()
-		assert.Equal(t, anchorSDKKey, anchorClient.Key)
-		env := p.awaitEnvironment(multiKeyEnvID)
-		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
-
-		// Connect a downstream SDK on the non-anchor key and confirm it is live before rotating.
-		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
-		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
-			sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
-
-			// Reload the archive with the anchor rotated to a brand-new key; the non-anchor extra SDK key
-			// stays accepted and the mobile keys are unchanged.
-			p.updateHandler.UpdateEnvironment(multiKeyArchiveEnvWithAnchor(
-				rotatedAnchorSDKKey,
-				[]envfactory.AcceptedSDKKey{{Value: rotatedAnchorSDKKey}, {Value: extraSDKKey}},
-				defaultAcceptedMobileKeys(),
-			))
-
-			// The offline re-anchor reuses the single file-data client, so the non-anchor stream is not
-			// torn down by the swap.
-			assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
-		})
-
-		// Offline re-anchoring commits without building a replacement upstream client.
-		p.shouldNotCreateClient(200 * time.Millisecond)
-
-		awaitCredentialRemoved(t, p.relay, anchorSDKKey)
-
-		// The rotated anchor and the retained non-anchor key authenticate; the old anchor no longer does.
-		p.assertSDKEndpointsAvailability(true, rotatedAnchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
-		p.assertSDKEndpointsAvailability(false, anchorSDKKey, "", "")
-	})
-}
+// Rotating the anchor via an offline archive reload — the new anchor authenticating, the old anchor
+// stopping, a retained credential's open stream surviving, and no replacement upstream client being
+// built — is covered by TestConcurrentKeysOffline_MixedUpdateAddsReanchorsAndRemovesInOneReload, which
+// performs the same reload-with-rotation plus an add and a remove.
 
 // awaitStreamClosed reads from a WithStreamRequest event channel until the stream-closed sentinel
 // (a nil event) arrives, failing if the timeout elapses first. Non-nil events are ignored.
@@ -672,67 +552,13 @@ func TestConcurrentKeysOffline_SDKOnlyEnvironmentAuthenticates(t *testing.T) {
 	})
 }
 
-// A single patch that adds one non-anchor key and removes another, with the anchor held fixed.
-//
-// Because the anchor value does not change, there is no re-anchor: the sole upstream client keeps
-// serving. The added entry starts routing, the removed entry stops, and a downstream stream that was
-// open before the patch is left undisturbed. Uses a real (dummy) client + RAC mock so there is a live
-// stream to observe (FakeLDClient never serves a stream body).
-func TestConcurrentKeysRAC_ArrayPatchAddsAndRemovesNonAnchorKeys(t *testing.T) {
-	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	racMock := configsource.NewRACMock(t, &putEvent)
-
-	cfg := config.Config{AutoConfig: config.AutoConfigConfig{Key: testAutoConfKey}}
-	cfg.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(racMock.URL)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	relay, err := newRelayInternal(cfg, relayInternalOptions{
-		loggers:       mockLog.Loggers,
-		clientFactory: testclient.CreateDummyClient,
-	})
-	require.NoError(t, err)
-	defer relay.Close()
-
-	h := relayTestHelper{t: t, relay: relay}
-	env := h.awaitEnvironment(multiKeyEnvID)
-	require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
-
-	// Hold an open downstream stream on the anchor while the non-anchor entries change around it.
-	req := sharedtest.BuildRequestWithAuth("GET", "/all", anchorSDKKey, nil)
-	sharedtest.WithStreamRequest(t, req, relay, func(eventCh <-chan eventsource.Event) {
-		sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
-
-		// One patch that adds a new non-anchor key (addedSDKKey) and removes the existing one
-		// (extraSDKKey), keeping the anchor and both mobile keys.
-		patch := multiKeyEnvRep(
-			[]envfactory.ConcurrentKeyRep{
-				{Key: "anchor-sdk", Value: string(anchorSDKKey)},
-				{Key: "added-sdk", Value: string(addedSDKKey)},
-			},
-			defaultMobileKeyReps(),
-			2,
-		)
-		racMock.Send(configsource.MakeAutoConfigPatchEvent(patch))
-
-		// The added key routes and the removed key stops routing.
-		require.Eventually(t, func() bool {
-			_, errAdded := relay.getEnvironment(sdkauth.New(addedSDKKey))
-			_, errRemoved := relay.getEnvironment(sdkauth.New(extraSDKKey))
-			return errAdded == nil && errRemoved != nil
-		}, 5*time.Second, 5*time.Millisecond)
-
-		// The anchor's open stream is undisturbed by the non-anchor add/remove.
-		assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
-	})
-
-	// The anchor never changed, so no re-anchor happened and the anchor still owns the connection.
-	assert.Equal(t, anchorSDKKey, env.GetAcceptedKeys().Anchor)
-	h.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	h.assertSDKEndpointsAvailability(true, addedSDKKey, "", "")
-	h.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
-}
+// A single patch that adds one non-anchor key and removes another, with the anchor held fixed, is
+// covered piecewise: TestConcurrentKeysRAC_MixedUpdateAddsReanchorsAndRemovesInOnePayload owns the
+// add/remove routing, and _RejectsCredentialsOutsideAcceptedSet owns "the anchor never changed, so no
+// re-anchor happened". That an open stream survives while a *different* credential is removed around it
+// is owned by _NonAnchorConnectionSurvivesAnchorRotation: removeCredential cannot tell which credential
+// a given open stream belongs to, so "the anchor's stream survives removal of a non-anchor key" and "a
+// non-anchor stream survives removal of the old anchor" traverse the same teardown path.
 
 // A malformed offline payload preserves the previous credentials and does not reconnect.
 //
