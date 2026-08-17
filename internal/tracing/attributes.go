@@ -15,11 +15,20 @@ func Tracer() trace.Tracer { return otel.Tracer(TracerName) }
 
 // Span name constants.
 const (
-	SpanAuth             = "relay.auth"
-	SpanStoreSnapshot    = "relay.store.snapshot"
-	SpanStoreGetAll      = "relay.store.get_all"
-	SpanStoreGet         = "relay.store.get"
-	SpanEvaluateFlags    = "relay.flags.evaluate"
+	SpanAuth          = "relay.auth"
+	SpanStoreSnapshot = "relay.store.snapshot"
+	SpanStoreGetAll   = "relay.store.get_all"
+	SpanStoreGet      = "relay.store.get"
+	SpanEvaluateFlags = "relay.flags.evaluate"
+
+	// SpanInitDelivery covers one gated stream initialization delivery, from budget
+	// admission to the flushed basis or the end of the connection.
+	SpanInitDelivery = "relay.init.delivery"
+
+	// EventInitShed marks a stream replay the budget shed, on the request span.
+	EventInitShed = "relay.init.shed"
+	// EventInitUpToDate marks a stream replay answered with the small up-to-date reply.
+	EventInitUpToDate    = "relay.init.up_to_date"
 	SpanEventsDispatch   = "relay.events.dispatch"
 	SpanSerializePayload = "relay.payload.serialize"
 	SpanWriteResponse    = "relay.response.write"
@@ -56,6 +65,19 @@ const (
 	// InitQueueWaitDurationKey is the time in seconds the request waited for an
 	// initialization-delivery slot. It appears only on requests that asked for a slot.
 	InitQueueWaitDurationKey = attribute.Key("launchdarkly.relay.init.queue.wait.duration")
+
+	// InitProtocolKey is the protocol of a gated stream delivery: fdv1 or fdv2.
+	InitProtocolKey = attribute.Key("launchdarkly.relay.init.protocol")
+
+	// InitOutcomeKey is how a gated stream delivery ended: completed, connection_ended,
+	// read_error, or up_to_date. A connection_ended outcome does not say why the
+	// connection ended; a client disconnect and a relay deadline cut look the same.
+	InitOutcomeKey = attribute.Key("launchdarkly.relay.init.outcome")
+
+	// InitCapEngagedKey reports that the absolute delivery cap clamped a write deadline:
+	// the delivery was large enough that the cap, not the throughput floor, decided when a
+	// slow client would be cut.
+	InitCapEngagedKey = attribute.Key("launchdarkly.relay.init.cap_engaged")
 
 	// InitShedReasonKey is the cause of an initialization-delivery rejection: budget_full,
 	// client_gone, or shutdown. It appears only on requests the budget rejected.

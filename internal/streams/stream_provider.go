@@ -72,9 +72,35 @@ type EnvStreamProvider interface {
 type Option func(*providerOptions)
 
 type providerOptions struct {
-	initLimiter *concurrency.Limiter
-	sendTimeout time.Duration
-	logger      *slog.Logger
+	initLimiter  *concurrency.Limiter
+	sendTimeout  time.Duration
+	logger       *slog.Logger
+	initObserver InitObserver
+}
+
+// InitObserver receives the initialization-delivery measurements the stream provider makes:
+// deliveries with their outcomes, sheds, up-to-date replies, and failed write-deadline
+// calls. The metrics package implements it. A nil observer is permitted; the provider then
+// records nothing.
+type InitObserver interface {
+	// RecordDelivery records one gated delivery. The outcome is completed,
+	// connection_ended, or read_error.
+	RecordDelivery(protocol, outcome string, capEngaged bool)
+	// RecordUpToDate records one up-to-date reply. afterWait is true when the client's
+	// basis became current while it waited in the queue.
+	RecordUpToDate(afterWait bool)
+	// RecordShed records one shed stream replay.
+	RecordShed()
+	// AddDeadlineSetErrors adds the count of failed write-deadline calls a delivery saw.
+	AddDeadlineSetErrors(n int64)
+}
+
+// WithInitObserver sends the initialization-delivery measurements to the given observer.
+// Only the server-side stream provider records them.
+func WithInitObserver(o InitObserver) Option {
+	return func(opts *providerOptions) {
+		opts.initObserver = o
+	}
 }
 
 // WithLogger sends the connection-write errors of the SSE server to a logger. This makes a
@@ -134,10 +160,11 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 			fdv2.Logger = l
 		}
 		return &serverSideStreamProvider{
-			fdv1Server:  fdv1,
-			fdv2Server:  fdv2,
-			initLimiter: o.initLimiter,
-			sendTimeout: o.sendTimeout,
+			fdv1Server:   fdv1,
+			fdv2Server:   fdv2,
+			initLimiter:  o.initLimiter,
+			sendTimeout:  o.sendTimeout,
+			initObserver: o.initObserver,
 		}
 	}
 }
