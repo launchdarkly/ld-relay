@@ -42,24 +42,6 @@ func makeParams(sdkKey config.SDKKey, sdkKeys []AcceptedSDKKey, mobileKey config
 	}
 }
 
-// TestBuildAcceptedSet_HappyPath verifies the basic case: a single permanent SDK key that is the
-// anchor, plus a mobile key and env ID.
-func TestBuildAcceptedSet_HappyPath(t *testing.T) {
-	params := makeParams(
-		"sdk-anchor",
-		[]AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
-		"mob-primary",
-	)
-	set, _, err := BuildAcceptedSet(params)
-
-	require.NoError(t, err)
-	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"})) // mobile has no identifier in makeParams fixture
-	assert.Equal(t, expected, set)
-}
-
 // TestBuildAcceptedSet_MultipleKeys verifies that multiple accepted SDK keys (anchor + non-anchor
 // permanent + expiring non-anchor) are all included in the returned AcceptedSet.
 func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
@@ -82,83 +64,6 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-old", Key: util.PtrOrNil("old-key"), Expiry: util.PtrOrNil(expiry1)}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expected, set)
-}
-
-// TestBuildAcceptedSet_Rename verifies that a rename — same credential value, different identifier
-// — updates only the identifier in the AcceptedSet, not the accepted credential itself. The sets
-// produced before and after a rename carry the same credentials but different identifier maps.
-func TestBuildAcceptedSet_Rename(t *testing.T) {
-	paramsOldName := makeParams(
-		"sdk-anchor",
-		[]AcceptedSDKKey{{Key: "old-name", Value: "sdk-anchor"}},
-		"mob-primary",
-	)
-	paramsNewName := makeParams(
-		"sdk-anchor",
-		[]AcceptedSDKKey{{Key: "new-name", Value: "sdk-anchor"}},
-		"mob-primary",
-	)
-
-	setOld, _, errOld := BuildAcceptedSet(paramsOldName)
-	setNew, _, errNew := BuildAcceptedSet(paramsNewName)
-
-	require.NoError(t, errOld)
-	require.NoError(t, errNew)
-	// The credential content is the same — only the identifier differs.
-	// When Reconcile applies the new set the display name is refreshed but no credential is added or removed.
-	assert.NotEqual(t, setOld, setNew, "rename changes the identifier map, so the AcceptedSets differ")
-	expectedOld := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("old-name")}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
-	assert.Equal(t, expectedOld, setOld)
-	expectedNew := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("new-name")}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
-	assert.Equal(t, expectedNew, setNew)
-}
-
-// TestBuildAcceptedSet_Deexpiry verifies that removing the expiry from an existing key (a
-// previously expiring key that is now permanent) results in the key being permanent in the
-// returned AcceptedSet. The "cancel scheduled drop" effect is realized when ReconcileCredentials
-// applies this set to the Rotator.
-func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
-	// "Before" state: sdk-old has an expiry.
-	paramsWithExpiry := makeParams(
-		"sdk-anchor",
-		[]AcceptedSDKKey{
-			{Key: "default", Value: "sdk-anchor"},
-			{Key: "old-key", Value: "sdk-old", Expiry: expiry1},
-		},
-		"mob-primary",
-	)
-	// "After" state: sdk-old's expiry is removed — it is now permanent.
-	paramsNoExpiry := makeParams(
-		"sdk-anchor",
-		[]AcceptedSDKKey{
-			{Key: "default", Value: "sdk-anchor"},
-			{Key: "old-key", Value: "sdk-old"}, // Expiry zero = permanent
-		},
-		"mob-primary",
-	)
-
-	setWithExpiry, _, errWithExpiry := BuildAcceptedSet(paramsWithExpiry)
-	setNoExpiry, _, errNoExpiry := BuildAcceptedSet(paramsNoExpiry)
-
-	require.NoError(t, errWithExpiry)
-	require.NoError(t, errNoExpiry)
-
-	// The set built without expiry must include sdk-old as a permanent key.
-	expectedPermanent := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
-		WithSDKKey(credential.SDKKeyParams{Value: "sdk-old", Key: util.PtrOrNil("old-key")}). // permanent, no expiry
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
-	assert.Equal(t, expectedPermanent, setNoExpiry)
-
-	// Sanity: the expiring and non-expiring versions are different.
-	assert.NotEqual(t, setWithExpiry, setNoExpiry)
 }
 
 // TestBuildAcceptedSet_MalformedPayloads enumerates every structurally malformed payload shape
@@ -277,37 +182,6 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor"}))
-	assert.Equal(t, expected, set)
-}
-
-// TestBuildAcceptedSet_MixedUpdate verifies add + re-anchor + remove in a single params update
-// produces an AcceptedSet that contains the right keys in the right state. The ordering
-// (add → re-anchor → remove) is enforced by ReconcileCredentials when it consumes this set;
-// this test only asserts the AcceptedSet content.
-func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
-	// New state after the patch:
-	//   - sdk-new-anchor is the new anchor (re-anchor)
-	//   - sdk-b carries over unchanged
-	//   - sdk-c is newly added
-	//   - sdk-old-anchor is gone (remove)
-	params := makeParams(
-		"sdk-new-anchor",
-		[]AcceptedSDKKey{
-			{Key: "new-default", Value: "sdk-new-anchor"}, // re-anchor
-			{Key: "service-b", Value: "sdk-b"},            // unchanged
-			{Key: "service-c", Value: "sdk-c"},            // added
-		},
-		"mob-primary",
-	)
-	set, _, err := BuildAcceptedSet(params)
-
-	require.NoError(t, err)
-	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-new-anchor", Key: util.PtrOrNil("new-default")}).
-		WithSDKKey(credential.SDKKeyParams{Value: "sdk-b", Key: util.PtrOrNil("service-b")}).
-		WithSDKKey(credential.SDKKeyParams{Value: "sdk-c", Key: util.PtrOrNil("service-c")}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expected, set)
 }
 

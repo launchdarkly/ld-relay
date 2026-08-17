@@ -15,12 +15,6 @@ func newTestRotator() *Rotator {
 	return NewRotator(ldlogtest.NewMockLog().Loggers)
 }
 
-func TestNewRotator(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	rotator := NewRotator(mockLog.Loggers)
-	assert.NotNil(t, rotator)
-}
-
 func TestInitializePopulatesAcceptedSets(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	rotator := NewRotator(mockLog.Loggers)
@@ -187,55 +181,42 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 	assert.NotContains(t, r.AllCredentials(), SDKCredential(expiringMobile))
 }
 
-func TestReconcileAlreadyExpiredKeyIsIgnoredOnAdd(t *testing.T) {
-	// An entry in the reconcile payload whose expiry is already in the past is treated as absent —
-	// the reconcile path filters it before calling reconcileAcceptedKeys, so it is never added.
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
-	staleKey := config.SDKKey("stale")
-	now := time.Unix(2000, 0)
-	alreadyExpired := now.Add(-time.Hour)
-
-	result := r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(SDKKeyParams{Value: anchor}).
-			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(alreadyExpired)})),
-		now)
-	require.NotNil(t, result.AnchorChange)
-	r.CommitAnchor(result.AnchorChange.NewAnchor)
-	additions, expirations := r.StepTime(now)
-
-	// The fresh anchor is stripped from additions (the synchronous re-anchor sequence owns its setup),
-	// and the already-expired stale key is never accepted — so nothing is added.
-	assert.Empty(t, additions)
-	assert.Empty(t, expirations)
-	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
-}
-
 func TestReconcileExpiryBoundaryIsStrictlyAfter(t *testing.T) {
 	// The reconcile-side filter that treats an already-expired key as absent must honor the same
 	// strictly-after contract as StepTime (see the doc comment on StepTime): a key whose expiry lands
 	// exactly on `now` is still accepted by Reconcile, and only becomes absent once `now` is one instant
-	// past the expiry.
+	// past the expiry. An entry filtered out this way is never added at all — it is not queued as an
+	// addition for the caller to wire up and then immediately tear down.
 	anchor := config.SDKKey("anchor")
 	staleKey := config.SDKKey("stale")
 	expiry := time.Unix(2000, 0)
 
-	atBoundary := newTestRotator()
-	atBoundary.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(SDKKeyParams{Value: anchor}).
-			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(expiry)})),
-		expiry)
-	assert.Contains(t, atBoundary.AllCredentials(), SDKCredential(staleKey), "a key expiring exactly at now is still accepted by Reconcile")
+	reconcileAt := func(now time.Time) (*Rotator, []SDKCredential, []SDKCredential) {
+		r := newTestRotator()
+		result := r.Reconcile(
+			mustBuild(t, NewAcceptedSetBuilder().
+				WithAnchor(SDKKeyParams{Value: anchor}).
+				WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(expiry)})),
+			now)
+		require.NotNil(t, result.AnchorChange)
+		r.CommitAnchor(result.AnchorChange.NewAnchor)
+		additions, expirations := r.StepTime(now)
+		return r, additions, expirations
+	}
 
-	pastBoundary := newTestRotator()
-	pastBoundary.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(SDKKeyParams{Value: anchor}).
-			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(expiry)})),
-		expiry.Add(1*time.Millisecond))
+	atBoundary, additions, expirations := reconcileAt(expiry)
+	assert.Contains(t, atBoundary.AllCredentials(), SDKCredential(staleKey), "a key expiring exactly at now is still accepted by Reconcile")
+	// The anchor is stripped from additions (the synchronous re-anchor sequence owns its setup), so the
+	// still-accepted stale key is the only addition.
+	assert.ElementsMatch(t, []SDKCredential{staleKey}, additions)
+	assert.Empty(t, expirations)
+
+	pastBoundary, additions, expirations := reconcileAt(expiry.Add(1 * time.Millisecond))
 	assert.NotContains(t, pastBoundary.AllCredentials(), SDKCredential(staleKey), "a key one instant past its expiry is treated as absent by Reconcile")
+	assert.ElementsMatch(t, []SDKCredential{anchor}, pastBoundary.AllCredentials())
+	// Filtered before reconcileAcceptedKeys ever sees it: nothing to add, nothing to expire.
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
 }
 
 func TestReconcileDeExpiryRestoresKey(t *testing.T) {

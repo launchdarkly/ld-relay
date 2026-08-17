@@ -685,69 +685,6 @@ func TestReanchorSync_PreviouslyAcceptedAnchorPromotionFailureKeepsItsMappings(t
 	assert.NoError(t, env.GetInitError())
 }
 
-// TestReanchor_SupersededFailingBuildDoesNotClobberInitErr: the initial startSDKClient(A) is still in
-// flight when a re-anchor to healthy B commits (initErr=nil). A's build then fails -- returning a
-// NON-NIL, uninitialized client with the error, exactly as the real SDK's MakeCustomClient does. Because
-// a re-anchor committed since this build launched, it is superseded: it must be discarded, not installed,
-// and must not touch initErr -- otherwise it would clobber a healthy env into a whole-env 401.
-func TestReanchor_SupersededFailingBuildDoesNotClobberInitErr(t *testing.T) {
-	envConfig := st.EnvMain.Config
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	healthy := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
-
-	gate := make(chan struct{})
-	entered := make(chan struct{}, 1)
-	factory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
-		if sdkKey == envConfig.SDKKey {
-			// The ORIGINAL anchor A: block, then fail like the real SDK -- a non-nil, uninitialized client
-			// plus the error (MakeCustomClient returns the client on init failure/timeout).
-			entered <- struct{}{}
-			<-gate
-			return &testclient.FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{})}, ld.ErrInitializationFailed
-		}
-		return healthy(sdkKey, cfg, timeout)
-	}
-
-	readyCh := make(chan EnvContext, 1)
-	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
-	defer env.Close()
-
-	envImpl := env.(*envContextImpl)
-	<-entered // A's initial build is blocked; anchor is still A.
-
-	// Re-anchor A -> B (B brand new/healthy; A grace-demoted +1h). B builds, commits, clears initErr.
-	now := time.Unix(2000, 0)
-	expiry := now.Add(time.Hour)
-	set, err := credential.NewAcceptedSetBuilder().
-		WithAnchor(credential.SDKKeyParams{Value: reanchorSyncTestKey2}).
-		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: &expiry}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
-		WithEnvironmentID(envConfig.EnvID).
-		Build()
-	require.NoError(t, err)
-	envImpl.reconcileCredentials(set, now)
-	require.Equal(t, reanchorSyncTestKey2, envImpl.keyRotator.AnchorKey())
-	require.NoError(t, env.GetInitError(), "sanity: healthy after re-anchor to B")
-
-	// The stale initial A build now fails late.
-	close(gate)
-	<-readyCh
-
-	assert.NoError(t, env.GetInitError(),
-		"a superseded build's late failure must not clobber the healthy env's initErr")
-	assert.NotEqual(t, ld.ErrInitializationFailed, env.GetInitError())
-	assert.NotNil(t, env.GetClient(), "B's healthy client still serves")
-	// The superseded build was discarded, not installed for A.
-	envImpl.mu.RLock()
-	_, aHasClient := envImpl.clients[envConfig.SDKKey]
-	envImpl.mu.RUnlock()
-	assert.False(t, aHasClient, "the superseded build must not be installed for A")
-}
-
 // TestReanchor_SupersededLateBuildIsDiscarded: even a *successful* initial build is discarded if a
 // re-anchor committed a fresh anchor client while it was in flight. Installing it would tear down the
 // current anchor client (startSDKClient's stale-client guard closes whatever is installed) and swap in

@@ -139,34 +139,11 @@ func TestConcurrentKeysRAC_ConnectedStreamClosedWhenKeyRevokedByOmission(t *test
 	h.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 }
 
-// The offline-reload twin of the RAC revocation-by-omission case: a key dropped from the reloaded
-// archive is revoked immediately and its connected downstream SDK is disconnected, while the retained
-// anchor keeps authenticating.
-func TestConcurrentKeysOffline_ConnectedStreamClosedWhenKeyRevokedByOmission(t *testing.T) {
-	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-		_ = p.awaitClient()
-		env := p.awaitEnvironment(multiKeyEnvID)
-		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
-
-		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
-		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
-			sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
-
-			// Reload with the non-anchor key omitted: it is revoked immediately.
-			p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(
-				[]envfactory.AcceptedSDKKey{{Value: anchorSDKKey}},
-				defaultAcceptedMobileKeys(),
-			))
-
-			awaitStreamClosed(t, eventCh, 5*time.Second)
-		})
-
-		awaitCredentialRemoved(t, p.relay, extraSDKKey)
-		p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	})
-}
+// The offline-reload twin of the case above is
+// TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyGainsView: "gains a view" and "omitted from
+// the array" produce the identical desired-set diff inside BuildAcceptedSet — the key is simply absent —
+// so both drive the same immediate-revocation-and-stream-teardown path through the offline update
+// handler, and that test covers it for a mobile key as well as an SDK key.
 
 // When one key expires, the cleanup ticker must drop it and disconnect its downstream SDKs — and only
 // its own: a stream held on the anchor stays connected throughout the expiry window while a

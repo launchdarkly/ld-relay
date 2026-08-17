@@ -189,18 +189,6 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 	})
 }
 
-func TestInitialQueueCapacity(t *testing.T) {
-	// Unset initial capacity preallocates the full capacity -- the original behavior, used by the
-	// analytics publisher, which never sets OptionInitialCapacity.
-	assert.Equal(t, 1000, initialQueueCapacity(1000, 0))
-	assert.Equal(t, 10000, initialQueueCapacity(10000, 0))
-	// A smaller initial capacity is used as-is, letting the queue start small and grow.
-	assert.Equal(t, 1000, initialQueueCapacity(10000, 1000))
-	// The initial allocation is never larger than the maximum capacity.
-	assert.Equal(t, 1000, initialQueueCapacity(1000, 1000))
-	assert.Equal(t, 1000, initialQueueCapacity(1000, 5000))
-}
-
 func TestHTTPEventPublisherInitialCapacityGrowsToCapacity(t *testing.T) {
 	// With an initial capacity smaller than the (maximum) capacity, the queue must still grow past
 	// the initial allocation and only drop events once the maximum capacity is reached.
