@@ -40,32 +40,28 @@ type EnvContext interface {
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
-	// GetAnchorKey returns the anchor SDK key — the key that owns the upstream connection.
-	// Use this when you need exactly the anchor (e.g. the status endpoint's sdkKey field) rather
-	// than the full accepted set returned by GetCredentials.
+	// GetAnchorKey returns the anchor SDK key, which owns the upstream connection. Use it when you
+	// need exactly the anchor rather than the full accepted set that GetCredentials returns.
 	GetAnchorKey() config.SDKKey
 
-	// GetMobileKey returns the primary (default) mobile key. Like GetAnchorKey for the anchor, use this
-	// for the status endpoint's mobileKey field rather than iterating GetCredentials, which may return
-	// several accepted mobile keys (primary + expiring) in nondeterministic order.
+	// GetMobileKey returns the primary (default) mobile key. GetCredentials can return several accepted
+	// mobile keys in nondeterministic order, so use this method where one mobile key is required.
 	GetMobileKey() config.MobileKey
 
-	// GetAcceptedKeys returns a consistent snapshot of the full accepted credential set — all
-	// server-side SDK keys and all mobile keys (anchor and primary mobile key included), grouped by
-	// kind, plus which keys are the designated anchor and primary. The status endpoint maps each group
-	// to the full sdkKeys[] / mobileKeys[] arrays.
+	// GetAcceptedKeys returns a consistent snapshot of the full accepted set, grouped by kind. See
+	// credential.AcceptedKeySet.
 	GetAcceptedKeys() credential.AcceptedKeySet
 
-	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
-	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and
-	// primary mobile key. The method owns the order of operations internally (add → re-anchor →
-	// remove); callers do not sequence.
+	// ReconcileCredentials updates the environment's accepted credentials to match newSet. Calls are
+	// serialized. The method owns the order of operations (add, re-anchor, remove). If the re-anchor
+	// fails, only the anchor change is reverted; the other changes stand.
 	//
-	// newSet is assumed well-formed: it is built and validated via credential.AcceptedSetBuilder
-	// (which guarantees an anchor) before reaching here, so this method does not re-validate.
+	// newSet is assumed well-formed: credential.AcceptedSetBuilder validated it, so this method does
+	// not re-validate.
 	ReconcileCredentials(newSet credential.AcceptedSet)
 
-	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
+	// GetCredentials returns every credential the environment currently accepts, including keys that
+	// carry a future expiry. Use GetAnchorKey or GetMobileKey for the designated keys.
 	GetCredentials() []credential.SDKCredential
 
 	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
