@@ -18,8 +18,15 @@ import (
 type initLimiterCtxKey struct{}
 
 type initLimiterHolder struct {
-	limiter *concurrency.Limiter
-	maxHold time.Duration
+	limiter  *concurrency.Limiter
+	maxHold  time.Duration
+	recorder InitShedRecorder
+}
+
+// InitShedRecorder counts polling requests the initialization-delivery budget shed. The
+// metrics package implements it. A nil recorder is permitted and records nothing.
+type InitShedRecorder interface {
+	RecordPollShed(envName string)
 }
 
 // AcquireInitSlot draws one slot from the shared initialization-delivery limiter for the
@@ -34,7 +41,7 @@ type initLimiterHolder struct {
 // It is called both by LimitConcurrency (which gates a whole handler, e.g. the FDv1 all-flags
 // poll) and directly by the FDv2 poll handlers, which acquire only on the full-basis branch so
 // a cheap up-to-date reply is never charged.
-func AcquireInitSlot(limiter *concurrency.Limiter, w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
+func AcquireInitSlot(limiter *concurrency.Limiter, recorder InitShedRecorder, w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
 	if !limiter.Enabled() {
 		return func() {}, true
 	}
@@ -50,6 +57,9 @@ func AcquireInitSlot(limiter *concurrency.Limiter, w http.ResponseWriter, r *htt
 	)
 	if !ok {
 		span.SetAttributes(tracing.InitShedReasonKey.String(shedReason(r, limiter)))
+		if recorder != nil {
+			recorder.RecordPollShed(envNameFromContext(r))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds()))
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -67,13 +77,13 @@ func AcquireInitSlot(limiter *concurrency.Limiter, w http.ResponseWriter, r *htt
 // pass-through with zero overhead. Handlers that have a cheap no-payload branch (the FDv2
 // polls) should instead call AcquireInitSlot directly, after that branch, so the cheap reply
 // is not charged.
-func LimitConcurrency(limiter *concurrency.Limiter, maxHold time.Duration) func(http.Handler) http.Handler {
+func LimitConcurrency(limiter *concurrency.Limiter, maxHold time.Duration, recorder InitShedRecorder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if !limiter.Enabled() {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			release, ok := AcquireInitSlot(limiter, w, r)
+			release, ok := AcquireInitSlot(limiter, recorder, w, r)
 			if !ok {
 				return
 			}
@@ -96,14 +106,14 @@ func clearWriteDeadline(w http.ResponseWriter) {
 // in the progress-aware writer. It is used for the FDv2 poll endpoints, whose handlers acquire
 // lazily (via AcquireInitSlotFromContext) only on the full-basis branch, so a cheap up-to-date
 // reply is never charged. A disabled or nil limiter is a pass-through with zero overhead.
-func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration) func(http.Handler) http.Handler {
+func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration, recorder InitShedRecorder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if !limiter.Enabled() {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer clearWriteDeadline(w)
-			ctx := context.WithValue(r.Context(), initLimiterCtxKey{}, initLimiterHolder{limiter: limiter, maxHold: maxHold})
+			ctx := context.WithValue(r.Context(), initLimiterCtxKey{}, initLimiterHolder{limiter: limiter, maxHold: maxHold, recorder: recorder})
 			next.ServeHTTP(initwrite.Wrap(w, maxHold), r.WithContext(ctx))
 		})
 	}
@@ -115,7 +125,17 @@ func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration) fun
 // path.
 func AcquireInitSlotFromContext(w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
 	holder, _ := r.Context().Value(initLimiterCtxKey{}).(initLimiterHolder)
-	return AcquireInitSlot(holder.limiter, w, r)
+	return AcquireInitSlot(holder.limiter, holder.recorder, w, r)
+}
+
+// envNameFromContext returns the display name of the request's environment, or an empty
+// string when the context has none. It must not panic: the shed path runs on routes whose
+// stacks differ in when they attach the environment.
+func envNameFromContext(r *http.Request) string {
+	if info, ok := r.Context().Value(contextKey).(EnvContextInfo); ok && info.Env != nil {
+		return info.Env.GetIdentifiers().GetDisplayName()
+	}
+	return ""
 }
 
 // shedReason names the cause of a rejection, with the same decision order as the stream

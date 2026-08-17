@@ -22,6 +22,17 @@ const (
 	eventsDroppedMeasureName   = "launchdarkly.relay.events.dropped"
 	eventsPendingMeasureName   = "launchdarkly.relay.events.pending"
 
+	// The initialization-delivery limiter instruments. They are active only when the
+	// [Concurrency] limit is configured.
+	initSlotsHeldMeasureName         = "launchdarkly.relay.init.slots.held"
+	initQueueWaitingMeasureName      = "launchdarkly.relay.init.queue.waiting"
+	initAdmittedMeasureName          = "launchdarkly.relay.init.admitted"
+	initRejectedMeasureName          = "launchdarkly.relay.init.rejected"
+	initDeliveriesMeasureName        = "launchdarkly.relay.init.deliveries"
+	initShedsMeasureName             = "launchdarkly.relay.init.sheds"
+	initUpToDateMeasureName          = "launchdarkly.relay.init.replays.up_to_date"
+	initDeadlineSetErrorsMeasureName = "launchdarkly.relay.init.deadline.set_errors"
+
 	defaultFlushInterval = time.Minute
 
 	// notProvidedValue is the sentinel reported for an OTel attribute whose value is absent. It is
@@ -83,6 +94,14 @@ var (
 	applicationIDAttrKey      = attribute.Key("launchdarkly.application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("launchdarkly.application.version") //nolint:gochecknoglobals
 	endpointTypeAttrKey       = attribute.Key("launchdarkly.relay.endpoint.type") //nolint:gochecknoglobals
+
+	// Attribute keys for the initialization-delivery limiter instruments.
+	initReasonAttrKey     = attribute.Key("launchdarkly.relay.init.reason")      //nolint:gochecknoglobals
+	initTransportAttrKey  = attribute.Key("launchdarkly.relay.init.transport")   //nolint:gochecknoglobals
+	initProtocolAttrKey   = attribute.Key("launchdarkly.relay.init.protocol")    //nolint:gochecknoglobals
+	initOutcomeAttrKey    = attribute.Key("launchdarkly.relay.init.outcome")     //nolint:gochecknoglobals
+	initCapEngagedAttrKey = attribute.Key("launchdarkly.relay.init.cap_engaged") //nolint:gochecknoglobals
+	initAfterWaitAttrKey  = attribute.Key("launchdarkly.relay.init.after_wait")  //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals
