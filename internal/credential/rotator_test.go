@@ -427,12 +427,15 @@ func TestReconcileMobilePrimaryToNewKeyDoesNotSignalRepoint(t *testing.T) {
 func TestRevertAnchorChangeReadmitsRevokedPreviousAnchor(t *testing.T) {
 	// When the previous anchor was immediately revoked in the same reconcile (dropped from the accepted
 	// set) and the re-anchor rolled back, RevertAnchorChange re-admits it and drops the failed new key.
+	// The re-admitted key keeps its wire "key" identifier, so /status still names the key it is serving on.
 	r := newTestRotator()
 	keyA := config.SDKKey("keyA")
 	keyB := config.SDKKey("keyB")
+	keyAName := "anchor-sdk"
 	now := time.Now()
 
-	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyA, Key: &keyAName})), now)
 	require.NotNil(t, res.AnchorChange)
 	r.CommitAnchor(res.AnchorChange.NewAnchor)
 	r.StepTime(now)
@@ -449,6 +452,8 @@ func TestRevertAnchorChangeReadmitsRevokedPreviousAnchor(t *testing.T) {
 	creds := r.AllCredentials()
 	assert.Contains(t, creds, SDKCredential(keyA), "previous anchor re-admitted")
 	assert.NotContains(t, creds, SDKCredential(keyB), "failed new anchor dropped")
+	assert.Equal(t, &keyAName, r.AcceptedKeys().Server[keyA].Key,
+		"the re-admitted anchor keeps its key identifier")
 }
 
 func TestRevertAnchorChangeLeavesGraceDemotedPreviousAnchorUntouched(t *testing.T) {

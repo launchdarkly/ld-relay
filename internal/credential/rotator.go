@@ -211,8 +211,13 @@ type ReconcileResult struct {
 // NewAnchorPreviouslyAccepted is false when the new anchor is a brand-new key, so the re-anchor must
 // register that key's credential mappings. It is true when the key was already accepted, so the
 // mappings already exist and a client may too. See envContextImpl.reanchor.
+//
+// PreviousAnchorName is the previous anchor's wire "key" identifier, captured before this reconcile. A
+// rollback that re-admits the previous anchor restores the name from here. See RevertAnchorChange. It
+// is nil when the key had no name.
 type AnchorChange struct {
 	PreviousAnchor              config.SDKKey
+	PreviousAnchorName          *string
 	NewAnchor                   config.SDKKey
 	NewAnchorPreviouslyAccepted bool
 }
@@ -237,8 +242,11 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	newAnchor := set.anchor
 	if previousAnchor != newAnchor && newAnchor.Defined() {
 		_, alreadyAccepted := r.acceptedSDKKeys[newAnchor]
+		// Capture the previous anchor's name now, before reconcileSDKKeys can drop its entry: an
+		// immediate revocation removes it outright, and a rollback then has to re-admit it.
 		result.AnchorChange = &AnchorChange{
 			PreviousAnchor:              previousAnchor,
+			PreviousAnchorName:          r.acceptedSDKKeys[previousAnchor].Key,
 			NewAnchor:                   newAnchor,
 			NewAnchorPreviouslyAccepted: alreadyAccepted,
 		}
@@ -284,8 +292,9 @@ func (r *Rotator) CommitAnchor(key config.SDKKey) {
 //
 // If this reconcile revoked the previous anchor outright, RevertAnchorChange re-admits that key as a
 // permanent key with no expiry. The re-admission discards the key's previous expiry, because that key
-// is still the anchor and still serving. A previous anchor that is only grace-demoted stays accepted
-// and keeps its expiry. The new anchor is dropped only if that key was brand new.
+// is still the anchor and still serving. It keeps the key's name, so /status still names the key that
+// is serving. A previous anchor that is only grace-demoted stays accepted and keeps its expiry. The new
+// anchor is dropped only if that key was brand new.
 func (r *Rotator) RevertAnchorChange(change AnchorChange) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -294,7 +303,7 @@ func (r *Rotator) RevertAnchorChange(change AnchorChange) {
 	// gains its first SDK key has an undefined previous anchor.
 	if change.PreviousAnchor.Defined() {
 		if _, stillAccepted := r.acceptedSDKKeys[change.PreviousAnchor]; !stillAccepted {
-			r.acceptedSDKKeys[change.PreviousAnchor] = AcceptedKey{}
+			r.acceptedSDKKeys[change.PreviousAnchor] = AcceptedKey{Key: change.PreviousAnchorName}
 		}
 	}
 	if !change.NewAnchorPreviouslyAccepted {
