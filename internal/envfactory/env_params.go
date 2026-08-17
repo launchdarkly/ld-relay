@@ -20,21 +20,19 @@ type EnvironmentParams struct {
 	// Identifiers contains the project and environment names and keys.
 	Identifiers relayenv.EnvIdentifiers
 
-	// SDKKey is the environment's SDK key; if there is more than one active key, it is the latest.
+	// SDKKey is the environment's anchor SDK key (the wire's sdkKey.value).
 	SDKKey config.SDKKey
 
 	// MobileKey is the environment's mobile key.
 	MobileKey config.MobileKey
 
-	// AcceptedSDKKeys is the full accepted set of SDK keys for this environment, including the
-	// anchor. Always non-nil after ToParams(): non-empty sdkKeys arrays populate directly; absent
-	// or empty sdkKeys are synthesized from the singular sdkKey field so there is always at least
-	// the anchor entry.
+	// AcceptedSDKKeys is the full accepted set of SDK keys, including the anchor. ToParams always
+	// leaves it non-nil, synthesizing from the singular sdkKey field when the payload has no
+	// sdkKeys array.
 	AcceptedSDKKeys []AcceptedSDKKey
 
-	// AcceptedMobileKeys is the full accepted set of mobile keys for this environment. Always
-	// non-nil after ToParams(): non-empty mobileKeys arrays populate directly; absent or empty
-	// mobileKeys are synthesized from the singular mobKey field.
+	// AcceptedMobileKeys is the full accepted set of mobile keys. ToParams always leaves it non-nil,
+	// synthesizing from the singular mobKey field when the payload has no mobileKeys array.
 	AcceptedMobileKeys []AcceptedMobileKey
 
 	// TTL is the cache TTL for PHP clients.

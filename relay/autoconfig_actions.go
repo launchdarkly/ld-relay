@@ -22,7 +22,7 @@ const (
 )
 
 // logViewScopedKeys reports the view-scoped credentials that BuildAcceptedSet filtered out of a
-// payload. This logs once per payload that actually reaches a handler.
+// payload.
 func logViewScopedKeys(loggers ldlog.Loggers, envName string, rejected []string) {
 	if len(rejected) > 0 {
 		loggers.Warnf(logMsgViewScopedKeysRejected, envName, strings.Join(rejected, ", "))
@@ -70,9 +70,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 
 	set, rejected, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
-		// Credential payloads are validated at the stream parse boundary (see StreamManager) before
-		// being dispatched here, so a malformed set should not reach this point. Log defensively and
-		// preserve the previous credentials rather than applying a partial set.
+		// Already validated in StreamManager; keep the previous credentials if it somehow fails.
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
 		return
 	}

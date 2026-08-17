@@ -60,8 +60,8 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
 		a.r.loggers.Errorf(logMsgOfflineMalformedPayload, ae.Params.Identifiers.GetDisplayName(), buildErr)
-		// No reconnect for offline mode: preserve previous state (env was just created with
-		// the singular sdkKey from envConfig) and wait for the next archive reload.
+		// No reconnect for offline mode, which has no live stream: keep the previous credentials and
+		// wait for the next archive reload.
 	} else {
 		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)
 		env.ReconcileCredentials(set)
@@ -99,7 +99,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
 		a.r.loggers.Errorf(logMsgOfflineMalformedPayload, ae.Params.Identifiers.GetDisplayName(), buildErr)
-		// Preserve previous credentials; no reconnect (offline path has no live stream).
+		// Keep the previous credentials. See addEnvironment: offline mode has no reconnect.
 	} else {
 		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)
 		env.ReconcileCredentials(set)
