@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
@@ -138,75 +139,72 @@ func TestConcurrentKeysRAC_ConnectedStreamClosedWhenKeyRevokedByOmission(t *test
 	h.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 }
 
-// The offline-reload twin of the RAC revocation-by-omission case: a key dropped from the reloaded
-// archive is revoked immediately and its connected downstream SDK is disconnected, while the retained
-// anchor keeps authenticating.
-func TestConcurrentKeysOffline_ConnectedStreamClosedWhenKeyRevokedByOmission(t *testing.T) {
-	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-		_ = p.awaitClient()
-		env := p.awaitEnvironment(multiKeyEnvID)
-		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+// The offline-reload twin of the case above is
+// TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyGainsView: "gains a view" and "omitted from
+// the array" produce the identical desired-set diff inside BuildAcceptedSet — the key is simply absent —
+// so both drive the same immediate-revocation-and-stream-teardown path through the offline update
+// handler, and that test covers it for a mobile key as well as an SDK key.
 
-		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
-		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
-			sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
-
-			// Reload with the non-anchor key omitted: it is revoked immediately.
-			p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(
-				[]envfactory.AcceptedSDKKey{{Value: anchorSDKKey}},
-				defaultAcceptedMobileKeys(),
-			))
-
-			awaitStreamClosed(t, eventCh, 5*time.Second)
-		})
-
-		awaitCredentialRemoved(t, p.relay, extraSDKKey)
-		p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	})
-}
-
-// When one key expires, the disconnect must be targeted: only that key's downstream SDKs drop. A stream
-// held on the anchor stays connected throughout the expiry window while a concurrently-open stream on
-// the expiring non-anchor key is torn down. Uses the offline harness (real client that serves stream
-// data) with two simultaneous downstream connections on the same environment.
+// When one key expires, the cleanup ticker must drop it and disconnect its downstream SDKs — and only
+// its own: a stream held on the anchor stays connected throughout the expiry window while a
+// concurrently-open stream on the expiring non-anchor key is torn down. Uses the offline harness (real
+// client that serves stream data) with two simultaneous downstream connections on the same environment.
+//
+// Run for both an SDK key and a mobile key, because the two kinds of downstream stream are torn down by
+// different StreamProviders.
 func TestConcurrentKeysOffline_SiblingStreamSurvivesWhileExpiringKeyDisconnects(t *testing.T) {
-	cfg := config.Config{}
-	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
-	offlineModeTest(t, cfg, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-		_ = p.awaitClient()
-		env := p.awaitEnvironment(multiKeyEnvID)
-		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+	// The server-side stream (/all) emits "put"; the mobile streams (/meval, /mping) emit "ping".
+	run := func(t *testing.T, streamPath, firstEvent string, connectKey credential.SDKCredential, expiringSDK bool) {
+		cfg := config.Config{}
+		cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
+		offlineModeTest(t, cfg, func(p offlineModeTestParams) {
+			p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
+			_ = p.awaitClient()
+			env := p.awaitEnvironment(multiKeyEnvID)
+			require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
 
-		// Open a stream on the anchor — the sibling that must stay connected.
-		anchorReq := sharedtest.BuildRequestWithAuth("GET", "/all", anchorSDKKey, nil)
-		sharedtest.WithStreamRequest(t, anchorReq, p.relay, func(anchorCh <-chan eventsource.Event) {
-			sharedtest.AwaitEventOfType(t, anchorCh, "put", 5*time.Second)
+			// Open a stream on the anchor — the sibling that must stay connected.
+			anchorReq := sharedtest.BuildRequestWithAuth("GET", "/all", anchorSDKKey, nil)
+			sharedtest.WithStreamRequest(t, anchorReq, p.relay, func(anchorCh <-chan eventsource.Event) {
+				sharedtest.AwaitEventOfType(t, anchorCh, "put", 5*time.Second)
 
-			// Concurrently open a second stream on the non-anchor key that we will expire.
-			expiringReq := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
-			sharedtest.WithStreamRequest(t, expiringReq, p.relay, func(expiringCh <-chan eventsource.Event) {
-				sharedtest.AwaitEventOfType(t, expiringCh, "put", 5*time.Second)
+				// Concurrently open a second stream on the non-anchor key that we will expire. The
+				// connection is established while that key is still permanent, so it does not race the
+				// expiry timing.
+				expiringReq := sharedtest.BuildRequestWithAuth("GET", streamPath, connectKey, nil)
+				sharedtest.WithStreamRequest(t, expiringReq, p.relay, func(expiringCh <-chan eventsource.Event) {
+					sharedtest.AwaitEventOfType(t, expiringCh, firstEvent, 5*time.Second)
 
-				// Give the non-anchor key a near-future expiry; the anchor stays permanent.
-				expiry := time.Now().Add(100 * time.Millisecond)
-				p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(
-					[]envfactory.AcceptedSDKKey{{Value: anchorSDKKey}, {Value: extraSDKKey, Expiry: expiry}},
-					defaultAcceptedMobileKeys(),
-				))
+					// Give the connected non-anchor key a near-future expiry; the anchor and primary
+					// mobile key stay permanent.
+					expiry := time.Now().Add(100 * time.Millisecond)
+					sdkKeys := defaultAcceptedSDKKeys()
+					mobileKeys := defaultAcceptedMobileKeys()
+					if expiringSDK {
+						sdkKeys[1].Expiry = expiry
+					} else {
+						mobileKeys[1].Expiry = expiry
+					}
+					p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(sdkKeys, mobileKeys))
 
-				// Across the expiry window the anchor sibling's stream stays open (the expiring key's
-				// stream is being torn down on its own channel during this same window)...
-				assertStreamStaysOpen(t, anchorCh, 300*time.Millisecond)
-				// ...and the expiring key's stream is confirmed disconnected.
-				awaitStreamClosed(t, expiringCh, 5*time.Second)
+					// Across the expiry window the anchor sibling's stream stays open (the expiring key's
+					// stream is being torn down on its own channel during this same window)...
+					assertStreamStaysOpen(t, anchorCh, 300*time.Millisecond)
+					// ...and the expiring key's stream is confirmed disconnected.
+					awaitStreamClosed(t, expiringCh, 5*time.Second)
+				})
 			})
-		})
 
-		// After the expiry: the dropped key no longer authenticates; the anchor sibling still does.
-		p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	})
+			// After the expiry: the dropped key no longer authenticates; the anchor sibling still does.
+			if expiringSDK {
+				p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
+			} else {
+				p.assertSDKEndpointsAvailability(false, "", extraMobileKey, "")
+			}
+			p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
+		})
+	}
+
+	t.Run("sdk key", func(t *testing.T) { run(t, "/all", "put", extraSDKKey, true) })
+	t.Run("mobile key", func(t *testing.T) { run(t, mobileEvalContextPath, "ping", extraMobileKey, false) })
 }

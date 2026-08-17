@@ -49,14 +49,11 @@ func statusHandler(relay *Relay) http.Handler {
 				ProjName: identifiers.ProjName,
 			}
 
-			// One consistent snapshot of the accepted credential set drives every credential field
-			// below — the scalar anchor/primary designations, the full sdkKeys[]/mobileKeys[] arrays,
-			// and expiringSdkKey — so they cannot drift relative to each other under a concurrent
-			// reconcile.
+			// One snapshot drives every credential field below, so they cannot drift against each
+			// other under a concurrent reconcile.
 			accepted := clientCtx.GetAcceptedKeys()
 
-			// Scalar fields: the anchor SDK key and primary mobile key designate which array entry is
-			// the anchor / primary.
+			// The scalar fields designate which array entry is the anchor and which is the primary.
 			if accepted.Anchor.Defined() {
 				status.SDKKey = sdks.ObscureKey(string(accepted.Anchor))
 			}
@@ -75,7 +72,6 @@ func statusHandler(relay *Relay) http.Handler {
 			var expiringCandidates []expiringSDKKey
 			for value, info := range accepted.Server {
 				status.SDKKeys = append(status.SDKKeys, keyStatus(string(value), info))
-				// expiringSdkKey considers non-anchor server keys that carry an expiry.
 				if value != accepted.Anchor && info.Expiry != nil {
 					expiringCandidates = append(expiringCandidates, expiringSDKKey{value: string(value), expiry: *info.Expiry})
 				}
@@ -85,9 +81,8 @@ func statusHandler(relay *Relay) http.Handler {
 				status.MobileKeys = append(status.MobileKeys, keyStatus(string(value), info))
 			}
 
-			// expiringSdkKey: the soonest-expiring non-anchor SDK key. Comparing by expiry then by value
-			// gives a total order, so the chosen key is deterministic even when several keys share the
-			// same expiry (map iteration order, and hence MinFunc's pick on a tie, is otherwise unstable).
+			// expiringSdkKey is the soonest-expiring non-anchor SDK key. The value comparison breaks
+			// ties, because map iteration order is unstable.
 			if len(expiringCandidates) > 0 {
 				earliest := slices.MinFunc(expiringCandidates, func(a, b expiringSDKKey) int {
 					if c := a.expiry.Compare(b.expiry); c != 0 {
@@ -189,14 +184,13 @@ func statusHandler(relay *Relay) http.Handler {
 }
 
 // expiringSDKKey is a candidate for the status endpoint's expiringSdkKey field: a non-anchor SDK key
-// that carries an expiry. value is the plain credential; expiry is its (non-nil) expiry.
+// that carries an expiry.
 type expiringSDKKey struct {
 	value  string
 	expiry time.Time
 }
 
-// keyStatus converts an accepted key — its credential value plus metadata — into its status-endpoint
-// JSON representation, obscuring the secret value and surfacing the optional identifier and expiry.
+// keyStatus converts an accepted key and its metadata into the status-endpoint JSON representation.
 func keyStatus(value string, k credential.AcceptedKey) api.KeyStatus {
 	ks := api.KeyStatus{Value: sdks.ObscureKey(value)}
 	if k.Key != nil {

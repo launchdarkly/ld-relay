@@ -47,10 +47,9 @@ func (b *AcceptedSetBuilder) WithSDKKey(p SDKKeyParams) *AcceptedSetBuilder {
 	return b
 }
 
-// WithAnchor adds p.Value and designates it as the anchor — the SDK key that owns the environment's
-// upstream connection. The anchor is always permanent, so p.Expiry is ignored. It is a no-op if the
-// value is undefined. Unlike WithSDKKey it overwrites any existing entry for the value, since
-// designating the anchor takes precedence over an earlier non-anchor add.
+// WithAnchor adds p.Value and designates it as the anchor. The anchor is always permanent, so
+// p.Expiry is ignored. It is a no-op if the value is undefined. Unlike WithSDKKey, it overwrites an
+// existing entry for the value.
 func (b *AcceptedSetBuilder) WithAnchor(p SDKKeyParams) *AcceptedSetBuilder {
 	if !p.Value.Defined() {
 		return b
@@ -69,9 +68,8 @@ func (b *AcceptedSetBuilder) WithMobileKey(p MobileKeyParams) *AcceptedSetBuilde
 	return b
 }
 
-// WithPrimaryMobileKey adds p.Value and designates it as the primary mobile key — the singular
-// default (the wire's mobKey) used where one mobile key is required, e.g. event forwarding. The
-// primary is always permanent, so p.Expiry is ignored. It is a no-op if the value is undefined.
+// WithPrimaryMobileKey adds p.Value and designates it as the primary mobile key. The primary is
+// always permanent, so p.Expiry is ignored. It is a no-op if the value is undefined.
 func (b *AcceptedSetBuilder) WithPrimaryMobileKey(p MobileKeyParams) *AcceptedSetBuilder {
 	if !p.Value.Defined() {
 		return b
@@ -89,10 +87,8 @@ func (b *AcceptedSetBuilder) WithEnvironmentID(id config.EnvironmentID) *Accepte
 	return b
 }
 
-// Build validates and returns the accumulated AcceptedSet. It returns a
-// *MalformedCredentialSetError if no SDK key was added, or if no anchor was designated (via
-// WithAnchor). Because WithAnchor also adds the key, a designated anchor is always among the
-// accepted SDK keys.
+// Build validates and returns the accumulated AcceptedSet. It returns a *MalformedCredentialSetError
+// if no SDK key was added, or if no anchor was designated.
 func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
 	if len(b.set.sdkKeys) == 0 {
 		return AcceptedSet{}, newNoSDKKeysError()

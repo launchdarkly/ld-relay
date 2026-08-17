@@ -16,13 +16,11 @@ type StatusRep struct {
 }
 
 // KeyStatus is the JSON representation of one accepted SDK or mobile key in the status endpoint's
-// sdkKeys[] / mobileKeys[] arrays.
+// sdkKeys[] and mobileKeys[] arrays.
 //
-// Key is the non-secret human-readable identifier from the wire format (the "key" field of a
-// sdkKeys/mobileKeys entry); it is omitted when the source carried no identifier (manual config, or
-// an old-format payload predating concurrent keys). Value is the obscured credential secret (via
-// sdks.ObscureKey). Expiry carries the Unix-millisecond expiry timestamp when the key is being phased
-// out; it is omitted for permanent keys.
+// Key is the non-secret wire identifier, omitted when the source carried none. Value is the credential
+// secret, obscured by sdks.ObscureKey. Expiry is the expiry timestamp in Unix milliseconds, omitted
+// for permanent keys.
 type KeyStatus struct {
 	Key    string `json:"key,omitempty"`
 	Value  string `json:"value"`
@@ -33,12 +31,10 @@ type KeyStatus struct {
 //
 // This is exported for use in integration test code.
 type EnvironmentStatusRep struct {
-	// SDKKey is the obscured anchor SDK key — the key relay uses for its upstream connection. It
-	// designates which SDKKeys entry is the anchor.
+	// SDKKey is the obscured anchor SDK key. It designates which SDKKeys entry is the anchor.
 	SDKKey string `json:"sdkKey"`
-	// SDKKeys carries the full accepted set of server-side SDK keys — including the anchor — with their
-	// identifiers, obscured values, and optional expiry. Always present; always contains at least the
-	// anchor.
+	// SDKKeys carries the full accepted set of server-side SDK keys, including the anchor. It is always
+	// present and always contains at least the anchor.
 	SDKKeys  []KeyStatus `json:"sdkKeys"`
 	EnvID    string      `json:"envId,omitempty"`
 	EnvKey   string      `json:"envKey,omitempty"`
@@ -47,8 +43,8 @@ type EnvironmentStatusRep struct {
 	ProjName string      `json:"projName,omitempty"`
 	// MobileKey is the obscured primary mobile key. It designates which MobileKeys entry is the primary.
 	MobileKey string `json:"mobileKey,omitempty"`
-	// MobileKeys carries the full accepted set of mobile keys — including the primary. Always present;
-	// empty for an environment with no mobile keys (e.g. server-side only).
+	// MobileKeys carries the full accepted set of mobile keys, including the primary. It is always
+	// present, and empty for an environment with no mobile keys.
 	MobileKeys       []KeyStatus          `json:"mobileKeys"`
 	ExpiringSDKKey   string               `json:"expiringSdkKey,omitempty"`
 	Status           string               `json:"status"`

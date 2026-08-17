@@ -249,8 +249,7 @@ func validateMaxClientRequestBodySize(result *ct.ValidationResult, c *Config) {
 }
 
 // validateMetricsCapacity enforces the minimum queue capacity for the usage-metrics event publisher.
-// Rather than fail startup on a too-small value, it clamps the value up to the minimum and warns, so
-// that a misconfiguration never prevents Relay from running while still protecting usage telemetry.
+// Rather than fail startup on a too-small value, it clamps the value up to the minimum and warns.
 func validateMetricsCapacity(c *Config, loggers ldlog.Loggers) {
 	if !c.Events.MetricsCapacity.IsDefined() {
 		return

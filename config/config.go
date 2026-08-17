@@ -38,15 +38,13 @@ const (
 	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
 	DefaultEventCapacity = 1000
 
-	// DefaultMetricsCapacity is the default value for EventsConfig.MetricsCapacity if not specified.
-	// This is the maximum queue capacity for the usage-metrics event publisher, which emits one event
-	// per concurrent unique connection on each flush. It is set well above DefaultEventCapacity because
-	// high-concurrency nodes routinely exceed 1000 unique connections.
+	// DefaultMetricsCapacity is the default for EventsConfig.MetricsCapacity: the maximum queue size
+	// for the usage-metrics publisher, which emits one event per unique connection on each flush.
+	// It exceeds DefaultEventCapacity because high-concurrency nodes exceed 1000 connections.
 	DefaultMetricsCapacity = 10000
 
 	// DefaultMetricsInitialCapacity is the number of events the usage-metrics publisher queue
-	// preallocates space for. The queue grows on demand from this size up to MetricsCapacity, so that
-	// the higher maximum does not reserve all of its memory up front on nodes that never reach it.
+	// preallocates space for. The queue grows on demand from this size up to MetricsCapacity.
 	DefaultMetricsInitialCapacity = 1000
 
 	// DefaultHeartbeatInterval is the default value for MainConfig.HeartBeatInterval if not specified.
@@ -107,9 +105,7 @@ const (
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumCredentialCleanupInterval = 100 * time.Millisecond
 	// minimumMetricsCapacity is the smallest value accepted for EventsConfig.MetricsCapacity. Usage
-	// metrics are how LaunchDarkly reports on account usage, so we do not allow the maximum queue
-	// capacity to be shrunk below the historical default of 1000; smaller configured values are
-	// clamped up to this floor.
+	// metrics report account usage, so the floor is the historical default of 1000.
 	minimumMetricsCapacity = 1000
 )
 

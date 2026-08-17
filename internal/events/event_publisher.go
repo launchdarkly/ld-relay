@@ -160,11 +160,9 @@ func (o OptionCapacity) apply(p *HTTPEventPublisher) error {
 	return nil
 }
 
-// OptionInitialCapacity specifies how many events to preallocate space for in each event queue.
-// The queue still grows on demand (via append) up to OptionCapacity, and events are only dropped
-// once OptionCapacity is reached; this option only controls the initial allocation so that a
-// publisher with a large capacity does not reserve all of that memory up front. If unset, or not
-// smaller than the capacity, the full capacity is preallocated, preserving the original behavior.
+// OptionInitialCapacity is how many events each queue preallocates space for. The queue still grows
+// on demand up to OptionCapacity, which is where events start being dropped. If this option is unset,
+// or is not smaller than the capacity, the full capacity is preallocated.
 type OptionInitialCapacity int
 
 //nolint:unparam // the error result is required by the OptionType interface
@@ -257,10 +255,9 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 	return p, nil
 }
 
-// initialQueueCapacity returns the number of events to preallocate space for in a new queue.
-// It is the smaller of the configured initial capacity and the maximum capacity; when no initial
-// capacity is configured (<= 0), the full maximum capacity is preallocated, which is the original
-// behavior. The queue can still grow (via append) up to the maximum capacity regardless.
+// initialQueueCapacity returns the number of events to preallocate space for in a new queue. It is
+// the smaller of the configured initial capacity and the maximum capacity. When no initial capacity
+// is configured, the full maximum capacity is preallocated.
 func initialQueueCapacity(capacity, initialCapacity int) int {
 	if initialCapacity > 0 && initialCapacity < capacity {
 		return initialCapacity
@@ -271,7 +268,6 @@ func initialQueueCapacity(capacity, initialCapacity int) int {
 func (p *HTTPEventPublisher) append(batch eventBatch) {
 	queue := p.queues[batch.metadata]
 	if queue == nil {
-		// The queue still grows up to p.capacity via append regardless of the initial allocation.
 		queue = &publisherQueue{events: make([]json.RawMessage, 0, initialQueueCapacity(p.capacity, p.initialCapacity))}
 		p.queues[batch.metadata] = queue
 	}

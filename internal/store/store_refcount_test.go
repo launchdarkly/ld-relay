@@ -85,6 +85,38 @@ func TestWrapperCloseIsIdempotent(t *testing.T) {
 		"Close is idempotent: a second Close must not re-close the underlying store")
 }
 
+// TestWrapperFullyClosedIsNotResurrected: once the final holder has released the wrapper and torn down
+// the underlying store, acquire must refuse it, so a later Build (e.g. a subsequent re-anchor) rebuilds a
+// fresh wrapper over a fresh, open store rather than handing back the closed one — a use-after-close for
+// a persistent store whose Close releases its connection pool.
+//
+// (The re-anchor flow keeps the anchor client permanent, so refCount doesn't reach zero while the env is
+// alive today; this guards the wrapper/adapter contract itself against a future caller.)
+func TestWrapperFullyClosedIsNotResurrected(t *testing.T) {
+	factory := &countingCloseStoreFactory{}
+	adapter := NewSSERelayDataStoreAdapter(factory, &mockEnvStreamsUpdates{})
+
+	first, err := adapter.Build(subsystems.BasicClientContext{})
+	require.NoError(t, err)
+	sw1 := first.(*streamUpdatesStoreWrapper)
+	require.Equal(t, 1, sw1.currentRefCount())
+
+	// The sole client shuts down: refCount 1 -> 0, wrapper marked closed, underlying store torn down.
+	require.NoError(t, first.Close())
+	require.Equal(t, 1, factory.built[0].closeCount())
+	assert.False(t, sw1.acquire(), "acquire on a fully-closed wrapper must return false")
+
+	second, err := adapter.Build(subsystems.BasicClientContext{})
+	require.NoError(t, err)
+	sw2 := second.(*streamUpdatesStoreWrapper)
+
+	assert.NotSame(t, sw1, sw2, "adapter must rebuild rather than hand back the torn-down wrapper")
+	assert.Equal(t, 1, sw2.currentRefCount(), "the fresh wrapper starts at refCount 1")
+	assert.Same(t, sw2, adapter.GetStore(), "the adapter now points at the fresh wrapper")
+	require.Len(t, factory.allBuilt(), 2, "a fresh underlying store was built for the fresh wrapper")
+	assert.Equal(t, 0, factory.built[1].closeCount(), "the fresh wrapper's underlying store is open")
+}
+
 // TestWrapperConcurrentCloseClosesExactlyOnce fires many concurrent Close calls on a single wrapper
 // (modelling stray/duplicate client Closes arriving at once) and asserts the underlying store is torn
 // down exactly once. This directly exercises the idempotent early-return branch under -race and is
