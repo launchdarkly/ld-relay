@@ -54,12 +54,6 @@ func (r *recordingStreamUpdates) InvalidateClientSideState() {
 	r.mu.Unlock()
 }
 
-func (r *recordingStreamUpdates) allDataCount() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.allDataUpdates
-}
-
 // reanchor re-anchors env onto newKey while keeping oldKey accepted for a grace hour (the old
 // client stays up while the new one is built, then closes when the commit lands). This mirrors the
 // backend's default-rotation behavior: the new anchor is non-expiring, the demoted old anchor

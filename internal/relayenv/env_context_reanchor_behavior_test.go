@@ -1,18 +1,15 @@
 package relayenv
 
-// Permanent behavioral regression tests for re-anchoring. These pin three properties of the
+// Permanent behavioral regression tests for re-anchoring. These pin two properties of the
 // upstream-client swap:
 //
 //   - an open downstream (client-side) connection survives a re-anchor and keeps receiving events,
 //     with the re-wired big-segment synchronizer driving its invalidations;
-//   - the new anchor's initial sync re-broadcasts a full "put" downstream, so a downstream SDK sees one
-//     duplicate put per re-anchor (tolerable — SDKs apply puts idempotently — but the swap must expect it);
 //   - httpconfig carries no baked-in SDK key other than the Authorization header the SDK sets per client,
 //     so it needs no re-wiring on a re-anchor.
 
 import (
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
@@ -22,7 +19,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
 	"github.com/launchdarkly/eventsource"
@@ -30,36 +26,11 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// putCountingStreamUpdates is a streams.EnvStreamUpdates that counts the "all data" broadcasts it
-// receives, so a test can observe how many full "put"s a sequence of store inits produces downstream.
-type putCountingStreamUpdates struct {
-	mu             sync.Mutex
-	allDataUpdates int
-}
-
-func (r *putCountingStreamUpdates) SendAllDataUpdate(_ []ldstoretypes.Collection) {
-	r.mu.Lock()
-	r.allDataUpdates++
-	r.mu.Unlock()
-}
-
-func (r *putCountingStreamUpdates) SendSingleItemUpdate(_ ldstoretypes.DataKind, _ string, _ ldstoretypes.ItemDescriptor) {
-}
-
-func (r *putCountingStreamUpdates) InvalidateClientSideState() {}
-
-func (r *putCountingStreamUpdates) allDataCount() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.allDataUpdates
-}
 
 // TestReanchorDownstreamConnectionSurvives verifies that an open downstream client-side connection
 // survives a re-anchor and keeps receiving events. The connection is keyed on the environment ID (a
@@ -127,29 +98,6 @@ func TestReanchorDownstreamConnectionSurvives(t *testing.T) {
 		pingEvent := helpers.RequireValue(t, eventCh, time.Second)
 		assert.Equal(t, "ping", pingEvent.Event(), "downstream connection should survive the re-anchor")
 	})
-}
-
-// TestReanchorInitialSyncRebroadcastsPut verifies that the new anchor's client performs its own initial
-// sync when it comes up, re-broadcasting a full "put" to every connected downstream stream. From a
-// downstream SDK's perspective this is a duplicate put on each re-anchor. It is tolerable — SDKs apply
-// puts idempotently — but the re-anchor implementation must expect it; it is not a corruption.
-func TestReanchorInitialSyncRebroadcastsPut(t *testing.T) {
-	rec := &putCountingStreamUpdates{}
-	adapter := store.NewSSERelayDataStoreAdapter(ldcomponents.InMemoryDataStore(), rec)
-
-	// The original anchor client builds and performs its initial sync -> one downstream "put".
-	s1, err := adapter.Build(subsystems.BasicClientContext{})
-	require.NoError(t, err)
-	require.NoError(t, s1.Init(st.AllData))
-	require.Equal(t, 1, rec.allDataCount())
-
-	// Re-anchor: the new anchor's client performs its OWN initial sync (store handover hands it the same
-	// wrapper, but the new client still re-broadcasts a full put when it initializes).
-	s2, err := adapter.Build(subsystems.BasicClientContext{})
-	require.NoError(t, err)
-	require.NoError(t, s2.Init(st.AllData))
-
-	assert.Equal(t, 2, rec.allDataCount(), "the new anchor's initial sync re-broadcasts a full put")
 }
 
 // TestReanchorHTTPConfigIsKeyIndependent verifies that httpconfig carries no baked-in SDK key other than

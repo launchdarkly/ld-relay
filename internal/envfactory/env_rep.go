@@ -14,42 +14,19 @@ import (
 // file data source archive are deliberately the same. Any properties that are only used in one
 // or the other of those contexts should be in the appropriate package instead of here.
 
-// EnvironmentRep is a representation of an environment that is being added or updated.
+// EnvironmentRep is the wire shape of an environment, shared by RAC and the offline archive.
 //
-// EnvironmentRep carries an environment's wire shape from RAC and the offline archive
-// (same struct serves both — keep them aligned).
+// Wire vocabulary: "key" is the non-secret human-readable identifier; "value" is the credential
+// secret. Relay's own SDKKey, MobileKey, and SDKCredential types hold what the wire calls "value".
+// Do not rename them.
 //
-// FIELD NAMING — read this before changing anything:
+// sdkKey and mobKey are the singular default credentials. sdkKey is an object because it also carries
+// the legacy sdkKey.expiring slot; mobKey is a plain string because mobile keys never had one.
+// sdkKeys and mobileKeys are the authoritative full accepted set, with entries of the form
+// { key, value, expiry?, hasViews? }.
 //
-//	sdkKey  is the singular *default* SDK key for the environment. It's an
-//	        object ({"value": "sdk-..."}) so it can also carry the legacy
-//	        sdkKey.expiring{value, timestamp} slot during default rotation
-//	        (back-compat for relays predating concurrent keys).
-//
-//	mobKey  is the singular default mobile key. It's a *plain string*
-//	        because mobile keys never had a legacy expiring slot. The shape
-//	        asymmetry is historical, not a design choice.
-//
-//	sdkKeys/mobileKeys  are the authoritative full accepted set. Entries:
-//	                    { key: <identifier>, value: <credential>, expiry?: <ms> }
-//
-// TERMINOLOGY:
-//
-//	The wire "key" field is the human-readable identifier (e.g. "default-sdk"),
-//	non-secret — stored as AcceptedSDKKey.Key / AcceptedMobileKey.Key internally.
-//	The wire "value" field is the actual credential string (e.g. "sdk-xxxx-..."),
-//	which is the secret — stored as AcceptedSDKKey.Value / AcceptedMobileKey.Value.
-//	Note that relay's own types (SDKKey, MobileKey, SDKCredential) refer to what
-//	the wire calls "value" — they are misnamed by today's standards but stable,
-//	so do not rename them.
-//
-// Anchor selection: anchor = the sdkKeys entry whose `value` matches sdkKey.value.
-// No isDefault flag — value match is the signal.
-//
-// Backwards compatibility: Go's default JSON decoder ignores unknown fields, so old
-// relays receiving payloads with sdkKeys/mobileKeys simply ignore them and continue
-// using sdkKey/mobKey. DisallowUnknownFields is intentionally not used anywhere in
-// this parse path.
+// This parse path never sets DisallowUnknownFields, so a relay predating concurrent keys ignores
+// sdkKeys and mobileKeys and keeps using sdkKey and mobKey.
 type EnvironmentRep struct {
 	EnvID      config.EnvironmentID `json:"envID"`
 	EnvKey     string               `json:"envKey"`
@@ -99,11 +76,9 @@ type ExpiringKeyRep struct {
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
 }
 
-// ConcurrentKeyRep is an entry in the sdkKeys or mobileKeys array on EnvironmentRep.
-// It represents one accepted credential in an environment's concurrent key set.
-//
-// Key is the human-readable identifier (non-secret, e.g. "default-sdk"); Value is
-// the credential secret (e.g. "sdk-xxxx-..."). See the EnvironmentRep TERMINOLOGY comment.
+// ConcurrentKeyRep is an entry in the sdkKeys or mobileKeys array on EnvironmentRep. It represents one
+// accepted credential in an environment's concurrent key set. See EnvironmentRep for the wire
+// vocabulary.
 type ConcurrentKeyRep struct {
 	Key      string `json:"key"`
 	Value    string `json:"value"`
@@ -146,9 +121,8 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, entry)
 		}
 	} else {
-		// Old-format payload: no sdkKeys array present. Synthesize AcceptedSDKKeys from the
-		// singular sdkKey fields so consumers always receive a consistent non-nil model
-		// regardless of wire format version. Key (identifier) is empty — the old format had none.
+		// Old-format payload: synthesize AcceptedSDKKeys from the singular sdkKey fields, so the model
+		// is always non-nil. The old format carried no identifier, so Key stays empty.
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, 2)
 		params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{Value: r.SDKKey.Value})
 		if r.SDKKey.Expiring.Value.Defined() {
@@ -175,9 +149,8 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		}
 	} else {
 		// Old-format payload: synthesize from the singular mobKey field. An undefined mobKey means the
-		// environment has no mobile key (e.g. a server-side-only environment) — leave the set empty
-		// rather than synthesizing a phantom empty-value entry, which BuildAcceptedSet would otherwise
-		// reject as a malformed credential.
+		// environment has no mobile key, so leave the set empty. A phantom empty-value entry would make
+		// BuildAcceptedSet reject the payload.
 		params.AcceptedMobileKeys = []AcceptedMobileKey{}
 		if r.MobKey.Defined() {
 			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, AcceptedMobileKey{Value: r.MobKey})

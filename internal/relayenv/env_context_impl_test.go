@@ -422,6 +422,12 @@ func TestMobileKeyReconcileExpiry(t *testing.T) {
 	assert.Contains(t, env.GetCredentials(), primaryMobile)
 }
 
+// TestNonAnchorSDKKeysDoNotOpenUpstreamClient verifies that non-anchor SDK keys are accepted without
+// opening an upstream client of their own: they share the anchor's single upstream connection.
+//
+// It also pins the GetClient contract that follows from it. Non-anchor keys have no client, so GetClient
+// must keep returning the anchor's — never nil, never a non-anchor client. That is what callers depend
+// on: nil means "env not ready"; non-nil means "use this client."
 func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	readyCh := make(chan EnvContext, 1)
@@ -439,6 +445,9 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	anchorClient := requireClientReady(t, clientCh)
 	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
+
+	// GetClient returns the anchor's client even before any non-anchor keys are added.
+	assert.Equal(t, anchorClient, env.GetClient())
 
 	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
 	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
@@ -459,45 +468,6 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	assert.Contains(t, creds, nonAnchorKey2)
 
 	// ...but no additional upstream client was started.
-	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
-		t.FailNow()
-	}
-}
-
-// TestGetClientReturnsAnchorInMultiKeyEnv verifies that GetClient returns the anchor's upstream
-// client when the environment holds multiple SDK keys. Non-anchor SDK keys share the same
-// upstream connection (the anchor's), so GetClient must never return a non-anchor client
-// and must remain non-nil after non-anchor keys are added. This is the contract callers of
-// GetClient depend on: nil means "env not ready"; non-nil means "use this client."
-func TestGetClientReturnsAnchorInMultiKeyEnv(t *testing.T) {
-	envConfig := st.EnvMain.Config
-	readyCh := make(chan EnvContext, 1)
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
-	defer env.Close()
-
-	assert.Equal(t, env, requireEnvReady(t, readyCh))
-	anchorClient := requireClientReady(t, clientCh)
-	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
-
-	// GetClient must return the anchor's client even before any non-anchor keys are added.
-	assert.Equal(t, anchorClient, env.GetClient())
-
-	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
-	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
-
-	env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
-			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey1}).
-			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey2})))
-
-	// No new upstream client was created for the non-anchor keys.
 	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
 		t.FailNow()
 	}
@@ -561,72 +531,6 @@ func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
 		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
 		assert.Equal(t, string(primaryMobile), eventPost.Request.Header.Get("Authorization"))
 	})
-}
-
-// When an SDK key that is still accepted in its grace period is re-anchored back into the primary
-// slot, a fresh SDK client is built for it (its previous client was closed when its demotion
-// committed -- the anchor owns the env's single upstream connection, so a demoted key keeps only its
-// credential mappings). Originally a regression test from #716 for the old UpdateCredential path,
-// where re-anchoring to a key still in its grace period spawned a fresh client and orphaned the old
-// one. Under the ReconcileCredentials model that leak is structurally impossible: every displaced
-// anchor's client is closed at commit, so no rotation sequence can leave two live upstream clients.
-func TestReAnchoringToKeyStillInGraceBuildsFreshClient(t *testing.T) {
-	envConfig := st.EnvMain.Config
-	keyA := envConfig.SDKKey
-	keyB := config.SDKKey("keyB")
-	readyCh := make(chan EnvContext, 1)
-
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
-	defer env.Close()
-
-	assert.Equal(t, env, requireEnvReady(t, readyCh))
-	clientA1 := requireClientReady(t, clientCh)
-	assert.Equal(t, env.GetClient(), clientA1)
-
-	start := time.Unix(1000, 0)
-
-	// Rotate keyA -> keyB, deprecating keyA with an hour-long grace. keyA stays accepted during the
-	// grace window, but its client (clientA1) is closed as soon as the re-anchor commits.
-	env.(*envContextImpl).reconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithAnchor(credential.SDKKeyParams{Value: keyB}).
-			WithSDKKey(credential.SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(start.Add(1 * time.Hour))})),
-		start)
-
-	clientB := requireClientReady(t, clientCh)
-	assert.NotEqual(t, clientA1, clientB)
-	if !helpers.AssertChannelClosed(t, clientA1.CloseCh, time.Second, "clientA1 should have been closed when keyA was demoted") {
-		t.FailNow()
-	}
-
-	// Re-anchor back to keyA while it is still within its grace period. keyA's credential mappings
-	// survived the demotion but its client did not, so a fresh client is built for it. keyB is omitted
-	// from the set (no expiry), so it is revoked immediately; its client closes at commit.
-	env.(*envContextImpl).reconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: keyA})),
-		start.Add(10*time.Minute))
-
-	// A fresh client was built for keyA -- the demotion closed its original one.
-	clientA2 := requireClientReady(t, clientCh)
-	assert.NotEqual(t, clientA1, clientA2)
-	// keyB was displaced by the re-anchor, so its client is closed.
-	if !helpers.AssertChannelClosed(t, clientB.CloseCh, time.Second, "client for the displaced keyB should have been closed") {
-		t.FailNow()
-	}
-
-	require.Eventually(t, func() bool {
-		return env.GetClient() == clientA2
-	}, time.Second, 10*time.Millisecond, "env.GetClient() should return the fresh client for keyA after re-anchor")
-
-	creds := env.GetCredentials()
-	assert.Contains(t, creds, keyA)
-	assert.NotContains(t, creds, keyB)
 }
 
 // gatedClientFactory wraps the normal fake factory but blocks the factory call for gateKey until

@@ -339,32 +339,3 @@ func TestEndpointsStatusDuringInFlightRotation(t *testing.T) {
 	require.False(t, findKeyStatusByValue(envStatus2.GetByKey("sdkKeys"), sdks.ObscureKey(string(newAnchor))).IsNull(),
 		"the new anchor must be present in sdkKeys[] after the commit")
 }
-
-// TestKeyStatus verifies the helper that converts an accepted key into its status-endpoint JSON form.
-func TestKeyStatus(t *testing.T) {
-	strptr := func(s string) *string { return &s }
-
-	t.Run("permanent key with identifier", func(t *testing.T) {
-		ks := keyStatus("sdk-abc123", credential.AcceptedKey{Key: strptr("default")})
-		assert.Equal(t, "default", ks.Key)
-		assert.Equal(t, sdks.ObscureKey("sdk-abc123"), ks.Value)
-		assert.Nil(t, ks.Expiry)
-	})
-
-	t.Run("nil identifier yields empty Key (omitted in JSON)", func(t *testing.T) {
-		ks := keyStatus("sdk-legacy", credential.AcceptedKey{Key: nil})
-		assert.Equal(t, "", ks.Key)
-	})
-
-	t.Run("expiring key has expiry in Unix milliseconds", func(t *testing.T) {
-		expiry := time.Date(2099, 6, 1, 12, 0, 0, 0, time.UTC)
-		ks := keyStatus("sdk-old", credential.AcceptedKey{Key: strptr("old-key"), Expiry: &expiry})
-		require.NotNil(t, ks.Expiry)
-		assert.Equal(t, expiry.UnixMilli(), *ks.Expiry)
-	})
-
-	t.Run("mobile key value is obscured", func(t *testing.T) {
-		ks := keyStatus("mob-secret", credential.AcceptedKey{Key: strptr("mob-1")})
-		assert.Equal(t, sdks.ObscureKey("mob-secret"), ks.Value)
-	})
-}

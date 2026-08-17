@@ -1,8 +1,12 @@
 package relayenv
 
 // Tests that the big-segment synchronizer follows the anchor across a re-anchor: recreated on the
-// new anchor key, an already-started sync continues while the old one closes, a rolled-back
-// re-anchor does not rewire, and a not-configured environment is a no-op.
+// new anchor key, an already-started sync continues while the old one closes, and a rolled-back
+// re-anchor does not rewire.
+//
+// The unconfigured case (bigSegmentSync nil) needs no test of its own: makeBasicEnv leaves the field
+// nil, so every re-anchor test built on it would panic in reanchorBigSegmentSync's old.Close() if the
+// nil guard were removed.
 
 import (
 	"testing"
@@ -126,32 +130,6 @@ func TestReanchorBigSegmentSync_RollbackDoesNotRewire(t *testing.T) {
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor unchanged after rollback")
 }
 
-// TestReanchorBigSegmentSync_NotConfiguredIsNoOp: when big segments are not configured there is no
-// synchronizer, and a re-anchor must be a no-op for big-segment sync (no creation, no panic).
-func TestReanchorBigSegmentSync_NotConfiguredIsNoOp(t *testing.T) {
-	envConfig := st.EnvMain.Config
-	capturing := &capturingBigSegmentSynchronizerFactory{}
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	noStore := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
-		return nil, nil // no big-segment store -> no synchronizer
-	}
-	env := newBigSegmentTestEnv(t, noStore,
-		testclient.FakeLDClientFactoryWithChannel(true, clientCh), capturing, mockLog.Loggers)
-	defer env.Close()
-
-	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, time.Unix(1000, 0))
-
-	count, _ := capturing.snapshot()
-	assert.Equal(t, 0, count, "no synchronizer is created when big segments are not configured")
-	assert.Equal(t, reanchorTestKey2, env.(*envContextImpl).keyRotator.AnchorKey(), "the SDK re-anchor still committed")
-}
-
-// reanchorTestKey3 is a third anchor SDK key, used to drive A->B->C sequential re-anchors.
-const reanchorTestKey3 = config.SDKKey("reanchor-new-anchor-3")
-
 // TestReanchorBigSegmentSync_ReanchorBeforeFirstSegmentThenStartsNewSync covers the ordering where a
 // re-anchor happens BEFORE any big segment has appeared (so the replacement is built but not started),
 // and then the first segment appears. setBigSegmentsExist must start the CURRENT (new) synchronizer,
@@ -182,45 +160,6 @@ func TestReanchorBigSegmentSync_ReanchorBeforeFirstSegmentThenStartsNewSync(t *t
 	envImpl.setBigSegmentsExist()
 	assert.True(t, newSync.isStarted(), "the current synchronizer is started when the first segment appears")
 	assert.False(t, oldSync.isStarted(), "the retired synchronizer is never started")
-}
-
-// TestReanchorBigSegmentSync_MultipleSequentialReanchors drives A->B->C and asserts each intermediate
-// synchronizer is Closed, only the final one is current+Started, and the create bookkeeping tracks each
-// anchor key. Guards against synchronizer/consumer accumulation and stale-key bugs across rotations.
-func TestReanchorBigSegmentSync_MultipleSequentialReanchors(t *testing.T) {
-	envConfig := st.EnvMain.Config
-	capturing := &capturingBigSegmentSynchronizerFactory{}
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	env := newBigSegmentTestEnv(t, nullBigSegmentStoreFactory,
-		testclient.FakeLDClientFactoryWithChannel(true, clientCh), capturing, mockLog.Loggers)
-	defer env.Close()
-	envImpl := env.(*envContextImpl)
-
-	envImpl.setBigSegmentsExist()
-	syncA := capturing.latest()
-	require.True(t, syncA.isStarted())
-
-	// A -> B.
-	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, time.Unix(1000, 0))
-	syncB := capturing.latest()
-	require.NotSame(t, syncA, syncB)
-	assert.True(t, syncA.isClosed(), "A is closed after A->B")
-	assert.True(t, syncB.isStarted(), "B is started (a segment already existed)")
-
-	// B -> C.
-	reanchor(t, env, reanchorTestKey3, reanchorTestKey2, time.Unix(1000, 0))
-	syncC := capturing.latest()
-	require.NotSame(t, syncB, syncC)
-	assert.True(t, syncB.isClosed(), "B is closed after B->C")
-	assert.True(t, syncC.isStarted(), "C is started")
-
-	count, sdkKey := capturing.snapshot()
-	assert.Equal(t, 3, count, "one synchronizer per anchor: A, B, C")
-	assert.Equal(t, reanchorTestKey3, sdkKey, "the current synchronizer is on the final anchor key")
-	assert.Equal(t, reanchorTestKey3, envImpl.keyRotator.AnchorKey(), "the SDK anchor is C")
 }
 
 // TestReanchorBigSegmentSync_ConcurrentStoreUpdateDuringReanchorIsRaceFree is a regression test for the
@@ -275,6 +214,11 @@ func TestReanchorBigSegmentSync_ConcurrentStoreUpdateDuringReanchorIsRaceFree(t 
 // synchronizer bound to A is created and Started (a segment already exists), and B's synchronizer is
 // Closed. This pins that the "previously-accepted key" promotion path does not shortcut the big-segment
 // re-wire.
+//
+// It is also the sequential-re-anchor case: three commits produce three synchronizers with every
+// intermediate Closed and only the final one current and Started, so synchronizers and their consumer
+// goroutines cannot accumulate across rotations. reanchorBigSegmentSync does not branch on whether the
+// third key is brand new or a re-promotion, so this covers A->B->C as well.
 func TestReanchorBigSegmentSync_RepromoteInGraceFormerAnchorRewires(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	capturing := &capturingBigSegmentSynchronizerFactory{}

@@ -24,14 +24,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/api"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/configsource"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
@@ -49,8 +46,8 @@ const (
 	viewScopedMobID = "view-scoped-mob"
 )
 
-// The standard two-entry arrays plus a third entry scoped to a view, in each of the four shapes the
-// two harnesses need (wire reps for RAC, accepted-key params for the offline archive).
+// The standard two-entry wire-rep arrays plus a third entry scoped to a view, for the RAC harness. The
+// offline harness builds its accepted-key params inline, alongside the keys it revokes mid-session.
 
 func viewScopedSDKKeyReps() []envfactory.ConcurrentKeyRep {
 	return append(defaultSDKKeyReps(),
@@ -60,16 +57,6 @@ func viewScopedSDKKeyReps() []envfactory.ConcurrentKeyRep {
 func viewScopedMobileKeyReps() []envfactory.ConcurrentKeyRep {
 	return append(defaultMobileKeyReps(),
 		envfactory.ConcurrentKeyRep{Key: viewScopedMobID, Value: string(viewScopedMobileKey), HasViews: true})
-}
-
-func viewScopedAcceptedSDKKeys() []envfactory.AcceptedSDKKey {
-	return append(defaultAcceptedSDKKeys(),
-		envfactory.AcceptedSDKKey{Key: viewScopedSDKID, Value: viewScopedSDKKey, HasViews: true})
-}
-
-func viewScopedAcceptedMobileKeys() []envfactory.AcceptedMobileKey {
-	return append(defaultAcceptedMobileKeys(),
-		envfactory.AcceptedMobileKey{Key: viewScopedMobID, Value: viewScopedMobileKey, HasViews: true})
 }
 
 // assertViewScopedKeysAbsentFromStatus verifies the /status sdkKeys[]/mobileKeys[] arrays do not list
@@ -158,30 +145,6 @@ func TestConcurrentKeysRAC_ViewScopedKeysAreRejected(t *testing.T) {
 	})
 }
 
-func TestConcurrentKeysOffline_ViewScopedKeysAreRejected(t *testing.T) {
-	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(
-			viewScopedAcceptedSDKKeys(), viewScopedAcceptedMobileKeys()))
-
-		anchorClient := p.awaitClient()
-		assert.Equal(t, anchorSDKKey, anchorClient.Key)
-		p.shouldNotCreateClient(200 * time.Millisecond)
-
-		env := p.awaitEnvironment(multiKeyEnvID)
-
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(false, viewScopedSDKKey, viewScopedMobileKey, "")
-
-		accepted := env.GetAcceptedKeys()
-		assert.NotContains(t, accepted.Server, viewScopedSDKKey)
-		assert.NotContains(t, accepted.Mobile, viewScopedMobileKey)
-
-		assertViewScopedKeysAbsentFromStatus(t, p.relay)
-		assertViewScopedKeysRejectedWarning(t, p.mockLog)
-	})
-}
-
 // A malformed payload that also carries view-scoped keys logs the malformed error and stays silent
 // about the view-scoped ones.
 //
@@ -215,7 +178,12 @@ func TestConcurrentKeysOffline_MalformedPayloadSuppressesViewScopedWarning(t *te
 // immediately rather than on an expiry timestamp, and RemoveConnectionMapping unmaps before the streams
 // are torn down so a reconnect is rejected. These tests assert that behavior rather than build it. The
 // live teardown is verified on the offline path, which uses a real SDK client that actually serves
-// stream data (mirroring TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyExpires).
+// stream data (mirroring
+// TestConcurrentKeysOffline_SiblingStreamSurvivesWhileExpiringKeyDisconnects).
+//
+// The initial AddEnvironment payload also carries an already-view-scoped SDK key and mobile key, so this
+// covers the offline *add* call site's ingestion filter (never accepted, absent from /status, WARN
+// emitted exactly once) alongside the offline *update* call site exercised below.
 func TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyGainsView(t *testing.T) {
 	// The server-side stream (/all) emits "put"; the mobile streams (/meval, /mping) emit "ping".
 	run := func(t *testing.T, streamPath, firstEvent string, connectKey credential.SDKCredential, viewOnSDK bool) {
@@ -243,10 +211,27 @@ func TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyGainsView(t *testi
 		}
 
 		offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-			p.updateHandler.AddEnvironment(multiKeyArchiveEnv(named(false)))
-			_ = p.awaitClient()
+			// The add payload carries the two named non-anchor keys plus one already-view-scoped SDK key
+			// and mobile key, so the add handler's ingestion filter is exercised here too.
+			initialSDK, initialMob := named(false)
+			p.updateHandler.AddEnvironment(multiKeyArchiveEnv(
+				append(initialSDK, envfactory.AcceptedSDKKey{Key: viewScopedSDKID, Value: viewScopedSDKKey, HasViews: true}),
+				append(initialMob, envfactory.AcceptedMobileKey{Key: viewScopedMobID, Value: viewScopedMobileKey, HasViews: true}),
+			))
+			anchorClient := p.awaitClient()
+			assert.Equal(t, anchorSDKKey, anchorClient.Key)
+			p.shouldNotCreateClient(200 * time.Millisecond)
 			env := p.awaitEnvironment(multiKeyEnvID)
 			require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+
+			// The add handler filtered both view-scoped entries: neither is accepted, neither reaches
+			// /status, and the WARN naming them is emitted exactly once.
+			p.assertSDKEndpointsAvailability(false, viewScopedSDKKey, viewScopedMobileKey, "")
+			addAccepted := env.GetAcceptedKeys()
+			assert.NotContains(t, addAccepted.Server, viewScopedSDKKey)
+			assert.NotContains(t, addAccepted.Mobile, viewScopedMobileKey)
+			assertViewScopedKeysAbsentFromStatus(t, p.relay)
+			assertViewScopedKeysRejectedWarning(t, p.mockLog)
 
 			req := sharedtest.BuildRequestWithAuth("GET", streamPath, connectKey, nil)
 			sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
@@ -294,68 +279,9 @@ func TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyGainsView(t *testi
 	})
 }
 
-// The RAC equivalent, with an open downstream stream held on the anchor while the non-anchor key gains
-// a view around it: the revoked key stops routing, a reconnect with it is rejected, and the anchor's
-// live connection is untouched. Mirrors TestConcurrentKeysRAC_ArrayPatchAddsAndRemovesNonAnchorKeys.
-func TestConcurrentKeysRAC_KeyGainingViewIsRevokedAndOthersUndisturbed(t *testing.T) {
-	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	racMock := configsource.NewRACMock(t, &putEvent)
-
-	cfg := config.Config{AutoConfig: config.AutoConfigConfig{Key: testAutoConfKey}}
-	cfg.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(racMock.URL)
-	// A short cleanup interval so the expiry ticker runs during the test: a revoked view-scoped key
-	// must be gone outright, never left scheduled for a later drop.
-	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	relay, err := newRelayInternal(cfg, relayInternalOptions{
-		loggers:       mockLog.Loggers,
-		clientFactory: testclient.CreateDummyClient,
-	})
-	require.NoError(t, err)
-	defer relay.Close()
-
-	h := relayTestHelper{t: t, relay: relay}
-	env := h.awaitEnvironment(multiKeyEnvID)
-	require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
-	h.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
-
-	req := sharedtest.BuildRequestWithAuth("GET", "/all", anchorSDKKey, nil)
-	sharedtest.WithStreamRequest(t, req, relay, func(eventCh <-chan eventsource.Event) {
-		sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
-
-		// One patch marks both non-anchor entries as view-scoped, keeping the anchor and primary.
-		patch := multiKeyEnvRep(
-			[]envfactory.ConcurrentKeyRep{
-				{Key: "anchor-sdk", Value: string(anchorSDKKey)},
-				{Key: "extra-sdk", Value: string(extraSDKKey), HasViews: true},
-			},
-			[]envfactory.ConcurrentKeyRep{
-				{Key: "anchor-mob", Value: string(anchorMobileKey)},
-				{Key: "extra-mob", Value: string(extraMobileKey), HasViews: true},
-			},
-			2,
-		)
-		racMock.Send(configsource.MakeAutoConfigPatchEvent(patch))
-
-		// Both stop routing, so a reconnect presenting either one is rejected.
-		require.Eventually(t, func() bool {
-			_, errSDK := relay.getEnvironment(sdkauth.New(extraSDKKey))
-			_, errMobile := relay.getEnvironment(sdkauth.New(extraMobileKey))
-			return errSDK != nil && errMobile != nil
-		}, 5*time.Second, 5*time.Millisecond, "keys that gained a view were not revoked")
-
-		// The anchor's open stream is undisturbed by the revocation alongside it.
-		assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
-	})
-
-	// The anchor never changed, so no re-anchor happened and it still owns the connection.
-	assert.Equal(t, anchorSDKKey, env.GetAcceptedKeys().Anchor)
-	h.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	h.assertSDKEndpointsAvailability(false, extraSDKKey, extraMobileKey, "")
-
-	mockLog.AssertMessageMatch(t, true, ldlog.Warn,
-		multiKeyIdentifiers.GetDisplayName()+".*rejecting credentials scoped to a view: extra-sdk, extra-mob")
-}
+// The RAC update call site's equivalent — a non-anchor key that gains a view stops routing, and the WARN
+// names it — is folded into TestConcurrentKeysRAC_RejectsCredentialsOutsideAcceptedSet, whose removal
+// patch marks its non-anchor entries view-scoped. That an open stream on a *different* credential
+// survives the revocation alongside it is owned by
+// TestConcurrentKeysRAC_NonAnchorConnectionSurvivesAnchorRotation: removeCredential cannot tell which
+// credential a given open stream belongs to, so both traverse the same teardown path.

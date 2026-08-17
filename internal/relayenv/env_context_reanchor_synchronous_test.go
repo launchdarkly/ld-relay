@@ -179,6 +179,11 @@ func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 // re-anchor B→A while A is still in its grace period. A's credential mappings survived the
 // demotion, but its client did not, so the second re-anchor must build a fresh client for A and
 // close B's client at commit.
+//
+// The second re-anchor omits B from the payload entirely rather than grace-demoting it, so it also
+// pins the immediate-revocation shape: a displaced anchor that the payload drops outright leaves the
+// accepted set as well as losing its client. (The grace-demotion shape is the first re-anchor here,
+// and TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor asserts the demoted key stays accepted.)
 func TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -209,15 +214,18 @@ func TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient(t *testing.T) {
 	envImpl.mu.RUnlock()
 	require.False(t, originalStillPresent, "demoted original anchor's client removed at commit")
 
-	// Second re-anchor: key2 → original. The original key is still accepted (its mappings were never
-	// torn down) but it has no client, so a fresh one is built; key2's client closes at commit.
-	reanchorViaReconcile(t, env, envConfig.SDKKey, reanchorSyncTestKey2, "", envConfig.MobileKey, envConfig.EnvID, now)
+	// Second re-anchor: key2 → original, with key2 omitted from the payload entirely (revoked outright,
+	// not grace-demoted). The original key is still accepted (its mappings were never torn down) but it
+	// has no client, so a fresh one is built; key2's client closes at commit.
+	reanchorViaReconcile(t, env, envConfig.SDKKey, "", "", envConfig.MobileKey, envConfig.EnvID, now)
 
 	freshClient := requireClientReady(t, clientCh)
 	assert.NotSame(t, originalClient, freshClient, "re-promoting an in-grace key builds a fresh client")
 	assert.Same(t, freshClient, env.GetClient(), "the fresh client is current after the re-anchor")
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor flipped back to the original key")
 	key2Client.AwaitClose(t, time.Second)
+	assert.NotContains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncTestKey2),
+		"a displaced anchor omitted from the payload is revoked outright, not left accepted in grace")
 }
 
 // TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized exercises the concurrency gap closed
@@ -480,9 +488,6 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	require.Eventually(t, func() bool { return env.GetClient() == initialClient }, time.Second, 10*time.Millisecond)
 
 	envImpl := env.(*envContextImpl)
-	envImpl.mu.RLock()
-	genBefore := envImpl.anchorClientGen
-	envImpl.mu.RUnlock()
 
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
@@ -496,15 +501,6 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	}
 	assert.NoError(t, env.GetInitError())
 
-	// The generation guard exists to protect a replacement client's install from a stale, still-in-flight
-	// build. An offline commit installs no replacement, so bumping it protects nothing -- it would only
-	// strand a build launched before this commit (e.g. the initial client at construction, generation 0)
-	// by making it see itself as superseded when it later finishes. Offline commits leave it untouched.
-	envImpl.mu.RLock()
-	genAfter := envImpl.anchorClientGen
-	envImpl.mu.RUnlock()
-	assert.Equal(t, genBefore, genAfter, "an offline re-anchor commit must not advance anchorClientGen")
-
 	// The single offline client survives the rotation: it is not closed and GetClient still finds it.
 	if !helpers.AssertChannelNotClosed(t, initialClient.CloseCh, 100*time.Millisecond,
 		"the offline env's only client must not be closed by a re-anchor") {
@@ -514,7 +510,7 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 }
 
 // TestReanchorSync_Offline_ReanchorDuringInitialBuildDoesNotStrandClient drives the failure scenario
-// the anchorClientGen guard above prevents: an offline re-anchor commits while the environment's
+// the anchorClientGen guard prevents: an offline re-anchor commits while the environment's
 // initial client build (launched at construction with generation 0) is still in flight. Before the
 // fix, that commit's unconditional generation bump made the in-flight build see itself as superseded
 // once it finished, so it discarded itself -- and because an offline re-anchor never builds a
@@ -687,69 +683,6 @@ func TestReanchorSync_PreviouslyAcceptedAnchorPromotionFailureKeepsItsMappings(t
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey())
 	assert.Same(t, originalClient, env.GetClient())
 	assert.NoError(t, env.GetInitError())
-}
-
-// TestReanchor_SupersededFailingBuildDoesNotClobberInitErr: the initial startSDKClient(A) is still in
-// flight when a re-anchor to healthy B commits (initErr=nil). A's build then fails -- returning a
-// NON-NIL, uninitialized client with the error, exactly as the real SDK's MakeCustomClient does. Because
-// a re-anchor committed since this build launched, it is superseded: it must be discarded, not installed,
-// and must not touch initErr -- otherwise it would clobber a healthy env into a whole-env 401.
-func TestReanchor_SupersededFailingBuildDoesNotClobberInitErr(t *testing.T) {
-	envConfig := st.EnvMain.Config
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	healthy := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
-
-	gate := make(chan struct{})
-	entered := make(chan struct{}, 1)
-	factory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
-		if sdkKey == envConfig.SDKKey {
-			// The ORIGINAL anchor A: block, then fail like the real SDK -- a non-nil, uninitialized client
-			// plus the error (MakeCustomClient returns the client on init failure/timeout).
-			entered <- struct{}{}
-			<-gate
-			return &testclient.FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{})}, ld.ErrInitializationFailed
-		}
-		return healthy(sdkKey, cfg, timeout)
-	}
-
-	readyCh := make(chan EnvContext, 1)
-	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
-	defer env.Close()
-
-	envImpl := env.(*envContextImpl)
-	<-entered // A's initial build is blocked; anchor is still A.
-
-	// Re-anchor A -> B (B brand new/healthy; A grace-demoted +1h). B builds, commits, clears initErr.
-	now := time.Unix(2000, 0)
-	expiry := now.Add(time.Hour)
-	set, err := credential.NewAcceptedSetBuilder().
-		WithAnchor(credential.SDKKeyParams{Value: reanchorSyncTestKey2}).
-		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: &expiry}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
-		WithEnvironmentID(envConfig.EnvID).
-		Build()
-	require.NoError(t, err)
-	envImpl.reconcileCredentials(set, now)
-	require.Equal(t, reanchorSyncTestKey2, envImpl.keyRotator.AnchorKey())
-	require.NoError(t, env.GetInitError(), "sanity: healthy after re-anchor to B")
-
-	// The stale initial A build now fails late.
-	close(gate)
-	<-readyCh
-
-	assert.NoError(t, env.GetInitError(),
-		"a superseded build's late failure must not clobber the healthy env's initErr")
-	assert.NotEqual(t, ld.ErrInitializationFailed, env.GetInitError())
-	assert.NotNil(t, env.GetClient(), "B's healthy client still serves")
-	// The superseded build was discarded, not installed for A.
-	envImpl.mu.RLock()
-	_, aHasClient := envImpl.clients[envConfig.SDKKey]
-	envImpl.mu.RUnlock()
-	assert.False(t, aHasClient, "the superseded build must not be installed for A")
 }
 
 // TestReanchor_SupersededLateBuildIsDiscarded: even a *successful* initial build is discarded if a

@@ -381,7 +381,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
 			break
 		}
-		// The stream has authoritative data — cancel any in-flight cache read.
+		// The stream has authoritative data, so cancel any in-flight cache read.
 		if s.cacheCancel != nil {
 			s.cacheCancel()
 			s.cacheCancel = nil
@@ -481,7 +481,6 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 	return shouldRestart
 }
 
-// dispatchEnvAction dispatches a single environment action to the handler.
 func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) {
 	switch action {
 	case ActionNoop:
@@ -498,9 +497,9 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 }
 
 // validateCredentialPayload checks that an environment rep carries a structurally valid credential
-// set. It runs at the stream parse boundary, before the rep's version is recorded via Upsert: a
-// malformed payload must not advance the version, or the backend's fresh put — which carries the same
-// version — would be deduplicated away by the MessageReceiver.
+// set. It runs at the stream parse boundary, before Upsert records the rep's version. A malformed
+// payload must not advance the version: the backend's fresh put carries the same version, and the
+// MessageReceiver would deduplicate it away.
 func (s *StreamManager) validateCredentialPayload(rep envfactory.EnvironmentRep) error {
 	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
 	return err
@@ -529,8 +528,8 @@ func (s *StreamManager) applyCachedContent(content *PutContent) {
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
 //
-// handlePut returns true if the stream should be restarted — a malformed credential payload in any of
-// the environments triggers a reconnect, while still processing the well-formed ones.
+// handlePut returns true if the stream should be restarted. A malformed credential payload in any
+// environment triggers a reconnect, and the well-formed environments are still processed.
 func (s *StreamManager) handlePut(content PutContent) bool {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,
@@ -544,8 +543,7 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
 			continue
 		}
-		// Validate before Upsert so a malformed payload does not advance the version (see
-		// validateCredentialPayload). Skip this env, preserving its previous state, and reconnect.
+		// See handleStreamEvent: validate before Upsert. Skip this env and reconnect.
 		if err := s.validateCredentialPayload(rep); err != nil {
 			s.loggers.Errorf("Received malformed credential payload for environment %q (%s); preserving previous credentials and will restart stream", rep.EnvID, err)
 			shouldRestart = true
@@ -582,19 +580,14 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 	return shouldRestart
 }
 
-// persistPut writes a put's content to the cache. A clean put is stored atomically with SetAll. When
-// the put carried malformed environments, a plain SetAll would corrupt the cache: filtering the
-// malformed envs out would drop them, and if every env was malformed it would wipe the cache entirely.
-// Instead we keep each malformed env's previously-cached entry and write the resulting snapshot — so
-// the valid envs and the filters in this put are persisted, the malformed envs keep their last-good
-// value (or are simply omitted when the cache has no prior entry for them), and envs the put removed
-// are still dropped. The reconnect a malformed put triggers fetches fresh data for the malformed envs.
-// If the prior cache genuinely can't be read, leave it untouched rather than risk dropping entries.
+// persistPut writes a put's content to the cache with SetAll. When the put carried malformed
+// environments, persistPut first substitutes each malformed env's previously-cached entry, because a
+// plain SetAll would drop those envs, or wipe the cache if every env was malformed. Envs the put
+// removed are still dropped. If the prior cache cannot be read, persistPut leaves it untouched.
 func (s *StreamManager) persistPut(content PutContent, malformedEnvIDs map[config.EnvironmentID]bool) {
 	if len(malformedEnvIDs) > 0 {
-		// A nil result with no error means an empty cache (per the Cache contract), not a failure —
-		// in that case there are simply no prior entries to restore. Only a real read error makes it
-		// unsafe to rewrite the snapshot, so bail out only then.
+		// A nil result with no error means an empty cache, not a failure, so there are no prior entries
+		// to restore. Only a read error makes it unsafe to rewrite the snapshot.
 		prev, err := s.cache.GetAll(context.Background())
 		if err != nil {
 			s.loggers.Warnf("Skipping AutoConfig cache write for a put with malformed credentials (cannot read prior cache): %v", err)

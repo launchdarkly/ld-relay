@@ -21,9 +21,10 @@ import (
 // Also, since streamUpdatesStoreWrapper is a wrapper for an underlying data store that could be a database,
 // we need to be able to specify which data store implementation is being used - also as a factory.
 //
-// So, this factory implementation - which should only be used for a single client at a time - calls the
-// wrapped factory to produce the underlying data store, then creates our own store instance, and then
-// puts a reference to that instance inside itself where we can see it.
+// So, this factory implementation - which is used by one environment, and hands the same wrapper to
+// the incoming client on a re-anchor (see Build) - calls the wrapped factory to produce the underlying
+// data store, then creates our own store instance, and then puts a reference to that instance inside
+// itself where we can see it.
 type SSERelayDataStoreAdapter struct {
 	store          subsystems.DataStore
 	wrappedFactory subsystems.ComponentConfigurer[subsystems.DataStore]
@@ -68,13 +69,10 @@ func NewSSERelayDataStoreAdapter(
 
 // Build is called by the SDK when the LDClient is being created.
 //
-// Store handover (re-anchor): if the adapter already holds a wrapper from
-// a prior client construction, that wrapper is returned again instead of building a fresh one. This
-// hands the populated, initialized data store over to the new anchor's client during a re-anchor —
-// no empty-store window, no re-sync. The wrapper refcounts its holders so the underlying store is
-// only torn down by the final Close (see streamUpdatesStoreWrapper.Close). If the parked wrapper has
-// already been fully closed (acquire returns false), a fresh one is built rather than resurrecting a
-// wrapper whose underlying store is torn down.
+// Store handover: if the adapter already holds a live wrapper, Build returns that wrapper again
+// instead of building a fresh one. A re-anchor therefore hands the populated store to the new anchor's
+// client with no empty-store window. The wrapper refcounts its holders, so only the final Close tears
+// the store down. A fully-closed wrapper (acquire returns false) is not reused.
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
@@ -109,11 +107,10 @@ type streamUpdatesStoreWrapper struct {
 	updates streams.EnvStreamUpdates
 	loggers ldlog.Loggers
 
-	// refCount tracks how many SDK clients hold this wrapper. The first holder is implicit
-	// (count starts at 1 in newStreamUpdatesStoreWrapper). Each handover (Build reuse) calls
-	// acquire to bump the count; each client's Close decrements. The underlying store is torn
-	// down only when the count reaches zero, at which point closed is set so a later acquire
-	// refuses to hand back a wrapper whose underlying store is gone. Guarded by refMu.
+	// refCount tracks how many SDK clients hold this wrapper. Each handover calls acquire to bump the
+	// count, and each client's Close decrements it. The underlying store is torn down only when the
+	// count reaches zero, which also sets closed so a later acquire refuses the wrapper. Guarded by
+	// refMu.
 	refMu    sync.Mutex
 	refCount int
 	closed   bool
@@ -133,10 +130,8 @@ func newStreamUpdatesStoreWrapper(
 	return relayStore
 }
 
-// acquire records an additional holder of the wrapper, used by SSERelayDataStoreAdapter.Build when it
-// hands this wrapper to a new client during a re-anchor. It returns false if the
-// wrapper has already been fully closed (refCount reached zero and the underlying store was torn
-// down); the caller must then build a fresh wrapper rather than resurrect a dead one.
+// acquire records an additional holder of the wrapper. It returns false if the wrapper is already
+// fully closed, in which case the caller must build a fresh wrapper.
 func (sw *streamUpdatesStoreWrapper) acquire() bool {
 	sw.refMu.Lock()
 	defer sw.refMu.Unlock()
@@ -150,10 +145,9 @@ func (sw *streamUpdatesStoreWrapper) acquire() bool {
 func (sw *streamUpdatesStoreWrapper) Close() error {
 	sw.refMu.Lock()
 	if sw.closed {
-		// Already fully torn down. A stray extra Close (the SDK's LDClient.Close is not idempotent, so
-		// this depends on caller discipline) must not decrement below zero and re-satisfy the final
-		// guard — that would close the underlying store a second time, double-releasing a persistent
-		// store's connection pool. Close is idempotent past the final release.
+		// Already torn down. A stray extra Close must not decrement below zero and re-satisfy the
+		// final guard, which would close the underlying store twice and double-release a persistent
+		// store's connection pool.
 		sw.refMu.Unlock()
 		return nil
 	}
@@ -164,9 +158,8 @@ func (sw *streamUpdatesStoreWrapper) Close() error {
 	}
 	sw.refMu.Unlock()
 	if !final {
-		// Re-anchor handover in progress: another client is still using this underlying store.
-		// The retiring client's Close must not tear it down — see SSERelayDataStoreAdapter.Build
-		// for the other half of this contract.
+		// Re-anchor handover in progress: another client still uses this underlying store, so the
+		// retiring client's Close must not tear it down.
 		return nil
 	}
 	return sw.store.Close()

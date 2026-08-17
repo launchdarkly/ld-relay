@@ -2,6 +2,7 @@ package credential
 
 import (
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 
@@ -30,18 +31,26 @@ func TestAcceptedSetBuilderValidation(t *testing.T) {
 }
 
 func TestAcceptedSetBuilderDeduplicates(t *testing.T) {
-	// Adding the same key more than once (including via WithPrimary*) keeps a single entry.
+	// Adding the same key more than once (including via WithPrimary*) keeps a single entry, and a
+	// WithPrimary* designation overwrites whatever metadata an earlier plain add recorded: a mobile key
+	// first listed with an expiry and then designated primary ends up permanent. That is what keeps the
+	// designated primary from ever being reported as torn down, mirroring the SDK anchor. It is a builder
+	// contract rather than a Reconcile behaviour — BuildAcceptedSet's switch is exclusive, so this
+	// interleaving is unreachable from the wire — which is why it is pinned here.
+	pastExpiry := time.Unix(1000, 0)
 	set := mustBuild(t, NewAcceptedSetBuilder().
 		WithSDKKey(SDKKeyParams{Value: "sdk"}).
 		WithAnchor(SDKKeyParams{Value: "sdk"}).
 		WithSDKKey(SDKKeyParams{Value: "sdk"}).
-		WithMobileKey(MobileKeyParams{Value: "mob"}).
+		WithMobileKey(MobileKeyParams{Value: "mob", Expiry: &pastExpiry}).
 		WithPrimaryMobileKey(MobileKeyParams{Value: "mob"}))
 
 	assert.Len(t, set.sdkKeys, 1)
 	assert.Len(t, set.mobileKeys, 1)
 	assert.Equal(t, config.SDKKey("sdk"), set.anchor)
 	assert.Equal(t, config.MobileKey("mob"), set.primaryMobileKey)
+	assert.Nil(t, set.mobileKeys[config.MobileKey("mob")].Expiry,
+		"the designated primary mobile key is always permanent, overwriting a prior entry's expiry")
 }
 
 // mustBuild builds the set and fails the test if validation rejects it. It is shared by the builder

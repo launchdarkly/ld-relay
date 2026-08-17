@@ -6,28 +6,19 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
-// AcceptedSet is the full set of credentials that an environment should accept after a reconcile.
-// It carries every accepted server-side SDK key and mobile key — each with an optional per-key
-// expiry — plus the single environment ID and two primary designations:
+// AcceptedSet is the full set of credentials an environment accepts after a reconcile: every
+// server-side SDK key and mobile key with an optional expiry, the environment ID, and two
+// designations.
 //
-//   - The anchor: the one SDK key that owns the environment's upstream connection. Set with
-//     WithAnchor.
-//   - The primary mobile key: the singular default mobile key (the wire's mobKey), used where one
-//     mobile key is required, e.g. event forwarding. Set with WithPrimaryMobileKey.
+//   - The anchor is the one SDK key that owns the environment's upstream connection.
+//   - The primary mobile key is the default used where one mobile key is required, such as event
+//     forwarding.
 //
-// WithAnchor / WithPrimaryMobileKey both add the key to the set and designate it, so adding a
-// single key takes one call. Build requires that an anchor was designated. (Structural validation of
-// the wire payload — undefined credentials, a designated key absent from its array — happens upstream
-// when the payload is parsed into the set.)
-//
-// A key's expiry is taken from its entry in this set; the legacy sdkKey.expiring{} wire slot is not
-// consulted when building it.
-//
-// Construct an AcceptedSet with AcceptedSetBuilder (see accepted_set_builder.go).
+// Construct an AcceptedSet with AcceptedSetBuilder. Structural validation of the wire payload happens
+// upstream, in BuildAcceptedSet.
 type AcceptedSet struct {
-	// sdkKeys and mobileKeys store each accepted key once, keyed by value (the secret), so duplicates
-	// collapse without a containment scan. The map value carries the key's metadata (see
-	// AcceptedKey). A nil map is a valid empty set (reads return absent; only the builder writes).
+	// sdkKeys and mobileKeys store each accepted key once, keyed by value, so duplicates collapse. A
+	// nil map is a valid empty set, and only the builder writes.
 	sdkKeys          map[config.SDKKey]AcceptedKey
 	anchor           config.SDKKey
 	mobileKeys       map[config.MobileKey]AcceptedKey
@@ -48,27 +39,11 @@ func (s AcceptedSet) hasMobileKey(key config.MobileKey) bool {
 }
 
 // MalformedCredentialSetError is returned when a credential payload cannot produce a valid
-// AcceptedSet. This covers:
+// AcceptedSet. Each constructor below documents one cause.
 //
-//  1. The anchor SDK key (sdkKey.value) is absent or undefined, or defined but not present in
-//     sdkKeys[] — a violation of the invariant that the designated anchor is one of the accepted keys.
-//  2. The primary mobile key (mobKey) is defined but not present in mobileKeys[] — the mobile-key
-//     analogue of the anchor invariant.
-//  3. mobileKeys[] is non-empty but no primary mobile key (mobKey) is designated — accepting it would
-//     clear the environment's primary mobile key on reconcile with no repoint, so event forwarding
-//     would keep using the previous (possibly revoked) primary. (No mobile keys at all is valid.)
-//  4. An entry in sdkKeys[] or mobileKeys[] has an empty value — a credential that would be
-//     accepted by relay but can never authenticate any SDK.
-//  5. No SDK key survived at all, so the environment would have nothing to authenticate with. A
-//     payload reaches this by combining an undefined anchor with an sdkKeys[] array that is either
-//     empty or entirely made up of keys relay excludes, such as keys scoped to a view.
-//
-// Validation happens before Reconcile is called; Rotator.Reconcile trusts the set it is handed.
-// Because the error is raised before any state mutation, the environment's previous accepted set is
-// preserved automatically. The caller is responsible for the second half of the malformed-payload
-// policy: reconnecting the RAC stream with jitter to force a fresh put. RAC is one-way push with no
-// NAK channel, so without the reconnect the backend would believe the malformed patch was applied
-// and would not send fresh state.
+// Validation runs before Reconcile, so the environment keeps its previous accepted set. The caller
+// must also reconnect the RAC stream with jitter: RAC is one-way push with no NAK channel, so
+// without a reconnect the backend assumes the patch was applied and sends nothing new.
 type MalformedCredentialSetError struct {
 	// msg is the human-readable description set by the constructor.
 	msg string
@@ -83,40 +58,32 @@ func newMissingAnchorError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: anchor SDK key is missing"}
 }
 
-// newNoSDKKeysError returns a MalformedCredentialSetError for a set that ended up with no SDK key at
-// all. The message describes the payload rather than the builder, because that is what an operator
-// reading the log can act on.
+// newNoSDKKeysError returns a MalformedCredentialSetError for a set with no usable SDK key.
 func newNoSDKKeysError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: no usable SDK key in sdkKeys[]"}
 }
 
-// NewAnchorNotInSetError returns a MalformedCredentialSetError for a payload whose designated anchor
-// (sdkKey.value) is defined but not present in the sdkKeys[] array — a structural inconsistency. The
-// anchor value is a secret, so it is deliberately not included in the message.
+// NewAnchorNotInSetError reports a payload whose designated anchor (sdkKey.value) is defined but
+// absent from sdkKeys[]. Credential values are secrets, so no message here includes one.
 func NewAnchorNotInSetError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: anchor SDK key is not present in sdkKeys[]"}
 }
 
-// NewPrimaryMobileKeyNotInSetError returns a MalformedCredentialSetError for a payload whose
-// designated primary mobile key (mobKey) is defined but not present in the mobileKeys[] array — the
-// mobile-key analogue of NewAnchorNotInSetError. The key value is a secret, so it is deliberately not
-// included in the message.
+// NewPrimaryMobileKeyNotInSetError reports a payload whose designated primary mobile key (mobKey) is
+// defined but absent from mobileKeys[].
 func NewPrimaryMobileKeyNotInSetError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: primary mobile key is not present in mobileKeys[]"}
 }
 
-// NewPrimaryMobileKeyMissingError returns a MalformedCredentialSetError for a payload that carries a
-// non-empty mobileKeys[] array but leaves the primary mobile key (mobKey) undefined — no default is
-// designated. Accepting it would clear the environment's primary mobile key on reconcile with no
-// repoint, so event forwarding would keep using the previous (possibly revoked) primary. There are no
-// secrets to omit from the message.
+// NewPrimaryMobileKeyMissingError reports a payload with a non-empty mobileKeys[] and no designated
+// primary. Accepting it would clear the primary without a repoint, leaving event forwarding on the
+// previous key.
 func NewPrimaryMobileKeyMissingError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: mobileKeys[] is non-empty but no primary mobile key is designated"}
 }
 
-// NewEmptyCredentialError returns a MalformedCredentialSetError for a key-array entry whose
-// value field is empty. kind is "sdkKeys" or "mobileKeys"; key is the entry's wire "key" identifier
-// (may be empty for old-format payloads that synthesize from the singular fields).
+// NewEmptyCredentialError reports a key-array entry whose value field is empty. kind is "sdkKeys" or
+// "mobileKeys"; key is the entry's wire identifier, which old-format payloads leave empty.
 func NewEmptyCredentialError(kind, key string) *MalformedCredentialSetError {
 	if key == "" {
 		return &MalformedCredentialSetError{
