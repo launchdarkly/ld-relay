@@ -161,50 +161,110 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 	assert.NotEqual(t, setWithExpiry, setNoExpiry)
 }
 
-// TestBuildAcceptedSet_AnchorNotInArray verifies that a defined anchor absent from the sdkKeys[] array
-// yields a *credential.MalformedCredentialSetError: the payload is structurally inconsistent (the
-// designated anchor is not in the authoritative array), so it must be rejected rather than silently
-// synthesized into the set.
-func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
-	params := makeParams(
-		"sdk-anchor",
-		[]AcceptedSDKKey{
-			{Key: "other-key", Value: "sdk-other"}, // anchor NOT in the array
+// TestBuildAcceptedSet_MalformedPayloads enumerates every structurally malformed payload shape
+// BuildAcceptedSet rejects. Each row guards a different silent failure, so each asserts the
+// distinguishing part of its message as well as the error type: relay must reject the payload loudly
+// rather than synthesize a credential-short or structurally inconsistent environment from it.
+func TestBuildAcceptedSet_MalformedPayloads(t *testing.T) {
+	tests := []struct {
+		name             string
+		params           EnvironmentParams
+		wantMsgSubstring string
+	}{
+		{
+			// A defined anchor absent from the authoritative sdkKeys[] array is structurally
+			// inconsistent, so it must be rejected rather than silently synthesized into the set.
+			name: "anchor not present in sdkKeys[]",
+			params: makeParams(
+				"sdk-anchor",
+				[]AcceptedSDKKey{{Key: "other-key", Value: "sdk-other"}}, // anchor NOT in the array
+				"mob-primary",
+			),
+			wantMsgSubstring: "not present in sdkKeys[]",
 		},
-		"mob-primary",
-	)
-	_, _, err := BuildAcceptedSet(params)
-
-	require.Error(t, err)
-	var malformed *credential.MalformedCredentialSetError
-	require.True(t, errors.As(err, &malformed))
-	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
-}
-
-// TestBuildAcceptedSet_PrimaryMobileNotInArray verifies the mobile analogue of the anchor invariant:
-// a defined mobKey absent from mobileKeys[] is rejected. Without this guard the primary mobile key
-// would be silently left undesignated, clearing it on reconcile and breaking event forwarding.
-func TestBuildAcceptedSet_PrimaryMobileNotInArray(t *testing.T) {
-	params := EnvironmentParams{
-		EnvID:           "env-abc",
-		SDKKey:          "sdk-anchor",
-		MobileKey:       "mob-primary", // defined...
-		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
-		AcceptedMobileKeys: []AcceptedMobileKey{
-			{Key: "other", Value: "mob-other"}, // ...but NOT in the array
+		{
+			// The mobile analogue of the anchor invariant. Without this guard the primary mobile key
+			// would be silently left undesignated, clearing it on reconcile and breaking event forwarding.
+			name: "primary mobile key not present in mobileKeys[]",
+			params: EnvironmentParams{
+				EnvID:           "env-abc",
+				SDKKey:          "sdk-anchor",
+				MobileKey:       "mob-primary", // defined...
+				AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+				AcceptedMobileKeys: []AcceptedMobileKey{
+					{Key: "other", Value: "mob-other"}, // ...but NOT in the array
+				},
+			},
+			wantMsgSubstring: "not present in mobileKeys[]",
+		},
+		{
+			// The complement of the guard above: accepting a non-empty mobileKeys[] with no designated
+			// primary would clear the rotator's primary mobile key with no repoint, so event forwarding
+			// would keep using the previous (possibly revoked) primary instead of rejecting loudly.
+			name: "mobileKeys[] non-empty with no designated primary",
+			params: EnvironmentParams{
+				EnvID:           "env-abc",
+				SDKKey:          "sdk-anchor",
+				MobileKey:       "", // no primary designated...
+				AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+				AcceptedMobileKeys: []AcceptedMobileKey{
+					{Key: "mob-1", Value: "mob-primary"}, // ...but the array is non-empty
+				},
+			},
+			wantMsgSubstring: "no primary mobile key is designated",
+		},
+		{
+			// An undefined anchor never matches a (defined) array value, so none is ever designated and
+			// Build rejects the set.
+			name: "anchor undefined",
+			params: makeParams(
+				"", // undefined anchor
+				[]AcceptedSDKKey{{Key: "key-a", Value: "sdk-a"}},
+				"mob-primary",
+			),
+			wantMsgSubstring: "anchor SDK key is missing",
+		},
+		{
+			// No SDK key survives at all, so the environment would have nothing to authenticate with.
+			name: "no usable SDK key: empty array",
+			params: EnvironmentParams{
+				SDKKey:             "", // undefined anchor
+				AcceptedSDKKeys:    []AcceptedSDKKey{},
+				AcceptedMobileKeys: []AcceptedMobileKey{},
+			},
+			wantMsgSubstring: "no usable SDK key in sdkKeys[]",
+		},
+		{
+			// The same end state reached by filtering rather than by an empty payload. It is worth
+			// pinning separately: a filtered-to-empty array is a payload problem, not a caller mistake.
+			name: "no usable SDK key: every entry view-scoped",
+			params: EnvironmentParams{
+				SDKKey:             "", // undefined anchor
+				AcceptedSDKKeys:    []AcceptedSDKKey{{Key: "view-sdk", Value: "sdk-viewy", HasViews: true}},
+				AcceptedMobileKeys: []AcceptedMobileKey{},
+			},
+			wantMsgSubstring: "no usable SDK key in sdkKeys[]",
 		},
 	}
-	_, _, err := BuildAcceptedSet(params)
 
-	require.Error(t, err)
-	var malformed *credential.MalformedCredentialSetError
-	require.True(t, errors.As(err, &malformed))
-	assert.Contains(t, malformed.Error(), "not present in mobileKeys[]")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := BuildAcceptedSet(tt.params)
+
+			require.Error(t, err, "a structurally malformed payload must be rejected")
+			var malformed *credential.MalformedCredentialSetError
+			require.True(t, errors.As(err, &malformed),
+				"every rejection from BuildAcceptedSet is a malformed-payload error")
+			assert.Contains(t, malformed.Error(), tt.wantMsgSubstring)
+		})
+	}
 }
 
 // TestBuildAcceptedSet_NoMobileKey verifies that an environment with no mobile key (e.g. a
 // server-side-only environment) is valid: ToParams must not synthesize a phantom empty mobileKeys
-// entry that BuildAcceptedSet would reject as malformed.
+// entry that BuildAcceptedSet would reject as malformed. It also pins the boundary of the
+// non-empty-mobileKeys[]-without-a-primary guard above — that guard fires only when the array is
+// non-empty, and ToParams synthesizes exactly the empty array this case relies on.
 func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 	rep := EnvironmentRep{
 		EnvID:  "env-abc",
@@ -218,95 +278,6 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor"}))
 	assert.Equal(t, expected, set)
-}
-
-// TestBuildAcceptedSet_MobileKeysWithoutPrimary verifies the complement of the primary-mobile-in-array
-// invariant: a non-empty mobileKeys[] with no designated primary (undefined mobKey) is rejected as a
-// *credential.MalformedCredentialSetError. Without this guard the reconcile would clear the rotator's
-// primary mobile key with no repoint, silently forwarding events under the previous (possibly revoked)
-// primary instead of loudly rejecting the payload.
-func TestBuildAcceptedSet_MobileKeysWithoutPrimary(t *testing.T) {
-	params := EnvironmentParams{
-		EnvID:           "env-abc",
-		SDKKey:          "sdk-anchor",
-		MobileKey:       "", // no primary designated...
-		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
-		AcceptedMobileKeys: []AcceptedMobileKey{
-			{Key: "mob-1", Value: "mob-primary"}, // ...but the array is non-empty
-		},
-	}
-	_, _, err := BuildAcceptedSet(params)
-
-	require.Error(t, err)
-	var malformed *credential.MalformedCredentialSetError
-	require.True(t, errors.As(err, &malformed))
-	assert.Contains(t, malformed.Error(), "no primary mobile key is designated")
-}
-
-// TestBuildAcceptedSet_EmptyMobileArrayValid verifies the boundary of the guard above: an empty
-// mobileKeys[] with an undefined mobKey (a server-side-only environment) is valid — the guard fires
-// only when the array is non-empty, so no primary mobile key is designated and nothing is rejected.
-func TestBuildAcceptedSet_EmptyMobileArrayValid(t *testing.T) {
-	params := EnvironmentParams{
-		EnvID:              "env-abc",
-		SDKKey:             "sdk-anchor",
-		MobileKey:          "", // undefined
-		AcceptedSDKKeys:    []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
-		AcceptedMobileKeys: []AcceptedMobileKey{}, // empty
-	}
-	set, _, err := BuildAcceptedSet(params)
-
-	require.NoError(t, err)
-	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}))
-	assert.Equal(t, expected, set)
-}
-
-// TestBuildAcceptedSet_AnchorUndefined verifies that an undefined anchor (empty SDKKey) yields a
-// *credential.MalformedCredentialSetError: no anchor was designated, so Build rejects the set.
-func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
-	params := makeParams(
-		"", // undefined anchor
-		[]AcceptedSDKKey{
-			{Key: "key-a", Value: "sdk-a"},
-		},
-		"mob-primary",
-	)
-	_, _, err := BuildAcceptedSet(params)
-
-	require.Error(t, err)
-	var malformed *credential.MalformedCredentialSetError
-	require.True(t, errors.As(err, &malformed))
-	assert.Contains(t, malformed.Error(), "anchor SDK key is missing")
-}
-
-// TestBuildAcceptedSet_NoSDKKeys verifies that when no SDK key survives, the payload is rejected as
-// malformed. Two shapes reach this, both requiring an undefined anchor: an empty array, and an array
-// whose every entry is filtered out for being scoped to a view. The second is why the case is worth
-// pinning by error type — a filtered-to-empty array is a payload problem, not a caller mistake.
-func TestBuildAcceptedSet_NoSDKKeys(t *testing.T) {
-	tests := []struct {
-		name    string
-		sdkKeys []AcceptedSDKKey
-	}{
-		{"empty array", []AcceptedSDKKey{}},
-		{"every entry view-scoped", []AcceptedSDKKey{{Key: "view-sdk", Value: "sdk-viewy", HasViews: true}}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			params := EnvironmentParams{
-				SDKKey:             "", // undefined anchor
-				AcceptedSDKKeys:    tt.sdkKeys,
-				AcceptedMobileKeys: []AcceptedMobileKey{},
-			}
-			_, _, err := BuildAcceptedSet(params)
-
-			require.Error(t, err, "a set with no SDK key at all must be rejected")
-			var malformed *credential.MalformedCredentialSetError
-			require.ErrorAs(t, err, &malformed, "every rejection from BuildAcceptedSet is a malformed-payload error")
-		})
-	}
 }
 
 // TestBuildAcceptedSet_MixedUpdate verifies add + re-anchor + remove in a single params update
@@ -364,35 +335,11 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	assert.Equal(t, expected, set)
 }
 
-// TestBuildAcceptedSet_MultipleMobileKeys verifies that all accepted mobile keys are included,
-// exercising the len(AcceptedMobileKeys) > 1 path, and that the wire's mobKey is designated as the
-// primary mobile key.
-func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
-	params := EnvironmentParams{
-		EnvID:           "env-abc",
-		SDKKey:          "sdk-anchor",
-		MobileKey:       "mob-primary",
-		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
-		AcceptedMobileKeys: []AcceptedMobileKey{
-			{Key: "mob-1", Value: "mob-primary"},
-			{Key: "mob-2", Value: "mob-secondary"},
-		},
-	}
-	set, _, err := BuildAcceptedSet(params)
-
-	require.NoError(t, err)
-	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
-		WithMobileKey(credential.MobileKeyParams{Value: "mob-secondary", Key: util.PtrOrNil("mob-2")}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")}))
-	assert.Equal(t, expected, set)
-}
-
 // TestBuildAcceptedSet_ExpiringMobileKey verifies that a mobile key carrying a non-zero Expiry is
 // plumbed through as an expiring key (parallel to the expiring-SDK-key path), while the permanent
 // primary mobile key is designated. This is what makes per-key mobile expiry work end-to-end:
-// params carry it → BuildAcceptedSet plumbs it into the AcceptedSet → Reconcile acts on it.
+// params carry it → BuildAcceptedSet plumbs it into the AcceptedSet → Reconcile acts on it. It also
+// exercises the len(AcceptedMobileKeys) > 1 path and the designation of the wire's mobKey as primary.
 func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 	params := EnvironmentParams{
 		EnvID:           "env-abc",
@@ -455,13 +402,6 @@ func TestBuildAcceptedSet_ViewScopedKeys(t *testing.T) {
 		wantSet      func() *credential.AcceptedSetBuilder
 		wantRejected []string
 	}{
-		{
-			// Baseline: nothing view-scoped behaves exactly as it did before the field existed.
-			name:       "no view-scoped keys",
-			sdkKeys:    []AcceptedSDKKey{anchorEntry, extraSDK},
-			mobileKeys: []AcceptedMobileKey{primaryEntry, extraMob},
-			wantSet:    baseWithExtras,
-		},
 		{
 			name:         "view-scoped non-anchor SDK key is excluded",
 			sdkKeys:      []AcceptedSDKKey{anchorEntry, extraSDK, {Key: "view-sdk", Value: "sdk-viewy", HasViews: true}},

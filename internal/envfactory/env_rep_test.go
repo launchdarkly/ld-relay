@@ -110,7 +110,13 @@ func TestEnvironmentRepJSONFormat(t *testing.T) {
 }
 
 // TestEnvironmentRepNewFormatWithArrays parses a realistic RAC put payload carrying the new
-// sdkKeys/mobileKeys arrays and verifies the struct fields are populated correctly.
+// sdkKeys/mobileKeys arrays and verifies the struct fields are populated correctly and carried through
+// ToParams onto the accepted entries.
+//
+// It also pins the hasViews wire contract on both arrays. The absent-field case is the important one:
+// hasViews is a plain bool, so an entry that omits it — every entry a backend that predates the field
+// emits — decodes to false and is treated as not view-scoped. An explicit false is indistinguishable
+// from absent, which is the intent: there is no third state.
 func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 	expiryMs := int64(1700000000000)
 	jsonStr := `{
@@ -123,10 +129,12 @@ func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 		"sdkKey": { "value": "sdk-anchor" },
 		"sdkKeys": [
 			{ "key": "default-sdk", "value": "sdk-anchor" },
-			{ "key": "service-a",   "value": "sdk-service-a", "expiry": 1700000000000 }
+			{ "key": "service-a",   "value": "sdk-service-a", "expiry": 1700000000000, "hasViews": false },
+			{ "key": "view-scoped", "value": "sdk-viewy",     "hasViews": true }
 		],
 		"mobileKeys": [
-			{ "key": "mob-key-1", "value": "mob-f41c" }
+			{ "key": "mob-key-1",       "value": "mob-f41c" },
+			{ "key": "view-scoped-mob", "value": "mob-viewy", "hasViews": true }
 		],
 		"secureMode": false,
 		"version": 26
@@ -138,73 +146,28 @@ func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 	assert.Equal(t, config.SDKKey("sdk-anchor"), rep.SDKKey.Value)
 	assert.Equal(t, config.MobileKey("mob-f41c"), rep.MobKey)
 
-	require.Len(t, rep.SDKKeys, 2)
+	require.Len(t, rep.SDKKeys, 3)
 	assert.Equal(t, ConcurrentKeyRep{Key: "default-sdk", Value: "sdk-anchor"}, rep.SDKKeys[0])
 	assert.Equal(t, ConcurrentKeyRep{Key: "service-a", Value: "sdk-service-a", Expiry: &expiryMs}, rep.SDKKeys[1])
+	assert.Equal(t, ConcurrentKeyRep{Key: "view-scoped", Value: "sdk-viewy", HasViews: true}, rep.SDKKeys[2])
+	// An absent hasViews and an explicit false both decode to false, indistinguishably.
+	assert.False(t, rep.SDKKeys[0].HasViews, "an absent hasViews must decode to false")
+	assert.False(t, rep.SDKKeys[1].HasViews, "an explicit false is indistinguishable from absent")
 
-	require.Len(t, rep.MobileKeys, 1)
+	require.Len(t, rep.MobileKeys, 2)
 	assert.Equal(t, ConcurrentKeyRep{Key: "mob-key-1", Value: "mob-f41c"}, rep.MobileKeys[0])
+	assert.Equal(t, ConcurrentKeyRep{Key: "view-scoped-mob", Value: "mob-viewy", HasViews: true}, rep.MobileKeys[1])
+	assert.False(t, rep.MobileKeys[0].HasViews)
 
 	params := rep.ToParams()
 
-	require.Len(t, params.AcceptedSDKKeys, 2)
+	require.Len(t, params.AcceptedSDKKeys, 3)
 	assert.Equal(t, AcceptedSDKKey{Key: "default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
 	assert.Equal(t, AcceptedSDKKey{
 		Key:    "service-a",
 		Value:  config.SDKKey("sdk-service-a"),
 		Expiry: time.UnixMilli(expiryMs),
 	}, params.AcceptedSDKKeys[1])
-
-	require.Len(t, params.AcceptedMobileKeys, 1)
-	assert.Equal(t, AcceptedMobileKey{Key: "mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
-}
-
-// TestEnvironmentRepViewScopedKeys pins the hasViews wire contract on both arrays: it decodes onto
-// ConcurrentKeyRep and is carried through ToParams onto the accepted entries, where BuildAcceptedSet
-// consumes it.
-//
-// The absent-field case is the important one. hasViews is a plain bool, so an entry that omits it —
-// every entry a backend that predates the field emits — decodes to false and is treated as not
-// view-scoped. An explicit false is indistinguishable from absent, which is the intent: there is no
-// third state.
-func TestEnvironmentRepViewScopedKeys(t *testing.T) {
-	jsonStr := `{
-		"envID": "68e5179e8307e4099c277e2a",
-		"envKey": "production",
-		"envName": "Production",
-		"mobKey": "mob-primary",
-		"projKey": "my-project",
-		"projName": "My Project",
-		"sdkKey": { "value": "sdk-anchor" },
-		"sdkKeys": [
-			{ "key": "default-sdk", "value": "sdk-anchor" },
-			{ "key": "service-a",   "value": "sdk-service-a", "hasViews": false },
-			{ "key": "view-scoped", "value": "sdk-viewy",     "hasViews": true }
-		],
-		"mobileKeys": [
-			{ "key": "default-mob",     "value": "mob-primary" },
-			{ "key": "view-scoped-mob", "value": "mob-viewy", "hasViews": true }
-		],
-		"version": 26
-	}`
-
-	var rep EnvironmentRep
-	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
-
-	require.Len(t, rep.SDKKeys, 3)
-	assert.False(t, rep.SDKKeys[0].HasViews, "an absent hasViews must decode to false")
-	assert.False(t, rep.SDKKeys[1].HasViews)
-	assert.True(t, rep.SDKKeys[2].HasViews)
-
-	require.Len(t, rep.MobileKeys, 2)
-	assert.False(t, rep.MobileKeys[0].HasViews)
-	assert.True(t, rep.MobileKeys[1].HasViews)
-
-	params := rep.ToParams()
-
-	require.Len(t, params.AcceptedSDKKeys, 3)
-	assert.Equal(t, AcceptedSDKKey{Key: "default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
-	assert.Equal(t, AcceptedSDKKey{Key: "service-a", Value: config.SDKKey("sdk-service-a")}, params.AcceptedSDKKeys[1])
 	assert.Equal(t, AcceptedSDKKey{
 		Key:      "view-scoped",
 		Value:    config.SDKKey("sdk-viewy"),
@@ -212,7 +175,7 @@ func TestEnvironmentRepViewScopedKeys(t *testing.T) {
 	}, params.AcceptedSDKKeys[2])
 
 	require.Len(t, params.AcceptedMobileKeys, 2)
-	assert.Equal(t, AcceptedMobileKey{Key: "default-mob", Value: config.MobileKey("mob-primary")}, params.AcceptedMobileKeys[0])
+	assert.Equal(t, AcceptedMobileKey{Key: "mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
 	assert.Equal(t, AcceptedMobileKey{
 		Key:      "view-scoped-mob",
 		Value:    config.MobileKey("mob-viewy"),

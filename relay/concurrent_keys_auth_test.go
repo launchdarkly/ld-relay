@@ -164,25 +164,69 @@ func rotatedAnchorRep(newAnchor config.SDKKey, version int) envfactory.Environme
 	}
 }
 
-// A valid non-anchor key authenticates downstream; one upstream connection serves all accepted keys.
+// Accepted-set authentication and per-credential rejection within a multi-key environment: every
+// accepted credential authenticates downstream (anchor and non-anchor alike) while the anchor owns the
+// one upstream connection, a credential outside the accepted set is rejected, and a key the next payload
+// drops from the set stops authenticating.
+//
+// The RAC case removes its two non-anchor keys by marking them scoped to a view rather than by omitting
+// them from the arrays. BuildAcceptedSet filters a view-scoped key, so the desired set it produces —
+// and therefore the revocation path — is identical either way, and doing it this way additionally keeps
+// the RAC *update* call site's view-scoped WARN under test. Removal by omission on the RAC path is
+// covered, with a live stream being torn down, by
+// TestConcurrentKeysRAC_ConnectedStreamClosedWhenKeyRevokedByOmission.
 
-func TestConcurrentKeysRAC_NonAnchorKeysAuthenticate(t *testing.T) {
+func TestConcurrentKeysRAC_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
+	cfg := testAutoConfDefaultConfig
+	// A short cleanup interval so the expiry ticker runs during the test: a revoked key must be gone
+	// outright, never left scheduled for a later drop.
+	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
 	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
+	autoConfTest(t, cfg, &putEvent, func(p autoConfTestParams) {
 		// The anchor opens the single upstream client; no second client for the non-anchor key.
 		anchorClient := p.awaitClient()
 		assert.Equal(t, anchorSDKKey, anchorClient.Key)
 		p.shouldNotCreateClient(200 * time.Millisecond)
 
-		_ = p.awaitEnvironment(multiKeyEnvID)
+		env := p.awaitEnvironment(multiKeyEnvID)
 
-		// Every accepted credential authenticates downstream, anchor and non-anchor alike.
+		// (a) Accepted siblings authenticate; a credential outside the accepted set is rejected.
 		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+		p.assertSDKEndpointsAvailability(false,
+			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
+
+		// (b) Drop the extra keys from the accepted set via a patch that marks them scoped to a view;
+		//     they must then be rejected, while the anchor (still accepted) keeps authenticating.
+		removed := multiKeyEnvRep(
+			[]envfactory.ConcurrentKeyRep{
+				{Key: "anchor-sdk", Value: string(anchorSDKKey)},
+				{Key: "extra-sdk", Value: string(extraSDKKey), HasViews: true},
+			},
+			[]envfactory.ConcurrentKeyRep{
+				{Key: "anchor-mob", Value: string(anchorMobileKey)},
+				{Key: "extra-mob", Value: string(extraMobileKey), HasViews: true},
+			},
+			2,
+		)
+		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(removed))
+
+		awaitCredentialRemoved(t, p.relay, extraSDKKey)
+		awaitCredentialRemoved(t, p.relay, extraMobileKey)
+
+		p.assertSDKEndpointsAvailability(false, extraSDKKey, extraMobileKey, "")
+		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
+
+		// The anchor value never changed, so this was not a re-anchor: it still owns the connection.
+		assert.Equal(t, anchorSDKKey, env.GetAcceptedKeys().Anchor)
+
+		// The RAC update handler names each rejected identifier so an operator can find it in the UI.
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn,
+			multiKeyIdentifiers.GetDisplayName()+".*rejecting credentials scoped to a view: extra-sdk, extra-mob")
 	})
 }
 
-func TestConcurrentKeysOffline_NonAnchorKeysAuthenticate(t *testing.T) {
+func TestConcurrentKeysOffline_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
 	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
 		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
 
@@ -194,53 +238,13 @@ func TestConcurrentKeysOffline_NonAnchorKeysAuthenticate(t *testing.T) {
 
 		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+		p.assertSDKEndpointsAvailability(false,
+			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
 
 		// Flag data flows through the shared store that the single anchor connection populates.
 		flags, err := env.GetStore().GetAll(ldstoreimpl.Features())
 		require.NoError(t, err)
 		assert.NotEmpty(t, flags)
-	})
-}
-
-// Per-credential rejection within a multi-key environment.
-
-func TestConcurrentKeysRAC_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
-	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
-		_ = p.awaitClient()
-		_ = p.awaitEnvironment(multiKeyEnvID)
-
-		// (a) Accepted siblings authenticate; a credential outside the accepted set is rejected.
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(false,
-			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
-
-		// (b) Remove the extra keys via a patch that carries only the anchor; they must then be
-		//     rejected, while the anchor (still accepted) keeps authenticating.
-		anchorOnly := multiKeyEnvRep(
-			[]envfactory.ConcurrentKeyRep{{Key: "anchor-sdk", Value: string(anchorSDKKey)}},
-			[]envfactory.ConcurrentKeyRep{{Key: "anchor-mob", Value: string(anchorMobileKey)}},
-			2,
-		)
-		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(anchorOnly))
-
-		awaitCredentialRemoved(t, p.relay, extraSDKKey)
-
-		p.assertSDKEndpointsAvailability(false, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-	})
-}
-
-func TestConcurrentKeysOffline_RejectsCredentialsOutsideAcceptedSet(t *testing.T) {
-	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-		_ = p.awaitClient()
-		_ = p.awaitEnvironment(multiKeyEnvID)
-
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
-		p.assertSDKEndpointsAvailability(false,
-			config.SDKKey("sdk-not-accepted"), config.MobileKey("mob-not-accepted"), config.EnvironmentID("env-not-accepted"))
 
 		// Reload with only the anchor accepted; the extra keys are dropped immediately (omitted).
 		p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(
@@ -255,63 +259,12 @@ func TestConcurrentKeysOffline_RejectsCredentialsOutsideAcceptedSet(t *testing.T
 	})
 }
 
-// A connected SDK is disconnected when its (non-anchor) key expires.
+// A key past its expiry stops authenticating.
 //
-// The downstream SDK connects on a non-anchor key while that key is still permanent, so the
-// connection establishes independent of expiry timing. We then give the connected key a near-future
-// expiry; once the timestamp passes, the cleanup ticker must drop the key AND disconnect the open
-// stream. Covered for both an SDK key and a mobile key. (The live open-connection teardown is
-// verified on the offline path, which uses a real SDK client that actually serves stream data; the
-// RAC equivalent — TestConcurrentKeysRAC_KeyExpiryRemovesCredential — verifies the same expiry->reject
-// outcome at the auth layer, since FakeLDClient does not serve stream data.)
-func TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyExpires(t *testing.T) {
-	// The server-side stream (/all) emits "put"; the mobile streams (/meval, /mping) emit "ping".
-	run := func(t *testing.T, streamPath, firstEvent string, connectKey credential.SDKCredential, expiringSDK bool) {
-		cfg := config.Config{}
-		cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)
-		offlineModeTest(t, cfg, func(p offlineModeTestParams) {
-			p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
-			_ = p.awaitClient()
-			env := p.awaitEnvironment(multiKeyEnvID)
-			require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
-
-			req := sharedtest.BuildRequestWithAuth("GET", streamPath, connectKey, nil)
-			sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
-				// Confirm the stream is live before we expire the key.
-				sharedtest.AwaitEventOfType(t, eventCh, firstEvent, 5*time.Second)
-
-				// Give the connected non-anchor key a near-future expiry; keep the anchor permanent.
-				expiry := time.Now().Add(100 * time.Millisecond)
-				sdkKeys := []envfactory.AcceptedSDKKey{{Value: anchorSDKKey}, {Value: extraSDKKey}}
-				mobileKeys := []envfactory.AcceptedMobileKey{{Value: anchorMobileKey}, {Value: extraMobileKey}}
-				if expiringSDK {
-					sdkKeys[1].Expiry = expiry
-				} else {
-					mobileKeys[1].Expiry = expiry
-				}
-				p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(sdkKeys, mobileKeys))
-
-				// The cleanup ticker drops the expired key and disconnects this stream.
-				awaitStreamClosed(t, eventCh, 5*time.Second)
-			})
-
-			// After expiry: the dropped key no longer authenticates; the anchor (sibling) still does.
-			if expiringSDK {
-				p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
-			} else {
-				p.assertSDKEndpointsAvailability(false, "", extraMobileKey, "")
-			}
-			p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
-		})
-	}
-
-	t.Run("sdk key", func(t *testing.T) { run(t, "/all", "put", extraSDKKey, true) })
-	t.Run("mobile key", func(t *testing.T) {
-		// base64 of {"key":"userkey","kind":"user"} — a valid context, not the legacy user format.
-		run(t, "/meval/eyJrZXkiOiJ1c2Vya2V5Iiwia2luZCI6InVzZXIifQ==", "ping", extraMobileKey, false)
-	})
-}
-
+// The live open-connection teardown is verified on the offline path, which uses a real SDK client that
+// actually serves stream data (TestConcurrentKeysOffline_SiblingStreamSurvivesWhileExpiringKeyDisconnects);
+// the RAC equivalent below verifies the same expiry->reject outcome at the auth layer, since FakeLDClient
+// does not serve stream data.
 func TestConcurrentKeysRAC_KeyExpiryRemovesCredential(t *testing.T) {
 	cfg := testAutoConfDefaultConfig
 	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(100 * time.Millisecond)

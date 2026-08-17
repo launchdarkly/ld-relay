@@ -49,61 +49,75 @@ func TestInitializePopulatesAcceptedSets(t *testing.T) {
 	assert.Equal(t, envID, rotator.EnvironmentID())
 }
 
-func TestReconcileAnchorOnly(t *testing.T) {
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
-	now := time.Now()
-
-	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
-	require.NotNil(t, result.AnchorChange, "anchor transition from empty to defined is signaled")
-	r.CommitAnchor(result.AnchorChange.NewAnchor)
-	additions, expirations := r.StepTime(now)
-
-	// The anchor is stripped from additions — the synchronous re-anchor sequence owns its setup.
-	assert.Empty(t, additions)
-	assert.Empty(t, expirations)
-	assert.Equal(t, anchor, r.AnchorKey())
-	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
-}
-
-func TestReconcileMultipleSDKKeys(t *testing.T) {
-	r := newTestRotator()
+// TestReconcileDiff covers the additions/expirations diff Reconcile produces for the basic accepted-set
+// shapes, plus what each shape leaves in the rotator's public view. The anchor is always stripped from
+// additions — the synchronous re-anchor sequence in env_context_impl owns its setup — so a lone anchor
+// yields empty additions.
+func TestReconcileDiff(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	other := config.SDKKey("other")
-	now := time.Now()
-
-	result := r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithSDKKey(SDKKeyParams{Value: other})), now)
-	require.NotNil(t, result.AnchorChange)
-	r.CommitAnchor(result.AnchorChange.NewAnchor)
-	additions, expirations := r.StepTime(now)
-
-	// Both server keys are accepted; only the non-anchor server key is in additions (the anchor is
-	// owned by the synchronous re-anchor sequence in env_context_impl).
-	assert.ElementsMatch(t, []SDKCredential{other}, additions)
-	assert.Empty(t, expirations)
-	assert.Equal(t, anchor, r.AnchorKey())
-	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.AllCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
-}
-
-func TestReconcileMultipleMobileKeys(t *testing.T) {
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
 	mob1 := config.MobileKey("mob1")
 	mob2 := config.MobileKey("mob2")
-	now := time.Now()
 
-	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithPrimaryMobileKey(MobileKeyParams{Value: mob1}).WithMobileKey(MobileKeyParams{Value: mob2})), now)
-	additions, _ := r.StepTime(now)
+	tests := []struct {
+		name               string
+		build              func() *AcceptedSetBuilder
+		wantAdditions      []SDKCredential
+		wantAllCredentials []SDKCredential
+		wantMobileKey      config.MobileKey
+	}{
+		{
+			// The distinguishing case: a lone anchor produces NO additions at all.
+			name:               "anchor only",
+			build:              func() *AcceptedSetBuilder { return NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}) },
+			wantAdditions:      nil,
+			wantAllCredentials: []SDKCredential{anchor},
+		},
+		{
+			// Both server keys are accepted; only the non-anchor one is a fresh addition.
+			name: "multiple SDK keys",
+			build: func() *AcceptedSetBuilder {
+				return NewAcceptedSetBuilder().
+					WithAnchor(SDKKeyParams{Value: anchor}).
+					WithSDKKey(SDKKeyParams{Value: other})
+			},
+			wantAdditions:      []SDKCredential{other},
+			wantAllCredentials: []SDKCredential{anchor, other},
+		},
+		{
+			// Every mobile key is a fresh addition, the designated primary included — only the SDK anchor
+			// is stripped.
+			name: "multiple mobile keys",
+			build: func() *AcceptedSetBuilder {
+				return NewAcceptedSetBuilder().
+					WithAnchor(SDKKeyParams{Value: anchor}).
+					WithPrimaryMobileKey(MobileKeyParams{Value: mob1}).
+					WithMobileKey(MobileKeyParams{Value: mob2})
+			},
+			wantAdditions:      []SDKCredential{mob1, mob2},
+			wantAllCredentials: []SDKCredential{anchor, mob1, mob2},
+			wantMobileKey:      mob1,
+		},
+	}
 
-	// Every mobile key is accepted; the anchor is owned by the synchronous re-anchor (stripped from
-	// additions). The designated primary mobile key and the other mobile key remain in additions.
-	assert.ElementsMatch(t, []SDKCredential{mob1, mob2}, additions)
-	assert.Equal(t, mob1, r.MobileKey())
-	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.AllCredentials())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newTestRotator()
+			now := time.Now()
+
+			result := r.Reconcile(mustBuild(t, tt.build()), now)
+			require.NotNil(t, result.AnchorChange, "anchor transition from empty to defined is signaled")
+			r.CommitAnchor(result.AnchorChange.NewAnchor)
+			additions, expirations := r.StepTime(now)
+
+			assert.ElementsMatch(t, tt.wantAdditions, additions)
+			assert.Empty(t, expirations)
+			assert.Equal(t, anchor, r.AnchorKey())
+			assert.Equal(t, tt.wantMobileKey, r.MobileKey())
+			assert.ElementsMatch(t, tt.wantAllCredentials, r.AllCredentials())
+			assert.Empty(t, r.DeprecatedCredentials())
+		})
+	}
 }
 
 func TestReconcileRevokesOmittedKeys(t *testing.T) {
@@ -126,63 +140,12 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
 }
 
-func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
-	// Reconcile stores per-key expiry as data on the accepted entry; before that expiry passes, an
-	// expiring key is still accepted (it authenticates and appears in AllCredentials) while also
-	// being reported as deprecated — accepted, but on its way out. The cleanup ticker (StepTime) only
-	// drops it once the expiry elapses — see TestReconcileExpiringKeysAreEvictedByStepTime.
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
-	expiringSDK := config.SDKKey("expiring-sdk")
-	mob := config.MobileKey("mob")
-	expiringMobile := config.MobileKey("expiring-mob")
-	now := time.Unix(1000, 0)
-
-	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(SDKKeyParams{Value: anchor}).
-			WithSDKKey(SDKKeyParams{Value: expiringSDK, Expiry: util.PtrOrNil(now.Add(time.Hour))}).
-			WithPrimaryMobileKey(MobileKeyParams{Value: mob}).
-			WithMobileKey(MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(now.Add(time.Hour))})),
-		now)
-	additions, expirations := r.StepTime(now)
-
-	// Anchor is stripped from additions (owned by the synchronous re-anchor); other keys flow through.
-	assert.ElementsMatch(t, []SDKCredential{expiringSDK, mob, expiringMobile}, additions)
-	assert.Empty(t, expirations)
-	// Every key is accepted (still authenticates)...
-	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.AllCredentials())
-	// ...and the non-anchor SDK key carrying an expiry is also reported as deprecated (being phased
-	// out). The expiring mobile key is not: there is no expiringMobileKey status field, so the reconcile
-	// path treats it as accepted-only.
-	assert.ElementsMatch(t, []SDKCredential{expiringSDK}, r.DeprecatedCredentials())
-}
-
-func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
-	// Defensive: even if the designated primary mobile key is also listed with a past expiry, it must
-	// stay accepted (mirroring the SDK anchor), so AllCredentials never reports a torn-down key.
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
-	mob := config.MobileKey("mob")
-	now := time.Unix(1000, 0)
-
-	set := mustBuild(t, NewAcceptedSetBuilder().
-		WithAnchor(SDKKeyParams{Value: anchor}).
-		WithMobileKey(MobileKeyParams{Value: mob, Expiry: util.PtrOrNil(now.Add(-time.Hour))}). // already expired in the payload...
-		WithPrimaryMobileKey(MobileKeyParams{Value: mob}))                                      // ...but designated as the primary
-	r.Reconcile(set, now)
-	r.StepTime(now)
-
-	assert.Equal(t, mob, r.MobileKey())
-	assert.Contains(t, r.AllCredentials(), SDKCredential(mob))
-	_, accepted := r.acceptedMobileKeys[mob]
-	assert.True(t, accepted, "the primary mobile key must remain in the accepted set")
-}
-
 func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 	// End-to-end on the reconcile path: a reconcile records per-key expiry as data on the accepted
-	// entry, and the cleanup ticker (StepTime) later drops both the expiring SDK key and the expiring
-	// mobile key once their expiry elapses. The anchor and primary mobile key carry no expiry and survive.
+	// entry, so before the expiry passes an expiring key is still accepted (it authenticates and appears
+	// in AllCredentials) while also being reported as deprecated — accepted, but on its way out. The
+	// cleanup ticker (StepTime) later drops both the expiring SDK key and the expiring mobile key once
+	// their expiry elapses. The anchor and primary mobile key carry no expiry and survive.
 	r := newTestRotator()
 	anchor := config.SDKKey("anchor")
 	expiringSDK := config.SDKKey("expiring-sdk")
@@ -202,6 +165,13 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 	// Anchor is stripped from additions (owned by the synchronous re-anchor); other keys flow through.
 	require.ElementsMatch(t, []SDKCredential{expiringSDK, mob, expiringMobile}, additions)
 	require.Empty(t, expirations)
+
+	// Every key is accepted (still authenticates)...
+	require.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.AllCredentials())
+	// ...and the non-anchor SDK key carrying an expiry is also reported as deprecated (being phased
+	// out). The expiring mobile key is not: there is no expiringMobileKey status field, so the reconcile
+	// path treats it as accepted-only.
+	require.ElementsMatch(t, []SDKCredential{expiringSDK}, r.DeprecatedCredentials())
 
 	// At the exact expiry, expiry is strict (now must be strictly after), so nothing is dropped yet.
 	additions, expirations = r.StepTime(expiry)

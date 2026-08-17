@@ -406,6 +406,12 @@ func TestMobileKeyReconcileExpiry(t *testing.T) {
 	assert.Contains(t, env.GetCredentials(), primaryMobile)
 }
 
+// TestNonAnchorSDKKeysDoNotOpenUpstreamClient verifies that non-anchor SDK keys are accepted without
+// opening an upstream client of their own: they share the anchor's single upstream connection.
+//
+// It also pins the GetClient contract that follows from it. Non-anchor keys have no client, so GetClient
+// must keep returning the anchor's — never nil, never a non-anchor client. That is what callers depend
+// on: nil means "env not ready"; non-nil means "use this client."
 func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	readyCh := make(chan EnvContext, 1)
@@ -423,6 +429,9 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	anchorClient := requireClientReady(t, clientCh)
 	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
+
+	// GetClient returns the anchor's client even before any non-anchor keys are added.
+	assert.Equal(t, anchorClient, env.GetClient())
 
 	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
 	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
@@ -443,45 +452,6 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	assert.Contains(t, creds, nonAnchorKey2)
 
 	// ...but no additional upstream client was started.
-	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
-		t.FailNow()
-	}
-}
-
-// TestGetClientReturnsAnchorInMultiKeyEnv verifies that GetClient returns the anchor's upstream
-// client when the environment holds multiple SDK keys. Non-anchor SDK keys share the same
-// upstream connection (the anchor's), so GetClient must never return a non-anchor client
-// and must remain non-nil after non-anchor keys are added. This is the contract callers of
-// GetClient depend on: nil means "env not ready"; non-nil means "use this client."
-func TestGetClientReturnsAnchorInMultiKeyEnv(t *testing.T) {
-	envConfig := st.EnvMain.Config
-	readyCh := make(chan EnvContext, 1)
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
-	defer env.Close()
-
-	assert.Equal(t, env, requireEnvReady(t, readyCh))
-	anchorClient := requireClientReady(t, clientCh)
-	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
-
-	// GetClient must return the anchor's client even before any non-anchor keys are added.
-	assert.Equal(t, anchorClient, env.GetClient())
-
-	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
-	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
-
-	env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
-			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey1}).
-			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey2})))
-
-	// No new upstream client was created for the non-anchor keys.
 	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
 		t.FailNow()
 	}

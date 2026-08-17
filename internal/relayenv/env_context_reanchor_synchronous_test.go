@@ -179,6 +179,11 @@ func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 // re-anchor B→A while A is still in its grace period. A's credential mappings survived the
 // demotion, but its client did not, so the second re-anchor must build a fresh client for A and
 // close B's client at commit.
+//
+// The second re-anchor omits B from the payload entirely rather than grace-demoting it, so it also
+// pins the immediate-revocation shape: a displaced anchor that the payload drops outright leaves the
+// accepted set as well as losing its client. (The grace-demotion shape is the first re-anchor here,
+// and TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor asserts the demoted key stays accepted.)
 func TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -209,15 +214,18 @@ func TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient(t *testing.T) {
 	envImpl.mu.RUnlock()
 	require.False(t, originalStillPresent, "demoted original anchor's client removed at commit")
 
-	// Second re-anchor: key2 → original. The original key is still accepted (its mappings were never
-	// torn down) but it has no client, so a fresh one is built; key2's client closes at commit.
-	reanchorViaReconcile(t, env, envConfig.SDKKey, reanchorSyncTestKey2, "", envConfig.MobileKey, envConfig.EnvID, now)
+	// Second re-anchor: key2 → original, with key2 omitted from the payload entirely (revoked outright,
+	// not grace-demoted). The original key is still accepted (its mappings were never torn down) but it
+	// has no client, so a fresh one is built; key2's client closes at commit.
+	reanchorViaReconcile(t, env, envConfig.SDKKey, "", "", envConfig.MobileKey, envConfig.EnvID, now)
 
 	freshClient := requireClientReady(t, clientCh)
 	assert.NotSame(t, originalClient, freshClient, "re-promoting an in-grace key builds a fresh client")
 	assert.Same(t, freshClient, env.GetClient(), "the fresh client is current after the re-anchor")
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor flipped back to the original key")
 	key2Client.AwaitClose(t, time.Second)
+	assert.NotContains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncTestKey2),
+		"a displaced anchor omitted from the payload is revoked outright, not left accepted in grace")
 }
 
 // TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized exercises the concurrency gap closed
@@ -480,9 +488,6 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	require.Eventually(t, func() bool { return env.GetClient() == initialClient }, time.Second, 10*time.Millisecond)
 
 	envImpl := env.(*envContextImpl)
-	envImpl.mu.RLock()
-	genBefore := envImpl.anchorClientGen
-	envImpl.mu.RUnlock()
 
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
@@ -496,15 +501,6 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	}
 	assert.NoError(t, env.GetInitError())
 
-	// The generation guard exists to protect a replacement client's install from a stale, still-in-flight
-	// build. An offline commit installs no replacement, so bumping it protects nothing -- it would only
-	// strand a build launched before this commit (e.g. the initial client at construction, generation 0)
-	// by making it see itself as superseded when it later finishes. Offline commits leave it untouched.
-	envImpl.mu.RLock()
-	genAfter := envImpl.anchorClientGen
-	envImpl.mu.RUnlock()
-	assert.Equal(t, genBefore, genAfter, "an offline re-anchor commit must not advance anchorClientGen")
-
 	// The single offline client survives the rotation: it is not closed and GetClient still finds it.
 	if !helpers.AssertChannelNotClosed(t, initialClient.CloseCh, 100*time.Millisecond,
 		"the offline env's only client must not be closed by a re-anchor") {
@@ -514,7 +510,7 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 }
 
 // TestReanchorSync_Offline_ReanchorDuringInitialBuildDoesNotStrandClient drives the failure scenario
-// the anchorClientGen guard above prevents: an offline re-anchor commits while the environment's
+// the anchorClientGen guard prevents: an offline re-anchor commits while the environment's
 // initial client build (launched at construction with generation 0) is still in flight. Before the
 // fix, that commit's unconditional generation bump made the in-flight build see itself as superseded
 // once it finished, so it discarded itself -- and because an offline re-anchor never builds a
