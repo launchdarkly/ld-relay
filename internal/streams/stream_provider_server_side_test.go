@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -13,8 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -340,6 +341,91 @@ func TestStreamProviderServerSide(t *testing.T) {
 
 			assert.Equal(t, 1, getFlagFromEventData(t, events1[0]).Version)
 			assert.Equal(t, 1, getFlagFromEventData(t, events2[0]).Version) // only one computation was done
+		})
+
+		t.Run("v2 clients with different basis values connect concurrently", func(t *testing.T) {
+			const currentState = "current-state"
+			flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+			replayStarted := make(chan struct{}, 2)
+			replayCanFinish := make(chan struct{})
+			var gateFirstReplay sync.Once
+			store := newMockStoreQueries()
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+				replayStarted <- struct{}{}
+				gateFirstReplay.Do(func() {
+					<-replayCanFinish
+				})
+				return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+					ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+					ldstoreimpl.Segments(): {},
+				}, subsystems.NewSelector(currentState, 1), nil
+			})
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true}
+
+			// The first client's basis matches the store's current state, so its replay should be
+			// an "up-to-date" intent with no data.
+			eventCh1 := repo.Replay("", currentState)
+			<-replayStarted
+
+			// The second client has no basis, so it needs a full data transfer. Its result must
+			// not be shared with the first client's, even though the two replays are concurrent.
+			eventCh2 := repo.Replay("", "")
+
+			time.Sleep(time.Millisecond * 200)
+			// This delay gives the second replay's goroutine time to reach the flight group while
+			// the first computation is still in progress, which is the scenario under test. (See
+			// the comment in the previous subtest about timing sensitivity.)
+
+			close(replayCanFinish)
+
+			events1 := expectReplayedEvents(t, eventCh1)
+			require.Len(t, events1, 1)
+			assert.Equal(t, string(subsystems.EventServerIntent), events1[0].Event())
+			assert.Contains(t, events1[0].Data(), `"intentCode":"none"`)
+
+			events2 := expectReplayedEvents(t, eventCh2)
+			eventNames := make([]string, 0, len(events2))
+			for _, e := range events2 {
+				eventNames = append(eventNames, e.Event())
+			}
+			assert.Equal(t, []string{
+				string(subsystems.EventServerIntent),
+				string(subsystems.EventPutObject),
+				string(subsystems.EventPayloadTransferred),
+			}, eventNames)
+		})
+
+		t.Run("ReplayWithContext stops producing when the subscriber's context is cancelled", func(t *testing.T) {
+			// A subscriber that disconnects mid-replay cancels the request context. The producer must
+			// stop sending promptly instead of blocking forever on a send that nobody will receive.
+			snapshotReturned := make(chan struct{}, 1)
+			underlyingQuery := queryThatIncrementsFlagVersionOnEachCall()
+			store := newMockStoreQueries()
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+				data, selector, err := underlyingQuery()
+				snapshotReturned <- struct{}{}
+				return data, selector, err
+			})
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default()}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			eventCh := repo.ReplayWithContext(ctx, "", "")
+
+			// Wait until the producer has computed the events and is parked on its (unbuffered,
+			// unread) send, then cancel without ever consuming an event.
+			<-snapshotReturned
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+
+			// Let the producer observe cancellation while no receiver exists: its select then has
+			// only the ctx.Done case ready, so it must exit without delivering anything. Only then
+			// attach a receiver. Asserting closed-with-no-event on the first receive is what makes
+			// this test fail against a producer that ignores the context — such a producer would be
+			// rescued by the receive, deliver its event, and only then close the channel.
+			time.Sleep(50 * time.Millisecond)
+			_, ok, closed := helpers.TryReceive(eventCh, time.Second)
+			require.False(t, ok, "producer delivered an event after cancellation")
+			require.True(t, closed, "producer did not stop after context cancellation (channel never closed)")
 		})
 	})
 }

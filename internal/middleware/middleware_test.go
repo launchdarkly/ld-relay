@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,12 +22,18 @@ import (
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldcontext"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
@@ -474,6 +481,111 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 
 		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	})
+}
+
+// installSpanRecorder installs an in-memory span recorder as the global tracer
+// provider for the duration of the test, so assertions can be made about spans
+// produced by tracing.Tracer(). Because the tracer provider is process-global,
+// tests using this must not call t.Parallel.
+func installSpanRecorder(t *testing.T) *tracetest.SpanRecorder {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+	return sr
+}
+
+func assertSpanHasStringAttribute(t *testing.T, span sdktrace.ReadOnlySpan, key attribute.Key, value string) {
+	t.Helper()
+	for _, kv := range span.Attributes() {
+		if kv.Key == key {
+			assert.Equal(t, value, kv.Value.AsString())
+			return
+		}
+	}
+	t.Errorf("span %q is missing attribute %q", span.Name(), key)
+}
+
+// authSpanObserver returns a handler that records, at the moment it is invoked,
+// whether the auth span has already ended and what span (if any) is active in
+// the request context. This is how we verify the auth span is closed before the
+// next handler runs, rather than encompassing downstream handling.
+func authSpanObserver(sr *tracetest.SpanRecorder, endedDuringNext *bool, activeInNext *trace.SpanContext) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		*endedDuringNext = slices.ContainsFunc(sr.Ended(), func(s sdktrace.ReadOnlySpan) bool {
+			return s.Name() == tracing.SpanAuth
+		})
+		*activeInNext = trace.SpanContextFromContext(req.Context())
+	})
+}
+
+func TestSelectEnvironmentByAuthorizationKeyEndsAuthSpanBeforeNext(t *testing.T) {
+	sr := installSpanRecorder(t)
+
+	env1 := testenv.NewTestEnvContext("env1", false, nil)
+	envs := testEnvironments{
+		envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+			sdkauth.New(st.EnvMain.Config.SDKKey): env1,
+		},
+	}
+	selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
+
+	var authEndedDuringNext bool
+	var activeInNext trace.SpanContext
+	next := authSpanObserver(sr, &authEndedDuringNext, &activeInNext)
+
+	req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
+	resp, _ := st.DoRequest(req, selector(next))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.True(t, authEndedDuringNext, "auth span must end before the next handler runs")
+
+	ended := sr.Ended()
+	require.Len(t, ended, 1)
+	authSpan := ended[0]
+	assert.Equal(t, tracing.SpanAuth, authSpan.Name())
+	assertSpanHasStringAttribute(t, authSpan, tracing.AuthResultKey, "success")
+	assertSpanHasStringAttribute(t, authSpan, tracing.SDKKindKey, string(basictypes.ServerSDK))
+
+	// The next handler must not run scoped to the (now-ended) auth span; it
+	// should carry the original request context instead.
+	assert.NotEqual(t, authSpan.SpanContext().SpanID(), activeInNext.SpanID())
+}
+
+func TestSelectEnvironmentByClientSideAuthEndsAuthSpanBeforeNext(t *testing.T) {
+	sr := installSpanRecorder(t)
+
+	envWithAllCreds := testenv.NewTestEnvContextWithEnvConfig("env-all", st.EnvWithAllCredentials.Config, false, nil)
+	envs := testEnvironments{
+		envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+			sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithAllCreds,
+		},
+	}
+	selector := SelectEnvironmentByClientSideAuth(envs)
+
+	var authEndedDuringNext bool
+	var activeInNext trace.SpanContext
+	next := authSpanObserver(sr, &authEndedDuringNext, &activeInNext)
+
+	headers := make(http.Header)
+	headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.MobileKey))
+	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+	resp, _ := st.DoRequest(req, selector(next))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.True(t, authEndedDuringNext, "auth span must end before the next handler runs")
+
+	ended := sr.Ended()
+	require.Len(t, ended, 1)
+	authSpan := ended[0]
+	assert.Equal(t, tracing.SpanAuth, authSpan.Name())
+	assertSpanHasStringAttribute(t, authSpan, tracing.AuthResultKey, "success")
+	assertSpanHasStringAttribute(t, authSpan, tracing.SDKKindKey, string(basictypes.MobileSDK))
+
+	// The next handler must not run scoped to the (now-ended) auth span; it
+	// should carry the original request context instead.
+	assert.NotEqual(t, authSpan.SpanContext().SpanID(), activeInNext.SpanID())
 }
 
 func TestEnvIDHeader(t *testing.T) {

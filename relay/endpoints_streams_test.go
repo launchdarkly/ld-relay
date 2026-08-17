@@ -18,7 +18,7 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v4/lduser"
+	"github.com/launchdarkly/go-sdk-common/v3/lduser"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"

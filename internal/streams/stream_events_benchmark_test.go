@@ -6,7 +6,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
+	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
@@ -20,6 +22,39 @@ func BenchmarkSerializePutEventWithManyFlags(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		event := MakeServerSidePutEvent(allData)
 		benchmarkStringResult = event.Data()
+	}
+}
+
+// Mirrors the work done by getReplayEventsV2 for a full data transfer: each item is
+// serialized to JSON, wrapped in a Change, and then the whole set is turned into
+// SSE events.
+func BenchmarkMakeEventsForSetBasisWithManyFlags(b *testing.B) {
+	allData := makeLargePutDataSet()
+	selector := subsystems.NewSelector("benchmark-state", 1)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		var changes []subsystems.Change
+		for _, coll := range allData {
+			objectKind := subsystems.FlagKind
+			if coll.Kind == ldstoreimpl.Segments() {
+				objectKind = subsystems.SegmentKind
+			}
+			for _, item := range coll.Items {
+				writer := jwriter.NewWriter()
+				serializeItem(coll.Kind, item.Item, &writer)
+				changes = append(changes, subsystems.Change{
+					Action:  subsystems.ChangeTypePut,
+					Kind:    objectKind,
+					Key:     item.Key,
+					Version: item.Item.Version,
+					Object:  writer.Bytes(),
+				})
+			}
+		}
+		for _, event := range MakeEventsForSetBasis(changes, selector) {
+			benchmarkStringResult = event.Data()
+		}
 	}
 }
 

@@ -17,9 +17,11 @@ var (
 	errOfflineModePropertiesWithNoFile = errors.New("must specify offline mode filename if other offline mode properties are set")
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
+	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errOTLPInvalidProtocol = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
+	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
+	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
@@ -31,6 +33,8 @@ var (
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
+
+const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
 func errEnvironmentWithNoSDKKey(envName string) error {
 	return fmt.Errorf("SDK key is required for environment %q", envName)
@@ -87,7 +91,9 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
+	validateMaxClientRequestBodySize(&result, c)
 	validateConfigMetrics(&result, c)
+	validateMetricsCapacity(c, logger)
 
 	return result.GetError()
 }
@@ -237,6 +243,30 @@ func validateMaxInboundPayloadSize(result *ct.ValidationResult, c *Config) {
 	}
 }
 
+// validateMetricsCapacity enforces the minimum queue capacity for the usage-metrics event publisher.
+// Rather than fail startup on a too-small value, it clamps the value up to the minimum and warns, so
+// that a misconfiguration never prevents Relay from running while still protecting usage telemetry.
+func validateMetricsCapacity(c *Config, logger *slog.Logger) {
+	if !c.Events.MetricsCapacity.IsDefined() {
+		return
+	}
+	if c.Events.MetricsCapacity.GetOrElse(0) < minimumMetricsCapacity {
+		logger.Warn(fmt.Sprintf(warnMetricsCapacityBelowMinimum, c.Events.MetricsCapacity.GetOrElse(0), minimumMetricsCapacity))
+		// This value is a constant known to be greater than zero, so the constructor cannot fail.
+		clamped, _ := ct.NewOptIntGreaterThanZero(minimumMetricsCapacity)
+		c.Events.MetricsCapacity = clamped
+	}
+}
+
+func validateMaxClientRequestBodySize(result *ct.ValidationResult, c *Config) {
+	if c.Main.MaxClientRequestBodySize.IsDefined() {
+		size := c.Main.MaxClientRequestBodySize.GetOrElse(0)
+		if size <= 0 {
+			result.AddError(nil, errMaxClientRequestBodySize)
+		}
+	}
+}
+
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slog.Logger) {
 	normalizeRedisConfig(result, c)
 
@@ -297,6 +327,9 @@ func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
 		protocol := strings.ToLower(c.OpenTelemetry.Protocol)
 		if protocol != "" && protocol != "grpc" && protocol != "http" {
 			result.AddError(nil, errOTLPInvalidProtocol)
+		}
+		if limit := c.OpenTelemetry.MetricsCardinalityLimit; limit.IsDefined() && limit.GetOrElse(0) < 0 {
+			result.AddError(nil, errOTLPNegativeCardinalityLimit)
 		}
 	}
 }

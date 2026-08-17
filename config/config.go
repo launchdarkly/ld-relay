@@ -3,6 +3,8 @@ package config
 import (
 	"time"
 
+	"github.com/alecthomas/units"
+
 	ct "github.com/launchdarkly/go-configtypes"
 )
 
@@ -37,6 +39,17 @@ const (
 	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
 	DefaultEventCapacity = 1000
 
+	// DefaultMetricsCapacity is the default value for EventsConfig.MetricsCapacity if not specified.
+	// This is the maximum queue capacity for the usage-metrics event publisher, which emits one event
+	// per concurrent unique connection on each flush. It is set well above DefaultEventCapacity because
+	// high-concurrency nodes routinely exceed 1000 unique connections.
+	DefaultMetricsCapacity = 10000
+
+	// DefaultMetricsInitialCapacity is the number of events the usage-metrics publisher queue
+	// preallocates space for. The queue grows on demand from this size up to MetricsCapacity, so that
+	// the higher maximum does not reserve all of its memory up front on nodes that never reach it.
+	DefaultMetricsInitialCapacity = 1000
+
 	// DefaultHeartbeatInterval is the default value for MainConfig.HeartBeatInterval if not specified.
 	DefaultHeartbeatInterval = time.Minute * 3
 
@@ -51,6 +64,11 @@ const (
 
 	// DefaultBigSegmentsStaleThreshold is the default value for MainConfig.BigSegmentsStaleThreshold if not specified.
 	DefaultBigSegmentsStaleThreshold = time.Minute * 5
+
+	// DefaultMaxClientRequestBodySize is the default value for MainConfig.MaxClientRequestBodySize if not specified.
+	// It bounds how much of a REPORT evaluation request body the Relay Proxy will read into memory, protecting the
+	// process from memory exhaustion caused by oversized request bodies.
+	DefaultMaxClientRequestBodySize = 5 * units.MiB
 
 	// AutoConfigEnvironmentIDPlaceholder is a string that can appear within
 	// AutoConfigConfig.EnvDataStorePrefix or AutoConfigConfig.EnvDataStoreTableName to indicate that
@@ -91,6 +109,11 @@ const (
 	// credentials to be revoked nearly instantaneously. It is not necessarily a recommendation.
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumCredentialCleanupInterval = 100 * time.Millisecond
+	// minimumMetricsCapacity is the smallest value accepted for EventsConfig.MetricsCapacity. Usage
+	// metrics are how LaunchDarkly reports on account usage, so we do not allow the maximum queue
+	// capacity to be shrunk below the historical default of 1000; smaller configured values are
+	// clamped up to this floor.
+	minimumMetricsCapacity = 1000
 )
 
 // Config describes the configuration for a relay instance.
@@ -141,6 +164,7 @@ type MainConfig struct {
 	GracefulShutdownTimeout          ct.OptDuration           `conf:"GRACEFUL_SHUTDOWN_TIMEOUT"`
 	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	MaxClientRequestBodySize         ct.OptBase2Bytes         `conf:"MAX_CLIENT_REQUEST_BODY_SIZE"`
 	PingStreamJitterTime             ct.OptDuration           `conf:"PING_STREAM_JITTER_TIME"`
 	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
 	TLSEnabled                       bool                     `conf:"TLS_ENABLED"`
@@ -184,6 +208,7 @@ type EventsConfig struct {
 	SendEvents            bool                     `conf:"USE_EVENTS"`
 	FlushInterval         ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
 	Capacity              ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
+	MetricsCapacity       ct.OptIntGreaterThanZero `conf:"EVENTS_METRICS_CAPACITY"`
 	MaxInboundPayloadSize ct.OptBase2Bytes         `conf:"EVENTS_MAX_INBOUND_PAYLOAD_SIZE"`
 }
 
@@ -302,7 +327,13 @@ type HTTPConfig struct {
 // Most standard OTEL environment variables (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS,
 // OTEL_SERVICE_NAME, etc.) are read directly by the OpenTelemetry SDK and should not be duplicated here.
 // Only Relay-specific settings belong in this struct.
+//
+// MetricsCardinalityLimit is an exception to that rule: the OpenTelemetry specification defines no
+// environment variable for the cardinality limit, and the Go SDK's own OTEL_GO_X_CARDINALITY_LIMIT sits
+// in its experimental namespace, so Relay owns this setting. When it is undefined, Relay applies no
+// option and the SDK's default (or OTEL_GO_X_CARDINALITY_LIMIT, if the operator set it) stands.
 type OpenTelemetryConfig struct {
-	Enabled  bool   `conf:"USE_OTLP"`
-	Protocol string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	Enabled                 bool      `conf:"USE_OTLP"`
+	Protocol                string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	MetricsCardinalityLimit ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
 }

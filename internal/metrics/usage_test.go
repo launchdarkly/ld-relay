@@ -28,7 +28,8 @@ func TestIndividualCountMessage(t *testing.T) {
 
 func TestCountsWithDelay(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindCount,
@@ -37,7 +38,7 @@ func TestCountsWithDelay(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(1 * time.Millisecond)
+	clk.advance(1 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindCount,
@@ -142,7 +143,8 @@ func TestFlushingResetsCounts(t *testing.T) {
 
 func TestCapturesSimpleStreamDuration(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
@@ -151,7 +153,7 @@ func TestCapturesSimpleStreamDuration(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	clk.advance(10 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamDisconnected,
@@ -166,12 +168,13 @@ func TestCapturesSimpleStreamDuration(t *testing.T) {
 	assert.Equal(t, "userAgent", event.UserAgent)
 	assert.Equal(t, "platform", event.PlatformCategory)
 	assert.Equal(t, "instanceID", event.InstanceID)
-	assert.InDeltaf(t, 10, event.TotalStreamMs, 5, "stream time should be approximately 10ms")
+	assert.Equal(t, int64(10), event.TotalStreamMs)
 }
 
 func TestStreamWithoutDisconnect(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
 	// Connect to stream but don't disconnect
 	env.usageActivityMessage(&usageActivityMessage{
@@ -181,7 +184,7 @@ func TestStreamWithoutDisconnect(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	clk.advance(10 * time.Millisecond)
 
 	// Flush without disconnecting
 	env.flush()
@@ -189,16 +192,16 @@ func TestStreamWithoutDisconnect(t *testing.T) {
 	event := publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
 	assert.NotEqual(t, event.FirstActive, event.LastActive) // Ensure timestamps differ
-	assert.InDeltaf(t, 10, event.TotalStreamMs, 5, "stream time should be approximately 10ms")
+	assert.Equal(t, int64(10), event.TotalStreamMs)
 
-	// Stream is still connected, so wait and try to force another event.
-	time.Sleep(30 * time.Millisecond)
+	// Stream is still connected, so let more time pass and force another event.
+	clk.advance(30 * time.Millisecond)
 	env.flush()
 
 	event = publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
 	assert.NotEqual(t, event.FirstActive, event.LastActive) // Ensure timestamps differ
-	assert.InDeltaf(t, 30, event.TotalStreamMs, 5, "stream time should be approximately 30ms")
+	assert.Equal(t, int64(30), event.TotalStreamMs)
 }
 
 func TestStreamDisconnectWithoutConnect(t *testing.T) {
@@ -224,7 +227,8 @@ func TestStreamDisconnectWithoutConnect(t *testing.T) {
 
 func TestStreamDurationIsNotAffectedByActivityCounts(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindCount,
@@ -232,7 +236,7 @@ func TestStreamDurationIsNotAffectedByActivityCounts(t *testing.T) {
 		platformCategory: "platform",
 		instanceID:       "instanceID",
 	})
-	time.Sleep(20 * time.Millisecond)
+	clk.advance(20 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
@@ -240,7 +244,7 @@ func TestStreamDurationIsNotAffectedByActivityCounts(t *testing.T) {
 		platformCategory: "platform",
 		instanceID:       "instanceID",
 	})
-	time.Sleep(10 * time.Millisecond)
+	clk.advance(10 * time.Millisecond)
 
 	env.flush()
 
@@ -248,21 +252,22 @@ func TestStreamDurationIsNotAffectedByActivityCounts(t *testing.T) {
 	assert.Equal(t, "userAgent", event.UserAgent)
 	assert.Equal(t, "platform", event.PlatformCategory)
 	assert.Equal(t, "instanceID", event.InstanceID)
-	assert.InDeltaf(t, 10, event.TotalStreamMs, 5, "stream time should be approximately 10ms")
+	assert.Equal(t, int64(10), event.TotalStreamMs)
 }
 
 func TestNonoverlappingStreams(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
-	// First stream session: ~10ms
+	// First stream session: 10ms
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
 		userAgent:        "userAgent",
 		platformCategory: "platform",
 		instanceID:       "instanceID",
 	})
-	time.Sleep(10 * time.Millisecond)
+	clk.advance(10 * time.Millisecond)
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamDisconnected,
 		userAgent:        "userAgent",
@@ -270,14 +275,14 @@ func TestNonoverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	// Second stream session: ~30ms
+	// Second stream session: 30ms
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
 		userAgent:        "userAgent",
 		platformCategory: "platform",
 		instanceID:       "instanceID",
 	})
-	time.Sleep(30 * time.Millisecond)
+	clk.advance(30 * time.Millisecond)
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamDisconnected,
 		userAgent:        "userAgent",
@@ -289,12 +294,13 @@ func TestNonoverlappingStreams(t *testing.T) {
 
 	event := publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
-	assert.InDeltaf(t, 40, event.TotalStreamMs, 5, "stream time should be approximately 40ms")
+	assert.Equal(t, int64(40), event.TotalStreamMs)
 }
 
 func TestOverlappingStreams(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
@@ -303,7 +309,7 @@ func TestOverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	clk.advance(100 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
@@ -312,7 +318,7 @@ func TestOverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	clk.advance(100 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamDisconnected,
@@ -326,12 +332,14 @@ func TestOverlappingStreams(t *testing.T) {
 	event := publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
 
-	assert.InDeltaf(t, 300, event.TotalStreamMs, 50, "stream time should be approximately 300ms")
+	// First connection streams for the full 200ms; the second overlaps for 100ms.
+	assert.Equal(t, int64(300), event.TotalStreamMs)
 }
 
 func TestMultipleUserStreams(t *testing.T) {
 	publisher := newTestEventsPublisher()
-	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
 
 	// First user connects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -341,7 +349,7 @@ func TestMultipleUserStreams(t *testing.T) {
 		instanceID:       "instanceID1",
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	clk.advance(50 * time.Millisecond)
 
 	// Second user connects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -351,7 +359,7 @@ func TestMultipleUserStreams(t *testing.T) {
 		instanceID:       "instanceID2",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	clk.advance(100 * time.Millisecond)
 
 	// First user disconnects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -361,7 +369,7 @@ func TestMultipleUserStreams(t *testing.T) {
 		instanceID:       "instanceID1",
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	clk.advance(200 * time.Millisecond)
 
 	// Second user disconnects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -383,12 +391,12 @@ func TestMultipleUserStreams(t *testing.T) {
 
 	assert.Equal(t, "platform1", event1.PlatformCategory)
 	assert.Equal(t, "instanceID1", event1.InstanceID)
-	assert.InDeltaf(t, 150, event1.TotalStreamMs, 50, "stream time should be approximately 150ms")
+	assert.Equal(t, int64(150), event1.TotalStreamMs)
 
 	assert.Equal(t, "userAgent2", event2.UserAgent)
 	assert.Equal(t, "platform2", event2.PlatformCategory)
 	assert.Equal(t, "instanceID2", event2.InstanceID)
-	assert.InDeltaf(t, 300, event2.TotalStreamMs, 50, "stream time should be approximately 300ms")
+	assert.Equal(t, int64(300), event2.TotalStreamMs)
 }
 
 func TestTagsHeaderIsIncludedInUsageEvent(t *testing.T) {

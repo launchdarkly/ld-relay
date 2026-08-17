@@ -23,13 +23,14 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v4"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
+	"golang.org/x/sync/singleflight"
 )
 
 // LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
@@ -123,6 +124,11 @@ type envContextImpl struct {
 	connectionMapper          ConnectionMapper
 	offline                   bool
 	closed                    bool
+
+	// pollFlightGroup deduplicates concurrent polling requests for this environment; it is
+	// internally synchronized and needs no zero-value setup. It is deliberately not guarded by
+	// mu: the field itself is never reassigned.
+	pollFlightGroup singleflight.Group
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -293,7 +299,9 @@ func NewEnvContext(
 	if params.MetricsManager != nil {
 		if enableDiagnostics {
 			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLogger,
-				events.OptionBaseURI(eventsURI))
+				events.OptionBaseURI(eventsURI),
+				events.OptionCapacity(allConfig.Events.MetricsCapacity.GetOrElse(config.DefaultMetricsCapacity)),
+				events.OptionInitialCapacity(config.DefaultMetricsInitialCapacity))
 			if err != nil {
 				return nil, errInitPublisher(err)
 			}
@@ -664,6 +672,10 @@ func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvide
 		return http.HandlerFunc(invalidStreamHandler)
 	}
 	return h
+}
+
+func (c *envContextImpl) GetPollingFlightGroup() *singleflight.Group {
+	return &c.pollFlightGroup
 }
 
 func invalidStreamHandler(w http.ResponseWriter, req *http.Request) {

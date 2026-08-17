@@ -18,7 +18,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/bigsegments"
@@ -30,7 +30,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -312,7 +312,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
+		metrics.WithStreamConnection(env.GetMetricsEnv(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
 			require.Eventually(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
@@ -365,7 +365,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
+		metrics.WithStreamConnection(env.GetMetricsEnv(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
 			require.Never(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {

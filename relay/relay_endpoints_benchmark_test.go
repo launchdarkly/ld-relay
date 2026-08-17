@@ -10,9 +10,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
 
-	"github.com/launchdarkly/go-sdk-common/v4/lduser"
-	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
+	ct "github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/lduser"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
@@ -53,6 +54,6 @@ func BenchmarkEvaluateAllFlags(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		req := buildPreRoutedRequest("REPORT", userData, headers, nil, ctx)
 		resp := httptest.NewRecorder()
-		evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+		evaluateAllFeatureFlags(basictypes.JSClientSDK, ct.OptBase2Bytes{})(resp, req)
 	}
 }

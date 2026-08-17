@@ -1,12 +1,14 @@
 package streams
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/go-jsonstream/v4/jwriter"
+	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
@@ -164,7 +166,26 @@ func (e *serverSideEnvStreamProvider) Close() {
 	}
 }
 
+// Ensure the repository advertises context support so the eventsource server calls
+// ReplayWithContext (and thus propagates the connection's lifetime) rather than Replay.
+var _ eventsource.RepositoryWithContext = (*serverSideEnvStreamRepository)(nil)
+
+// Replay satisfies the eventsource.Repository interface. It delegates to replay with a background
+// context; in practice the eventsource server prefers ReplayWithContext (see below) whenever the
+// repository implements it, so this context-less path is only a fallback.
 func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
+	return r.replay(context.Background(), id)
+}
+
+// ReplayWithContext satisfies the eventsource.RepositoryWithContext interface. The eventsource server
+// passes the subscribing request's context, which is cancelled when the SDK client disconnects. This
+// lets the producer goroutine below stop sending immediately on disconnect instead of blocking on a
+// send whose reader has gone away.
+func (r *serverSideEnvStreamRepository) ReplayWithContext(ctx context.Context, channel, id string) <-chan eventsource.Event {
+	return r.replay(ctx, id)
+}
+
+func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) chan eventsource.Event {
 	out := make(chan eventsource.Event)
 	if !r.store.IsInitialized() {
 		// If the data store has never been populated, we won't send an initial event. This is desirable
@@ -176,29 +197,48 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 	}
 	go func() {
 		defer close(out)
+		select {
+		case <-ctx.Done():
+			// The subscriber already disconnected; don't bother building a payload nobody will read.
+			r.logger.Info("subscriber disconnected before replay started; skipping replay")
+			return
+		default:
+		}
 		var events []eventsource.Event
 		var err error
 		if r.isV2 {
 			// See the note in HandlerV2 about how we use the Last-Event-ID header to
 			// pass the basis.
-			events, err = r.getReplayEventsV2(id)
+			events, err = r.getReplayEventsV2(ctx, id)
 		} else {
-			events, err = r.getReplayEventsV1()
+			events, err = r.getReplayEventsV1(ctx)
 		}
 
 		if err != nil {
 			return
 		}
 		for _, event := range events {
-			out <- event
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				// The subscriber disconnected before consuming the whole replay; stop producing so
+				// this goroutine and its payload are released promptly instead of leaking.
+				r.logger.Info("subscriber disconnected mid-replay; stopping replay")
+				return
+			}
 		}
 	}()
 	return out
 }
 
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
-func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
+// Within this function the context is used only for telemetry -- the subscribing request's span
+// is annotated with how the flight resolved (refer to tracing.SingleflightDo). A flight in
+// progress is deliberately never abandoned on cancellation: its result may be shared with other
+// subscribers still waiting on it. Disconnect handling belongs to the caller, in replay's send
+// loop.
+func (r *serverSideEnvStreamRepository) getReplayEventsV1(ctx context.Context) ([]eventsource.Event, error) {
+	data, err := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV1", func() (interface{}, error) {
 		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
@@ -226,8 +266,14 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 	return []eventsource.Event{event}, nil
 }
 
-func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEventV2", func() (interface{}, error) {
+// getReplayEventsV2 is getReplayEventsV1 for the FDv2 protocol; the context serves the same
+// telemetry-only purpose there, with cancellation likewise left to the caller.
+func (r *serverSideEnvStreamRepository) getReplayEventsV2(ctx context.Context, basis string) ([]eventsource.Event, error) {
+	// The result depends on the caller's basis: a client whose basis matches the current
+	// selector state gets an "up-to-date" event, while any other client gets a full data
+	// transfer. Only requests with the same basis may share a result, so the basis must be
+	// part of the key.
+	data, err := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV2:"+basis, func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)

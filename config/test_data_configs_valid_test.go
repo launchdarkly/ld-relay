@@ -50,6 +50,14 @@ func mustOptIntGreaterThanZero(n int) ct.OptIntGreaterThanZero {
 	return o
 }
 
+func mustOptBase2Bytes(s string) ct.OptBase2Bytes {
+	o, err := ct.NewOptBase2BytesFromString(s)
+	if err != nil {
+		panic(err)
+	}
+	return o
+}
+
 func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
 	o, err := ct.NewOptURLAbsoluteFromString(urlString)
 	if err != nil {
@@ -90,6 +98,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
+		makeValidConfigOTLPUnlimitedCardinality(),
 		makeValidConfigProxy(),
 	}
 }
@@ -107,6 +116,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			IgnoreConnectionErrors:           true,
 			HeartbeatInterval:                ct.NewOptDuration(90 * time.Second),
 			MaxClientConnectionTime:          ct.NewOptDuration(30 * time.Minute),
+			MaxClientRequestBodySize:         mustOptBase2Bytes("5MiB"),
 			DisconnectedStatusTime:           ct.NewOptDuration(3 * time.Minute),
 			TLSEnabled:                       true,
 			TLSCert:                          "cert",
@@ -123,6 +133,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			EventsURI:             newOptURLAbsoluteMustBeValid("http://events"),
 			FlushInterval:         ct.NewOptDuration(120 * time.Second),
 			Capacity:              mustOptIntGreaterThanZero(500),
+			MetricsCapacity:       mustOptIntGreaterThanZero(50000),
 			MaxInboundPayloadSize: ct.OptBase2Bytes{},
 		}
 		c.Environment = map[string]*EnvConfig{
@@ -157,6 +168,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"IGNORE_CONNECTION_ERRORS":            "1",
 		"HEARTBEAT_INTERVAL":                  "90s",
 		"MAX_CLIENT_CONNECTION_TIME":          "30m",
+		"MAX_CLIENT_REQUEST_BODY_SIZE":        "5MiB",
 		"DISCONNECTED_STATUS_TIME":            "3m",
 		"TLS_ENABLED":                         "1",
 		"TLS_CERT":                            "cert",
@@ -169,6 +181,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"EVENTS_HOST":                         "http://events",
 		"EVENTS_FLUSH_INTERVAL":               "120s",
 		"EVENTS_CAPACITY":                     "500",
+		"EVENTS_METRICS_CAPACITY":             "50000",
 		"LD_ENV_earth":                        "earth-sdk",
 		"LD_MOBILE_KEY_earth":                 "earth-mob",
 		"LD_CLIENT_SIDE_ID_earth":             "earth-env",
@@ -198,6 +211,7 @@ ExitAlways = 1
 IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
+MaxClientRequestBodySize = "5MiB"
 PingStreamJitterTime = 5m
 DisconnectedStatusTime = 3m
 TLSEnabled = 1
@@ -214,6 +228,7 @@ SendEvents = 1
 EventsUri = "http://events"
 FlushInterval = 120s
 Capacity = 500
+MetricsCapacity = 50000
 
 [Environment "earth"]
 SdkKey = "earth-sdk"
@@ -754,18 +769,41 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.OpenTelemetry = OpenTelemetryConfig{
-			Enabled:  true,
-			Protocol: "grpc",
+			Enabled:                 true,
+			Protocol:                "grpc",
+			MetricsCardinalityLimit: ct.NewOptInt(20000),
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":                    "1",
-		"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+		"USE_OTLP":                       "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
+		"OTEL_METRICS_CARDINALITY_LIMIT": "20000",
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
 Protocol = grpc
+MetricsCardinalityLimit = 20000
+`
+	return c
+}
+
+func makeValidConfigOTLPUnlimitedCardinality() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - cardinality limit disabled"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:                 true,
+			MetricsCardinalityLimit: ct.NewOptInt(0),
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":                       "1",
+		"OTEL_METRICS_CARDINALITY_LIMIT": "0",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+MetricsCardinalityLimit = 0
 `
 	return c
 }

@@ -44,7 +44,20 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
 		makeInvalidConfigOTLPInvalidProtocol(),
+		makeInvalidConfigOTLPNegativeCardinalityLimit(),
+		makeInvalidConfigMaxClientRequestBodySize("0B"),
 	}
+}
+
+func makeInvalidConfigMaxClientRequestBodySize(size string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "max client request body size " + size}
+	c.envVarsError = errMaxClientRequestBodySize.Error()
+	c.envVars = map[string]string{"MAX_CLIENT_REQUEST_BODY_SIZE": size}
+	c.fileContent = `
+[Main]
+MaxClientRequestBodySize = ` + size + `
+`
+	return c
 }
 
 func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {
@@ -459,6 +472,21 @@ func makeInvalidConfigOTLPInvalidProtocol() testDataInvalidConfig {
 [OpenTelemetry]
 Enabled = true
 Protocol = websocket
+`
+	return c
+}
+
+func makeInvalidConfigOTLPNegativeCardinalityLimit() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "OTLP - negative cardinality limit"}
+	c.envVarsError = errOTLPNegativeCardinalityLimit.Error()
+	c.envVars = map[string]string{
+		"USE_OTLP":                       "1",
+		"OTEL_METRICS_CARDINALITY_LIMIT": "-1",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+MetricsCardinalityLimit = -1
 `
 	return c
 }

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 )
 
@@ -63,19 +63,28 @@ type RelayMetricsCollector struct {
 	pollingCounts      map[connectionsKeyType]pollingCounts
 	mu                 sync.Mutex
 	closer             chan struct{}
+	now                func() time.Time
 }
 
 func newRelayMetricsCollector(relayID, envName string, publisher events.EventPublisher, flushInterval time.Duration, logger *slog.Logger) *RelayMetricsCollector {
+	return newRelayMetricsCollectorWithTimeSource(relayID, envName, publisher, flushInterval, logger, time.Now)
+}
+
+// newRelayMetricsCollectorWithTimeSource allows tests to control the timestamps
+// used for interval boundaries. The now function must never return a value earlier
+// than one it previously returned.
+func newRelayMetricsCollectorWithTimeSource(relayID, envName string, publisher events.EventPublisher, flushInterval time.Duration, logger *slog.Logger, now func() time.Time) *RelayMetricsCollector {
 	c := &RelayMetricsCollector{
 		relayID:            relayID,
 		envName:            envName,
 		publisher:          publisher,
 		logger:             logger,
 		closer:             make(chan struct{}),
-		intervalStartTime:  time.Now(),
+		intervalStartTime:  now(),
 		pollingDataIsDirty: false,
 		currentConnections: make(map[connectionsKeyType]int64),
 		pollingCounts:      make(map[connectionsKeyType]pollingCounts),
+		now:                now,
 	}
 
 	flushTicker := time.NewTicker(flushInterval)
@@ -135,7 +144,7 @@ func (c *RelayMetricsCollector) hasMetricDataToReport() bool {
 func (c *RelayMetricsCollector) flush() {
 	c.mu.Lock()
 	startTime := c.intervalStartTime
-	stopTime := time.Now()
+	stopTime := c.now()
 	c.intervalStartTime = stopTime
 
 	if !c.hasMetricDataToReport() {
