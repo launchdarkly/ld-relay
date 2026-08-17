@@ -46,8 +46,8 @@ const (
 	viewScopedMobID = "view-scoped-mob"
 )
 
-// The standard two-entry arrays plus a third entry scoped to a view, in each of the four shapes the
-// two harnesses need (wire reps for RAC, accepted-key params for the offline archive).
+// The standard two-entry wire-rep arrays plus a third entry scoped to a view, for the RAC harness. The
+// offline harness builds its accepted-key params inline, alongside the keys it revokes mid-session.
 
 func viewScopedSDKKeyReps() []envfactory.ConcurrentKeyRep {
 	return append(defaultSDKKeyReps(),
@@ -57,16 +57,6 @@ func viewScopedSDKKeyReps() []envfactory.ConcurrentKeyRep {
 func viewScopedMobileKeyReps() []envfactory.ConcurrentKeyRep {
 	return append(defaultMobileKeyReps(),
 		envfactory.ConcurrentKeyRep{Key: viewScopedMobID, Value: string(viewScopedMobileKey), HasViews: true})
-}
-
-func viewScopedAcceptedSDKKeys() []envfactory.AcceptedSDKKey {
-	return append(defaultAcceptedSDKKeys(),
-		envfactory.AcceptedSDKKey{Key: viewScopedSDKID, Value: viewScopedSDKKey, HasViews: true})
-}
-
-func viewScopedAcceptedMobileKeys() []envfactory.AcceptedMobileKey {
-	return append(defaultAcceptedMobileKeys(),
-		envfactory.AcceptedMobileKey{Key: viewScopedMobID, Value: viewScopedMobileKey, HasViews: true})
 }
 
 // assertViewScopedKeysAbsentFromStatus verifies the /status sdkKeys[]/mobileKeys[] arrays do not list

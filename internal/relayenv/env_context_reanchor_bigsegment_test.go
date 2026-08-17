@@ -130,9 +130,6 @@ func TestReanchorBigSegmentSync_RollbackDoesNotRewire(t *testing.T) {
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor unchanged after rollback")
 }
 
-// reanchorTestKey3 is a third anchor SDK key, used to drive A->B->C sequential re-anchors.
-const reanchorTestKey3 = config.SDKKey("reanchor-new-anchor-3")
-
 // TestReanchorBigSegmentSync_ReanchorBeforeFirstSegmentThenStartsNewSync covers the ordering where a
 // re-anchor happens BEFORE any big segment has appeared (so the replacement is built but not started),
 // and then the first segment appears. setBigSegmentsExist must start the CURRENT (new) synchronizer,
