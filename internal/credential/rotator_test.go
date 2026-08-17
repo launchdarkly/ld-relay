@@ -620,3 +620,109 @@ func TestRevertAnchorChangeDoesNotAdmitUndefinedPreviousAnchor(t *testing.T) {
 	}
 	assert.NotContains(t, r.AllCredentials(), SDKCredential(keyB), "failed new anchor dropped")
 }
+
+func TestIsAcceptedMatchesAllCredentials(t *testing.T) {
+	// IsAccepted is the membership form of AllCredentials, so the two must never disagree -- including on
+	// keys carrying a future expiry, which still authenticate until the cleanup ticker drops them.
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	expiringSDK := config.SDKKey("expiring-sdk")
+	mob := config.MobileKey("mob")
+	expiringMobile := config.MobileKey("expiring-mob")
+	envID := config.EnvironmentID("env-id")
+	now := time.Unix(1000, 0)
+
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: expiringSDK, Expiry: util.PtrOrNil(now.Add(time.Hour))}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: mob}).
+			WithMobileKey(MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(now.Add(time.Hour))}).
+			WithEnvironmentID(envID)),
+		now)
+	r.StepTime(now)
+
+	all := r.AllCredentials()
+	require.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile, envID}, all)
+	for _, cred := range all {
+		assert.True(t, r.IsAccepted(cred), "AllCredentials reported %s, so IsAccepted must agree", cred.Masked())
+	}
+
+	// Values of each tracked kind that were never accepted.
+	assert.False(t, r.IsAccepted(config.SDKKey("unknown-sdk")))
+	assert.False(t, r.IsAccepted(config.MobileKey("unknown-mob")))
+	assert.False(t, r.IsAccepted(config.EnvironmentID("unknown-env")))
+
+	// Undefined values are never accepted -- the rotator only ever holds defined credentials.
+	assert.False(t, r.IsAccepted(config.SDKKey("")))
+	assert.False(t, r.IsAccepted(config.MobileKey("")))
+	assert.False(t, r.IsAccepted(config.EnvironmentID("")))
+
+	// A credential kind the rotator does not track is never accepted, even when defined.
+	assert.False(t, r.IsAccepted(config.AutoConfigKey("auto-config-key")))
+}
+
+func TestIsAcceptedFollowsRevocation(t *testing.T) {
+	// Reconciling to a set that omits a key revokes it, and IsAccepted must report it as such while
+	// leaving the retained credentials accepted. This is the predicate the stream handler relies on to
+	// reject a credential revoked after the request authenticated.
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	other := config.SDKKey("other")
+	mob := config.MobileKey("mob")
+	otherMob := config.MobileKey("other-mob")
+	now := time.Unix(1000, 0)
+
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: other}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: mob}).
+			WithMobileKey(MobileKeyParams{Value: otherMob})),
+		now)
+	r.StepTime(now)
+	require.True(t, r.IsAccepted(other))
+	require.True(t, r.IsAccepted(otherMob))
+
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: mob})),
+		now)
+	r.StepTime(now)
+
+	assert.False(t, r.IsAccepted(other), "revoked SDK key")
+	assert.False(t, r.IsAccepted(otherMob), "revoked mobile key")
+	assert.True(t, r.IsAccepted(anchor), "anchor is retained")
+	assert.True(t, r.IsAccepted(mob), "primary mobile key is retained")
+}
+
+func TestIsAcceptedFalseOnceExpiryElapses(t *testing.T) {
+	// A key carrying a future expiry stays accepted until the cleanup ticker drops it, then stops being
+	// accepted -- without any further reconcile.
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	expiringSDK := config.SDKKey("expiring-sdk")
+	mob := config.MobileKey("mob")
+	expiringMobile := config.MobileKey("expiring-mob")
+	now := time.Unix(1000, 0)
+	expiry := now.Add(time.Hour)
+
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: expiringSDK, Expiry: util.PtrOrNil(expiry)}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: mob}).
+			WithMobileKey(MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(expiry)})),
+		now)
+	r.StepTime(now)
+	require.True(t, r.IsAccepted(expiringSDK), "accepted before its expiry elapses")
+	require.True(t, r.IsAccepted(expiringMobile), "accepted before its expiry elapses")
+
+	r.StepTime(expiry.Add(time.Second))
+
+	assert.False(t, r.IsAccepted(expiringSDK), "dropped by the cleanup ticker")
+	assert.False(t, r.IsAccepted(expiringMobile), "dropped by the cleanup ticker")
+	assert.True(t, r.IsAccepted(anchor), "the anchor never expires")
+	assert.True(t, r.IsAccepted(mob), "the primary mobile key is permanent")
+}

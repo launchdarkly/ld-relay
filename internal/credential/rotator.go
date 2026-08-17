@@ -161,6 +161,31 @@ func (r *Rotator) AllCredentials() []SDKCredential {
 	return r.allCredentials()
 }
 
+// IsAccepted reports whether cred is currently one of the environment's accepted credentials: an
+// accepted SDK key, an accepted mobile key (including one carrying a future expiry, which still
+// authenticates until the cleanup ticker drops it), or the environment ID. Any other credential type is
+// never accepted.
+//
+// This answers the same question as membership in AllCredentials, by direct map lookup, so callers on
+// request paths do not allocate a credential slice per call.
+func (r *Rotator) IsAccepted(cred SDKCredential) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	switch cred := cred.(type) {
+	case config.SDKKey:
+		_, ok := r.acceptedSDKKeys[cred]
+		return ok
+	case config.MobileKey:
+		_, ok := r.acceptedMobileKeys[cred]
+		return ok
+	case config.EnvironmentID:
+		return r.primaryEnvironmentID.Defined() && cred == r.primaryEnvironmentID
+	default:
+		return false
+	}
+}
+
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.loggers.Infof("Deprecated SDK key %s has expired and is no longer valid for authentication", sdkKey.Masked())
 	delete(r.acceptedSDKKeys, sdkKey)

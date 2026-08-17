@@ -5,8 +5,9 @@ package relayenv
 // build the handler on demand, scoping it with the env's (immutable) filter key. These tests exercise
 // that on-demand path directly: that the provider is asked for the right scoped credential, that a valid
 // credential yields the provider's handler, and that a credential the provider rejects (wrong kind) falls
-// back to the 404 handler. End-to-end multi-key streaming through the full HTTP stack is covered by the
-// relay-package concurrent-keys auth suite.
+// back to the 404 handler. Rejection of a credential that is no longer accepted is covered in
+// env_context_stream_handler_revocation_test.go. End-to-end multi-key streaming through the full HTTP
+// stack is covered by the relay-package concurrent-keys auth suite.
 
 import (
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
@@ -22,6 +24,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// rotatorAccepting returns a rotator whose accepted set is exactly creds. GetStreamHandler consults the
+// accepted set before asking the provider for a handler, so a test envContextImpl needs a real rotator
+// rather than the zero value.
+func rotatorAccepting(creds ...credential.SDKCredential) *credential.Rotator {
+	r := credential.NewRotator(ldlog.NewDisabledLoggers())
+	r.Initialize(creds)
+	return r
+}
 
 // fakeStreamProvider records the scoped credential passed to Handler and returns a caller-supplied
 // handler for credentials it accepts (nil otherwise, mimicking a real provider rejecting the wrong
@@ -56,7 +67,10 @@ func TestGetStreamHandler_BuildsOnDemandScopedWithEnvFilterKey(t *testing.T) {
 		},
 	}
 
-	c := &envContextImpl{filterKey: filter}
+	c := &envContextImpl{
+		filterKey:  filter,
+		keyRotator: rotatorAccepting(config.SDKKey("sdk-A"), config.SDKKey("sdk-B")),
+	}
 
 	// A valid (right-kind) credential: the provider is asked for that credential scoped with the env's
 	// filter key, and its handler is returned as-is (no per-credential storage, built on the spot).
@@ -86,7 +100,12 @@ func TestGetStreamHandler_WrongKindCredentialServes404(t *testing.T) {
 		},
 	}
 
-	c := &envContextImpl{filterKey: config.DefaultFilter}
+	// The mobile key is deliberately in the accepted set: this test is about the provider rejecting the
+	// wrong credential kind, so the accepted-set check must pass in order for the request to reach it.
+	c := &envContextImpl{
+		filterKey:  config.DefaultFilter,
+		keyRotator: rotatorAccepting(config.MobileKey("mob-key")),
+	}
 
 	// A credential the provider rejects (returns nil for) must fall back to the invalid-stream 404
 	// handler, exactly as the old per-credential map miss did.

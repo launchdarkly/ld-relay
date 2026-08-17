@@ -917,10 +917,27 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 }
 
 func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, cred credential.SDKCredential) http.Handler {
+	// Re-check the accepted set: the middleware authenticates the credential once, up front, but a
+	// credential can be revoked while the request is still in flight -- on the REPORT variants of the
+	// client-side stream endpoints, the body read between that check and this call is paced by the client.
+	// The stream providers only type-check the credential, so without this a revoked credential would be
+	// handed a working stream handler instead of a 404.
+	//
+	// This narrows the exposure rather than eliminating it: a revocation landing between this check and the
+	// subscription reaching the stream server still yields a 200, because the eventsource handler commits
+	// the status line before it registers the subscription. That residual case is inert -- the channel's
+	// repository and its publisher are both already gone, so the connection receives nothing and the SDK
+	// drops it at its read timeout, then re-authenticates and gets a clean 401.
+	//
 	// Build the handler on demand rather than storing one per (credential, provider): every handler in a
 	// (filter, provider) slot is identical except for the credential-derived channel id, which we resolve
 	// here from the request's already-authenticated credential. c.filterKey is immutable after
-	// construction, so this needs no lock.
+	// construction and the rotator guards its own accepted set, so this needs no lock -- deliberately, since
+	// reanchor holds c.mu for writing across its whole commit sequence and stream connects must not queue
+	// behind it.
+	if !c.keyRotator.IsAccepted(cred) {
+		return http.HandlerFunc(invalidStreamHandler)
+	}
 	if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
 		return h
 	}
