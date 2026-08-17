@@ -532,7 +532,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 // within its deprecation grace period -- according to the rotator. startSDKClient uses this to avoid
 // installing (and thereby leaking) a client for a key that was revoked while it was being built.
 func (c *envContextImpl) sdkKeyIsActive(sdkKey config.SDKKey) bool {
-	return slices.Contains(c.keyRotator.AllCredentials(), credential.SDKCredential(sdkKey))
+	return c.keyRotator.IsAccepted(sdkKey)
 }
 
 func (c *envContextImpl) GetPayloadFilter() config.FilterKey {
