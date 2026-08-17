@@ -56,8 +56,11 @@ func AcquireInitSlot(limiter *concurrency.Limiter, recorder InitShedRecorder, w 
 		tracing.InitQueueWaitDurationKey.Float64(time.Since(start).Seconds()),
 	)
 	if !ok {
-		span.SetAttributes(tracing.InitShedReasonKey.String(shedReason(r, limiter)))
-		if recorder != nil {
+		reason := shedReason(r, limiter)
+		span.SetAttributes(tracing.InitShedReasonKey.String(reason))
+		// Only budget pressure counts as a shed. A client that left the queue, and a
+		// shutdown drain, show on the rejected counter under their own causes.
+		if reason == "budget_full" && recorder != nil {
 			recorder.RecordPollShed(envNameFromContext(r))
 		}
 		w.Header().Set("Content-Type", "application/json")

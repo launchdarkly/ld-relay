@@ -154,4 +154,20 @@ func TestAcquireInitSlotRecordsAPollShed(t *testing.T) {
 	h2.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
 	require.True(t, served)
 	require.Len(t, rec.sheds, 1)
+
+	// A client that left the queue is not budget pressure, so it is not a shed. The
+	// rejected counter reports it under the client_gone cause.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	wGone := httptest.NewRecorder()
+	h.ServeHTTP(wGone, httptest.NewRequest("GET", "/", nil).WithContext(cancelled))
+	require.Equal(t, http.StatusServiceUnavailable, wGone.Code)
+	require.Len(t, rec.sheds, 1, "a client that left must not count as a shed")
+
+	// A shutdown drain is not budget pressure either.
+	limiter.Close()
+	wShutdown := httptest.NewRecorder()
+	h.ServeHTTP(wShutdown, httptest.NewRequest("GET", "/", nil))
+	require.Equal(t, http.StatusServiceUnavailable, wShutdown.Code)
+	require.Len(t, rec.sheds, 1, "a shutdown rejection must not count as a shed")
 }

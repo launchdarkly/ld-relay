@@ -385,7 +385,9 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			// there, unlike a deadline call, because it does not touch the connection --
 			// and the single deferred End runs on every exit below exactly one time. The
 			// span's context feeds the reads and the serialization, so their spans nest
-			// under the delivery.
+			// under the delivery. The request span keeps the up-to-date event, so keep a
+			// reference before the delivery span replaces it in ctx.
+			reqSpan := trace.SpanFromContext(ctx)
 			dctx, dspan := tracing.Tracer().Start(ctx, tracing.SpanInitDelivery,
 				trace.WithAttributes(
 					tracing.InitProtocolKey.String(r.protocol()),
@@ -419,7 +421,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				if r.initObserver != nil {
 					r.initObserver.RecordUpToDate(true)
 				}
-				trace.SpanFromContext(ctx).AddEvent(tracing.EventInitUpToDate)
+				reqSpan.AddEvent(tracing.EventInitUpToDate)
 				r.sendEvents(ctx, out, MakeEventsForUpToDate(selector))
 				return
 			}

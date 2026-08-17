@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -180,6 +181,67 @@ func TestStreamReplayDeliverySpanEndsOnceWithOutcome(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "the shed event must land on the request span")
+}
+
+func TestStreamReplayUpToDateAfterWaitEventLandsOnTheRequestSpan(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr)))
+	defer otel.SetTracerProvider(prev)
+
+	// The store starts behind the client's basis and catches up while the client waits in
+	// the queue, so the post-admission read takes the up-to-date path.
+	var stateNow atomic.Int64
+	stateNow.Store(1)
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		st := int(stateNow.Load())
+		flag := ldbuilders.NewFlagBuilder("flagkey").Version(st).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: "flagkey", Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector("s"+strconv.Itoa(st), st), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+	pctx, parent := tracing.Tracer().Start(context.Background(), "request-parent")
+	eventCh := repo.ReplayWithContext(pctx, "", "s2")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	stateNow.Store(2)
+	hold()
+	drainReplay(t, eventCh)
+	parent.End()
+
+	// The delivery span ends with the up_to_date outcome, but the event itself belongs on
+	// the request span, the same as the no-wait path and the documentation.
+	waitForSpan(t, sr, tracing.SpanInitDelivery)
+	dspans := endedSpans(sr, tracing.SpanInitDelivery)
+	require.Len(t, dspans, 1)
+	assert.Contains(t, attrString(dspans[0]), "up_to_date")
+	for _, e := range dspans[0].Events() {
+		assert.NotEqual(t, tracing.EventInitUpToDate, e.Name, "the event must not land on the delivery span")
+	}
+	found := false
+	for _, s := range sr.Ended() {
+		if s.Name() == "request-parent" {
+			for _, e := range s.Events() {
+				if e.Name == tracing.EventInitUpToDate {
+					found = true
+				}
+			}
+		}
+	}
+	assert.True(t, found, "the up-to-date event must land on the request span")
 }
 
 func drainReplay(t *testing.T, ch <-chan eventsource.Event) {
