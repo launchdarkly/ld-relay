@@ -151,11 +151,17 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	// memory or egress without limit. It is disabled by default.
 	initConc := newInitConcurrency(c.Concurrency, logger)
 	initConc.logEnabled(logger)
+	if initConc.limiter.Enabled() {
+		if err := metricsManager.RegisterInitConcurrencyObservers(initConc.limiter); err != nil {
+			logger.Warn("failed to register the init-concurrency limiter instruments", "error", err)
+		}
+	}
 
 	r := &Relay{
 		envsByCredential: NewEnvironmentLookup(),
 		serverSideStreamProvider: streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0,
 			streams.WithInitLimiter(initConc.limiter, initConc.sendTimeout),
+			streams.WithInitObserver(metricsManager.InitInstruments()),
 			streams.WithLogger(logger)),
 		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
 		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),

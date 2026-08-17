@@ -14,6 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
 
@@ -40,6 +42,8 @@ type serverSideStreamProvider struct {
 	// closes the connection to get the budget slot back (see withInitDeadline).
 	initLimiter *concurrency.Limiter
 	sendTimeout time.Duration
+	// initObserver receives the delivery measurements; nil records nothing.
+	initObserver InitObserver
 
 	closeOnce sync.Once
 }
@@ -60,6 +64,8 @@ type serverSideEnvStreamRepository struct {
 	// client is old or absent. A cheap up-to-date reply never draws from it. A limiter that
 	// is nil or disabled applies no limit.
 	initLimiter *concurrency.Limiter
+	// initObserver receives the delivery measurements; nil records nothing.
+	initObserver InitObserver
 
 	flightGroup singleflight.Group
 }
@@ -166,7 +172,8 @@ func (s *serverSideStreamProvider) RegisterV1(
 	}
 	repo := &serverSideEnvStreamRepository{
 		store: store, logger: logger, isV2: false,
-		initLimiter: s.initLimiter,
+		initLimiter:  s.initLimiter,
+		initObserver: s.initObserver,
 	}
 	s.fdv1Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv1Server, channels: []string{credential.String()}, isV2: false}
@@ -183,7 +190,8 @@ func (s *serverSideStreamProvider) RegisterV2(
 	}
 	repo := &serverSideEnvStreamRepository{
 		store: store, logger: logger, isV2: true,
-		initLimiter: s.initLimiter,
+		initLimiter:  s.initLimiter,
+		initObserver: s.initObserver,
 	}
 	s.fdv2Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv2Server, channels: []string{credential.String()}, isV2: true}
@@ -257,6 +265,14 @@ func (e *serverSideEnvStreamProvider) Close() {
 	}
 }
 
+// protocol names the repository's wire protocol for measurements and span attributes.
+func (r *serverSideEnvStreamRepository) protocol() string {
+	if r.isV2 {
+		return "fdv2"
+	}
+	return "fdv1"
+}
+
 // Ensure the repository advertises context support so the eventsource server calls
 // ReplayWithContext (and thus propagates the connection's lifetime) rather than Replay.
 var _ eventsource.RepositoryWithContext = (*serverSideEnvStreamRepository)(nil)
@@ -318,6 +334,10 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		// reply. That reply builds no payload, so it does not draw from the budget. The
 		// basis travels as the Last-Event-ID; see the note in HandlerV2.
 		if r.isV2 && id != "" && selector.IsDefined() && selector.State() == id {
+			if r.initObserver != nil {
+				r.initObserver.RecordUpToDate(false)
+			}
+			trace.SpanFromContext(ctx).AddEvent(tracing.EventInitUpToDate)
 			r.sendEvents(ctx, out, MakeEventsForUpToDate(selector))
 			return
 		}
@@ -326,7 +346,9 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		// serialization, so the budget limits how many full bases the relay builds and sends
 		// at the same time, and reconnects at the same basis can share one serialization.
 		if r.initLimiter.Enabled() {
+			acquireStart := time.Now()
 			release, ok := r.initLimiter.Acquire(ctx)
+			queueWait := time.Since(acquireStart)
 			if !ok {
 				if ctx.Err() != nil {
 					// The client disconnected while it waited for a slot. This is the
@@ -347,11 +369,32 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				// instead, so the SDK reconnects with backoff and does not stay connected
 				// without data.
 				r.logger.Warn("initialization concurrency limit reached; closing stream so the SDK reconnects")
+				if r.initObserver != nil {
+					r.initObserver.RecordShed()
+				}
+				trace.SpanFromContext(ctx).AddEvent(tracing.EventInitShed,
+					trace.WithAttributes(tracing.InitShedReasonKey.String("budget_full")))
 				if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
 					closeConn()
 				}
 				return
 			}
+
+			// The delivery span covers everything from admission to the flushed basis or
+			// the end of the connection. The producer goroutine ends it -- a span is safe
+			// there, unlike a deadline call, because it does not touch the connection --
+			// and the single deferred End runs on every exit below exactly one time. The
+			// span's context feeds the reads and the serialization, so their spans nest
+			// under the delivery. The request span keeps the up-to-date event, so keep a
+			// reference before the delivery span replaces it in ctx.
+			reqSpan := trace.SpanFromContext(ctx)
+			dctx, dspan := tracing.Tracer().Start(ctx, tracing.SpanInitDelivery,
+				trace.WithAttributes(
+					tracing.InitProtocolKey.String(r.protocol()),
+					tracing.InitQueueWaitDurationKey.Float64(queueWait.Seconds()),
+				))
+			defer dspan.End()
+			ctx = dctx
 
 			// The wait for a slot can be long. Read the store again, so the payload is
 			// serialized from the store as it is now, and do the up-to-date check again: a
@@ -365,11 +408,20 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			snapshot, selector, err = r.peek(ctx, id)
 			if err != nil {
 				r.logger.Error("error getting all flags after admission", "error", err)
+				dspan.SetAttributes(tracing.InitOutcomeKey.String("read_error"))
+				if r.initObserver != nil {
+					r.initObserver.RecordDelivery(r.protocol(), "read_error", false)
+				}
 				release()
 				return
 			}
 			if r.isV2 && id != "" && selector.IsDefined() && selector.State() == id {
 				release()
+				dspan.SetAttributes(tracing.InitOutcomeKey.String("up_to_date"))
+				if r.initObserver != nil {
+					r.initObserver.RecordUpToDate(true)
+				}
+				reqSpan.AddEvent(tracing.EventInitUpToDate)
 				r.sendEvents(ctx, out, MakeEventsForUpToDate(selector))
 				return
 			}
@@ -397,8 +449,20 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 						// regression brought it back, would leak the slot.
 						time.Sleep(5 * time.Millisecond)
 					}
-					iw.WaitAndFinish(ctx)
+					flushed := iw.WaitAndFinish(ctx)
 					release()
+					outcome := "connection_ended"
+					if flushed {
+						outcome = "completed"
+					}
+					dspan.SetAttributes(
+						tracing.InitOutcomeKey.String(outcome),
+						tracing.InitCapEngagedKey.Bool(iw.CapEngaged()),
+					)
+					if r.initObserver != nil {
+						r.initObserver.RecordDelivery(r.protocol(), outcome, iw.CapEngaged())
+						r.initObserver.AddDeadlineSetErrors(iw.DeadlineSetErrors())
+					}
 				}()
 			} else {
 				// This path has no progress-aware writer (for example, the Replay path that

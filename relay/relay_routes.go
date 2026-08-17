@@ -129,8 +129,8 @@ func (r *Relay) makeRouter() *mux.Router {
 	// handler instead. The handler takes a slot only on its full-basis branch, and a cheap
 	// up-to-date reply never uses one. Both wrappers are disabled by default and then do
 	// nothing.
-	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout)
-	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout)
+	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
+	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
 
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below

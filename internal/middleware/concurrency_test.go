@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 func TestLimitConcurrencyDisabledIsPassThrough(t *testing.T) {
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 0}) // disabled
 	called := false
-	h := LimitConcurrency(limiter, time.Second)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -35,7 +36,7 @@ func TestLimitConcurrencyShedsWhenBudgetFull(t *testing.T) {
 	defer release()
 
 	called := false
-	h := LimitConcurrency(limiter, time.Second)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		called = true
 	}))
 	rr := httptest.NewRecorder()
@@ -56,7 +57,7 @@ func TestLimitConcurrencyShedsWhenBudgetFull(t *testing.T) {
 
 func TestLimitConcurrencyReleasesSlotWhenHandlerReturns(t *testing.T) {
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
-	h := LimitConcurrency(limiter, time.Second)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	// Two sequential requests both succeed, which is only possible if the single slot is
@@ -81,7 +82,7 @@ func TestAcquireInitSlotFromContextChargesOnlyWhenProvided(t *testing.T) {
 	assert.Equal(t, int64(0), limiter.Stats().Admitted, "absent limiter must not charge a slot")
 
 	// When ProvideInitLimiter installed the limiter, a full-basis handler charges a slot.
-	provided := ProvideInitLimiter(limiter, time.Second)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	provided := ProvideInitLimiter(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel, ok := AcquireInitSlotFromContext(w, r)
 		require.True(t, ok)
 		defer rel()
@@ -100,7 +101,7 @@ func TestAcquireInitSlotFromContextShedsWhenBudgetFull(t *testing.T) {
 	defer release()
 
 	handlerRan := false
-	provided := ProvideInitLimiter(limiter, time.Second)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	provided := ProvideInitLimiter(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel, ok := AcquireInitSlotFromContext(w, r)
 		if !ok {
 			return
@@ -114,4 +115,59 @@ func TestAcquireInitSlotFromContextShedsWhenBudgetFull(t *testing.T) {
 
 	assert.False(t, handlerRan, "full-basis handler must not proceed once shed")
 	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
+type fakePollShedRecorder struct {
+	mu    sync.Mutex
+	sheds []string
+}
+
+func (f *fakePollShedRecorder) RecordPollShed(envName string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sheds = append(f.sheds, envName)
+}
+
+func TestAcquireInitSlotRecordsAPollShed(t *testing.T) {
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+	defer hold()
+
+	rec := &fakePollShedRecorder{}
+	h := LimitConcurrency(limiter, time.Second, rec)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("the shed request must not reach the handler")
+	}))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Len(t, rec.sheds, 1, "a poll shed must be recorded")
+	// With no environment in the context, the name is empty rather than a panic; the routes
+	// that carry an environment attach its display name.
+	require.Equal(t, "", rec.sheds[0])
+
+	// An admitted request records nothing.
+	hold()
+	served := false
+	h2 := LimitConcurrency(limiter, time.Second, rec)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served = true }))
+	h2.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	require.True(t, served)
+	require.Len(t, rec.sheds, 1)
+
+	// A client that left the queue is not budget pressure, so it is not a shed. The
+	// rejected counter reports it under the client_gone cause.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	wGone := httptest.NewRecorder()
+	h.ServeHTTP(wGone, httptest.NewRequest("GET", "/", nil).WithContext(cancelled))
+	require.Equal(t, http.StatusServiceUnavailable, wGone.Code)
+	require.Len(t, rec.sheds, 1, "a client that left must not count as a shed")
+
+	// A shutdown drain is not budget pressure either.
+	limiter.Close()
+	wShutdown := httptest.NewRecorder()
+	h.ServeHTTP(wShutdown, httptest.NewRequest("GET", "/", nil))
+	require.Equal(t, http.StatusServiceUnavailable, wShutdown.Code)
+	require.Len(t, rec.sheds, 1, "a shutdown rejection must not count as a shed")
 }
