@@ -579,13 +579,6 @@ func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
 	})
 }
 
-func TestSanitizeTagValue(t *testing.T) {
-	assert.Equal(t, "abc", sanitizeTagValue("abc"))
-	assert.Equal(t, "not_provided", sanitizeTagValue(""))
-	assert.Equal(t, "not_provided", sanitizeTagValue("   "))
-	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
-}
-
 // The usage payload Relay reports to LaunchDarkly is a separate sink with its own consumer, so its
 // absent-value sentinel does not follow the OTel attribute one.
 func TestSanitizeUsageTagValue(t *testing.T) {
@@ -692,11 +685,43 @@ func TestUserAgentUsesSemconvKeyAndVerbatimValue(t *testing.T) {
 	assert.False(t, ok, "the bare user_agent key shadows the semconv user_agent namespace")
 }
 
+// OTLP places no restriction on attribute values, and altering one that a customer supplied corrupts it:
+// an application version can be a date, and an environment name can contain a slash.
+func TestClientSuppliedAttributesKeepSlashes(t *testing.T) {
+	attrs := buildRequestAttributes(nil, RequestInfo{
+		ApplicationID:      "checkout/web",
+		ApplicationVersion: "2026/08/01",
+	})
+
+	for key, want := range map[string]string{
+		"launchdarkly.application.id":      "checkout/web",
+		"launchdarkly.application.version": "2026/08/01",
+	} {
+		value, ok := attrs.Value(attribute.Key(key))
+		require.True(t, ok, "%s attribute not present", key)
+		assert.Equal(t, want, value.AsString(), key)
+	}
+}
+
+func TestEnvironmentNameKeepsSlashes(t *testing.T) {
+	m, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
+	require.NoError(t, err)
+	defer m.Close()
+
+	em, err := m.AddEnvironment("My Project / Staging", nil)
+	require.NoError(t, err)
+
+	envAttrs := em.GetAttributes()
+	value, ok := envAttrs.Value(attribute.Key("launchdarkly.environment.name"))
+	require.True(t, ok, "launchdarkly.environment.name attribute not present")
+	assert.Equal(t, "My Project / Staging", value.AsString())
+}
+
 // Attribute values are serialized into OTLP protobuf string fields, which proto3 requires to be valid
 // UTF-8. One bad byte fails the marshal for the whole export batch, and the poisoned series is
 // cumulative, so exports keep failing until restart. Header values are not restricted to ASCII, so this
 // has to be handled here rather than assumed away.
-func TestSanitizeTagValueStripsInvalidUTF8(t *testing.T) {
+func TestSanitizeVerbatimValueStripsInvalidUTF8(t *testing.T) {
 	specs := []struct {
 		name  string
 		input string
@@ -705,14 +730,14 @@ func TestSanitizeTagValueStripsInvalidUTF8(t *testing.T) {
 		{name: "invalid bytes in the middle", input: "bad-\xff\xfe-agent", want: "bad--agent"},
 		{name: "leading invalid byte", input: "\xffGoClient", want: "GoClient"},
 		{name: "entirely invalid collapses to sentinel", input: "\xff\xfe", want: notProvidedValue},
-		{name: "invalid plus a slash", input: "Node\xff/3.4.0", want: "Node_3.4.0"},
+		{name: "invalid plus a slash", input: "Node\xff/3.4.0", want: "Node/3.4.0"},
 		{name: "valid multi-byte UTF-8 is preserved", input: "Ruby-\u00e9", want: "Ruby-\u00e9"},
 		{name: "valid ASCII is untouched", input: "GoClient", want: "GoClient"},
 	}
 
 	for _, tt := range specs {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeTagValue(tt.input)
+			got := sanitizeVerbatimValue(tt.input)
 			assert.Equal(t, tt.want, got)
 			assert.True(t, utf8.ValidString(got), "sanitized value must be valid UTF-8, got %q", got)
 		})
