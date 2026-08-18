@@ -84,7 +84,7 @@ func (i *InitInstruments) RecordPollShed(envName string) {
 	}
 	attrs := []otelmetric.AddOption{otelmetric.WithAttributes(
 		initTransportAttrKey.String("poll"),
-		envNameAttrKey.String(sanitizeTagValue(envName)),
+		envNameAttrKey.String(sanitizeVerbatimValue(envName)),
 	)}
 	i.sheds.Add(context.Background(), 1, attrs...)
 }

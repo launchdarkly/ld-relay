@@ -151,26 +151,17 @@ func requestKVs(ri RequestInfo) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		userAgentAttrKey.String(sanitizeVerbatimValue(ri.UserAgent)),
 		httpRouteAttrKey.String(sanitizeRouteValue(ri.Route)),
-		httpRequestMethodAttrKey.String(sanitizeTagValue(ri.Method)),
+		httpRequestMethodAttrKey.String(sanitizeVerbatimValue(ri.Method)),
 		urlSchemeAttrKey.String(ri.URLScheme),
-		applicationIDAttrKey.String(sanitizeTagValue(ri.ApplicationID)),
-		applicationVersionAttrKey.String(sanitizeTagValue(ri.ApplicationVersion)),
-		endpointTypeAttrKey.String(sanitizeTagValue(string(ri.EndpointType))),
+		applicationIDAttrKey.String(sanitizeVerbatimValue(ri.ApplicationID)),
+		applicationVersionAttrKey.String(sanitizeVerbatimValue(ri.ApplicationVersion)),
+		endpointTypeAttrKey.String(sanitizeVerbatimValue(string(ri.EndpointType))),
 	}
 }
 
-// sanitizeTagValue ensures OTel attribute values are valid.
-// Empty values are replaced with the absent-value sentinel, and slashes are replaced with underscores.
-// This is not appropriate for routes, where slashes are meaningful, nor for values that a semantic
-// convention defines as verbatim.
-func sanitizeTagValue(v string) string {
-	return sanitizeReplacingSlashes(v, notProvidedValue)
-}
-
-// sanitizeUsageTagValue is sanitizeTagValue for the usage data Relay reports to LaunchDarkly. It
-// exists only to keep that payload's absent-value sentinel independent of the OTel one: the two
-// sinks have different consumers, so renaming an attribute value must not change what the usage
-// events carry.
+// sanitizeUsageTagValue sanitizes a value for the usage data Relay reports to LaunchDarkly. That payload
+// has its own consumer and wire format, so it carries its own absent-value sentinel and replaces slashes
+// with underscores.
 func sanitizeUsageTagValue(v string) string {
 	return sanitizeReplacingSlashes(v, usageNotProvidedValue)
 }
@@ -208,9 +199,9 @@ func sanitizeVerbatimValue(v string) string {
 	return v
 }
 
-// sanitizeRouteValue ensures route attribute values are valid.
-// Empty values are replaced with descriptive defaults. Unlike sanitizeTagValue,
-// slashes are preserved since they are meaningful in route paths.
+// sanitizeRouteValue ensures route attribute values are valid. Empty values are replaced with the
+// absent-value sentinel. Route templates come from the router rather than from request data, so they
+// need no UTF-8 sanitizing.
 func sanitizeRouteValue(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return notProvidedValue

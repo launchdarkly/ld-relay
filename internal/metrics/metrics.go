@@ -114,7 +114,7 @@ func NewManager(
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
 		unscopedEnv: &EnvironmentManager{
-			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(""))},
+			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeVerbatimValue(""))},
 		},
 	}
 	if m.flushInterval <= 0 {
@@ -243,7 +243,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 		return nil, errAddEnvironmentAfterClosed
 	}
 
-	envKVs := []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(envName))}
+	envKVs := []attribute.KeyValue{envNameAttrKey.String(sanitizeVerbatimValue(envName))}
 
 	var collector *RelayMetricsCollector
 	if publisher != nil {
