@@ -102,6 +102,11 @@ Attribute values that are absent are reported as `not_provided` rather than bein
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
 they report `not_provided` for `launchdarkly.environment.name` and the other SDK attributes.
 
+Values that are present are reported as received, apart from bytes that are not valid UTF-8, which are
+stripped because they would otherwise fail the OTLP export. In particular a value containing a slash --
+an application version such as `2026/08/01`, or an environment name such as `My Project / Staging` --
+keeps it.
+
 `platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
 in particular is per SDK *instance*, which made these metrics grow a series per client process. All
 three are still included in the usage data the Relay Proxy sends to LaunchDarkly.
