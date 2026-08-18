@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -47,12 +46,9 @@ func TestLimitConcurrencyShedsWhenBudgetFull(t *testing.T) {
 	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 	assert.Contains(t, rr.Body.String(), "concurrency limit reached")
 
-	// Retry-After is a small positive integer, jittered into a range so a shed herd does not
-	// retry in lockstep.
-	ra, err := strconv.Atoi(rr.Header().Get("Retry-After"))
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, ra, 2)
-	assert.LessOrEqual(t, ra, 5)
+	// The shed reply names no retry time. The SDKs pace their own retries with
+	// exponential backoff and jitter.
+	assert.Empty(t, rr.Header().Get("Retry-After"))
 }
 
 func TestLimitConcurrencyReleasesSlotWhenHandlerReturns(t *testing.T) {

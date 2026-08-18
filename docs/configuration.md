@@ -167,7 +167,7 @@ At startup, the Relay Proxy clamps a value outside the supported range and write
 
 The throughput floor and the cap measure the bytes that the Relay Proxy writes, before compression. A compressed connection puts fewer bytes on the wire for the same written bytes, so compression gives a slow reader more applicable margin against the floor.
 
-When the budget is full, the Relay Proxy sheds a polling request with an HTTP `503` response and a `Retry-After` header. For a streaming request, the response has already started, so the Relay Proxy closes the connection instead, and the SDK reconnects with backoff.
+When the budget is full, the Relay Proxy sheds a polling request with an HTTP `503` response, and the SDK retries on its own backoff schedule with jitter. For a streaming request, the response has already started, so the Relay Proxy closes the connection instead, and the SDK reconnects with backoff.
 
 
 ### File section: `[Environment "NAME"]`
