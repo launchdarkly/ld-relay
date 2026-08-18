@@ -67,6 +67,7 @@ type Relay struct {
 	closed                        bool
 	lock                          sync.RWMutex
 	autoConfigStream              *autoconfig.StreamManager
+	autoConfigActions             *projmanager.AutoConfigActionQueue
 	archiveManager                filedata.ArchiveManagerInterface
 	config                        config.Config
 	loggers                       ldlog.Loggers
@@ -204,7 +205,12 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			return nil, err
 		}
 
-		projectRouter := projmanager.NewProjectRouter(&relayAutoConfigActions{r: r}, loggers)
+		// Give each environment its own queue rather than sharing one: the actions below can block for up to
+		// Main.InitTimeout when an environment's SDK anchor moves, and running them inline on the
+		// stream-consuming goroutine made one environment's rebuild delay every other environment's
+		// updates and credential revocations.
+		r.autoConfigActions = projmanager.NewAutoConfigActionQueue(&relayAutoConfigActions{r: r}, loggers)
+		projectRouter := projmanager.NewProjectRouter(r.autoConfigActions, loggers)
 
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
@@ -329,6 +335,11 @@ func (r *Relay) Close() error {
 
 	if r.autoConfigStream != nil {
 		r.autoConfigStream.Close()
+	}
+	// Closed after the stream, so no further actions can be queued, and before the environments are
+	// closed below, so queued actions get a chance to finish against a live environment map.
+	if r.autoConfigActions != nil {
+		r.autoConfigActions.Close()
 	}
 	if r.archiveManager != nil {
 		_ = r.archiveManager.Close()

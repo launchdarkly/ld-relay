@@ -39,8 +39,9 @@ type relayAutoConfigActions struct {
 func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {
 	// Since we're not holding the lock on the RelayCore, there is theoretically a race condition here
 	// where an environment could be added from elsewhere after we checked in AddOrUpdateEnvironment.
-	// But in reality, this method is only going to be called from a single goroutine in the auto-config
-	// stream handler.
+	// In practice it cannot happen. Calls for one environment share a queue (see
+	// projmanager.AutoConfigActionQueue), so they never overlap. Calls for different environments do
+	// run together, but each one checks a different key, and addEnvironment holds the lock to insert.
 	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
