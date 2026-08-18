@@ -507,7 +507,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 // sdkKeyIsActive reports whether the rotator still accepts sdkKey. startSDKClient uses this to avoid
 // installing a client for a key revoked while the client was building.
 func (c *envContextImpl) sdkKeyIsActive(sdkKey config.SDKKey) bool {
-	return slices.Contains(c.keyRotator.AllCredentials(), credential.SDKCredential(sdkKey))
+	return c.keyRotator.IsAccepted(sdkKey)
 }
 
 func (c *envContextImpl) GetPayloadFilter() config.FilterKey {
@@ -825,6 +825,19 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 }
 
 func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, cred credential.SDKCredential) http.Handler {
+	// Re-check the accepted set. The middleware authenticates the credential once, at the start of the
+	// request, and a credential can be revoked while that request is still in flight: on the REPORT
+	// stream endpoints the client paces the body read that precedes this call. The providers only
+	// type-check the credential, so a revoked one would otherwise get a working handler, not a 404.
+	//
+	// A revocation can still land between this check and the subscription registering. The eventsource
+	// handler writes the status line first, so that case still returns 200.
+	//
+	// The rotator guards its own accepted set. Do not take c.mu here: reanchor holds it for writing
+	// across its whole commit sequence, and stream connects must not queue behind it.
+	if !c.keyRotator.IsAccepted(cred) {
+		return http.HandlerFunc(invalidStreamHandler)
+	}
 	// Build the handler on demand: every handler in a (filter, provider) slot differs only by the
 	// credential-derived channel id. c.filterKey is immutable after construction, so this needs no lock.
 	if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
