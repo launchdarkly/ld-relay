@@ -2,9 +2,7 @@ package middleware
 
 import (
 	"context"
-	"math/rand/v2"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
@@ -31,7 +29,7 @@ type InitShedRecorder interface {
 
 // AcquireInitSlot draws one slot from the shared initialization-delivery limiter for the
 // current request, holding it until the returned release is called. If the budget is full it
-// writes a 503 (with a jittered Retry-After and a JSON body) and returns ok=false; the caller
+// writes a 503 (with a JSON body) and returns ok=false; the caller
 // must then write nothing further. A disabled or nil limiter always admits with a no-op
 // release, so callers can invoke this unconditionally.
 //
@@ -64,7 +62,6 @@ func AcquireInitSlot(limiter *concurrency.Limiter, recorder InitShedRecorder, w 
 			recorder.RecordPollShed(envNameFromContext(r))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds()))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write(util.ErrorJSONMsg("relay initialization concurrency limit reached; retry shortly"))
 		return func() {}, false
@@ -152,10 +149,4 @@ func shedReason(r *http.Request, limiter *concurrency.Limiter) string {
 		return "shutdown"
 	}
 	return "budget_full"
-}
-
-// retryAfterSeconds returns a small jittered Retry-After (in seconds) so a shed herd does
-// not retry in lockstep and re-synchronize the next burst.
-func retryAfterSeconds() int {
-	return 2 + rand.IntN(4) //nolint:gosec // Retry-After jitter is not security-sensitive; a fast PRNG is fine. 2..5 seconds
 }
