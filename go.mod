@@ -30,7 +30,7 @@ require (
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.4
-	github.com/launchdarkly/go-server-sdk/v7 v7.15.4
+	github.com/launchdarkly/go-server-sdk/v7 v7.15.6
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/pborman/uuid v1.2.1
 	github.com/stretchr/testify v1.11.1
