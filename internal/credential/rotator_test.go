@@ -682,3 +682,70 @@ func TestIsAcceptedFalseOnceExpiryElapses(t *testing.T) {
 	assert.True(t, r.IsAccepted(anchor), "the anchor never expires")
 	assert.True(t, r.IsAccepted(mob), "the primary mobile key is permanent")
 }
+
+func TestReconcileKeepsRevokedAnchorAcceptedUntilCommit(t *testing.T) {
+	// A payload that revokes the current anchor outright must not drop it from the accepted set while
+	// it is still serving. The re-anchor's client build runs between Reconcile and CommitAnchor, and
+	// throughout that window the environment answers requests on the old anchor.
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	keyAName := "anchor-sdk"
+	now := time.Now()
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyA, Key: &keyAName})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Rotate to keyB, omitting keyA entirely (immediate revocation).
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyB})), now)
+	require.NotNil(t, res.AnchorChange)
+
+	// Mid-build: keyA is still the anchor, so it must still authenticate and still appear in /status.
+	assert.Equal(t, keyA, r.AnchorKey())
+	assert.True(t, r.IsAccepted(keyA), "the serving anchor must stay accepted until the anchor moves")
+	assert.Contains(t, r.AllCredentials(), SDKCredential(keyA))
+	assert.Equal(t, &keyAName, r.AcceptedKeys().Server[keyA].Key,
+		"the retained entry keeps its wire identifier, so /status still names the serving key")
+
+	// The revocation is still queued, so the caller tears the key's mappings down after the commit.
+	_, expirations := r.StepTime(now)
+	assert.Contains(t, expirations, SDKCredential(keyA), "the revocation is queued, only deferred")
+
+	// The anchor moves: the protection ends here.
+	r.CommitAnchor(keyB)
+	assert.Equal(t, keyB, r.AnchorKey())
+	assert.False(t, r.IsAccepted(keyA), "the outgoing anchor is dropped once the anchor has moved")
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(keyA))
+}
+
+func TestRevertAnchorChangeKeepsRevokedAnchorAcceptedWithItsMetadata(t *testing.T) {
+	// The rollback counterpart: the build failed, so the anchor never moved. The revoked previous
+	// anchor keeps serving, so it stays accepted with its identifier intact.
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	keyAName := "anchor-sdk"
+	now := time.Now()
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyA, Key: &keyAName})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyB})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.RevertAnchorChange(*res.AnchorChange) // no CommitAnchor: the build failed
+
+	assert.Equal(t, keyA, r.AnchorKey())
+	assert.True(t, r.IsAccepted(keyA), "a rolled-back re-anchor leaves the serving anchor accepted")
+	assert.Equal(t, &keyAName, r.AcceptedKeys().Server[keyA].Key)
+	assert.False(t, r.IsAccepted(keyB), "the failed new anchor is dropped")
+
+	// A later commit must not act on the reverted reconcile's decision.
+	r.CommitAnchor(keyA)
+	assert.True(t, r.IsAccepted(keyA), "committing the same anchor must not drop it")
+}
