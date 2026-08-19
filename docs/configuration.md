@@ -81,6 +81,8 @@ _(4)_ For details about `disconnectedStatusTime`, read [Service endpoints - Stat
 _(5)_ Relevant only when using AutoConfig or Offline Mode. In these modes, when an environment's SDK key is rotated in 
 LaunchDarkly, it's possible to specify a deprecation/grace period for the previous key where existing SDKs are still able
 to authorize using that credential. Relay will periodically check for expired credentials and remove them on this interval.
+This interval is also how often Relay retries a key rotation whose new SDK key failed to connect: until it succeeds, the
+environment keeps serving on the previous key, which LaunchDarkly may already be invalidating.
 
 ### File section: `[AutoConfig]`
 
