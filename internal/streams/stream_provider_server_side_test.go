@@ -3,14 +3,23 @@ package streams
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
@@ -428,4 +437,444 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.True(t, closed, "producer did not stop after context cancellation (channel never closed)")
 		})
 	})
+}
+
+func TestStreamReplayShedClosesConnectionWhenBudgetFull(t *testing.T) {
+	const flagKey = "flagkey"
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NoSelector(), nil
+	})
+
+	// A budget with its only slot already held, so the replay must shed.
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
+	release, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+	defer release()
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), initLimiter: limiter}
+
+	// The connection's close hook, as withInitDeadline would install it. A shed replay must
+	// invoke it so the SDK reconnects instead of stranding on an open, uninitialized stream.
+	closed := make(chan struct{})
+	ctx := context.WithValue(context.Background(), closeConnectionKey{}, func() { close(closed) })
+
+	eventCh := repo.ReplayWithContext(ctx, "", "")
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "shed replay did not close the connection")
+	}
+
+	// It also delivers no events: the channel is closed with nothing sent.
+	select {
+	case e, ok := <-eventCh:
+		assert.False(t, ok, "shed replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed after shed")
+	}
+}
+
+// TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot pins the intended exit from
+// the queue: a client that disconnects while it waits for a slot releases its place
+// immediately, and the SDK then tries again on its own backoff schedule. The exit must not
+// write a warning, and the occupancy must come back, so a later client can use the queue.
+func TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot(t *testing.T) {
+	const flagKey = "flagkey"
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NoSelector(), nil
+	})
+
+	waitForWaiting := func(n int, l *concurrency.Limiter) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for l.Stats().Waiting != n {
+			if time.Now().After(deadline) {
+				require.Failf(t, "timeout", "limiter never reported Waiting==%d (stats: %+v)", n, l.Stats())
+			}
+			runtime.Gosched()
+		}
+	}
+
+	// The only slot is held, so the replay must queue.
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	release, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	var recs []slog.Record
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: slog.New(capturingHandler{&recs}), initLimiter: limiter,
+	}
+
+	cctx, cancel := context.WithCancel(context.Background())
+	eventCh := repo.ReplayWithContext(cctx, "", "")
+	waitForWaiting(1, limiter)
+
+	cancel() // the client disconnects while queued
+
+	// The replay ends with nothing sent.
+	select {
+	case e, open := <-eventCh:
+		assert.False(t, open, "a disconnected queued replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed after the disconnect")
+	}
+	waitForWaiting(0, limiter)
+
+	// The designed exit is quiet: no warning for a client that chose to leave.
+	for _, rec := range recs {
+		assert.NotEqual(t, slog.LevelWarn, rec.Level, "disconnect from the queue must not log a warning: %s", rec.Message)
+	}
+
+	// The occupancy came back with the queue spot: a holder plus a queued waiter fit again.
+	admitted := make(chan bool)
+	go func() {
+		r2, ok2 := limiter.Acquire(context.Background())
+		if ok2 {
+			r2()
+		}
+		admitted <- ok2
+	}()
+	waitForWaiting(1, limiter)
+	release()
+	assert.True(t, <-admitted, "queue capacity was not relinquished by the disconnected client")
+}
+
+// TestStreamReplayShutdownEndsQuietly pins the shutdown path: a replay that the limiter
+// rejects because it is closing must not write the budget-saturation warning. One line for
+// each parked waiter would flood the log during a normal shutdown and look like an outage.
+func TestStreamReplayShutdownEndsQuietly(t *testing.T) {
+	const flagKey = "flagkey"
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NoSelector(), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	limiter.Close()
+
+	var recs []slog.Record
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: slog.New(capturingHandler{&recs}), initLimiter: limiter,
+	}
+	eventCh := repo.ReplayWithContext(context.Background(), "", "")
+	select {
+	case e, open := <-eventCh:
+		assert.False(t, open, "a shutdown replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed at shutdown")
+	}
+	for _, rec := range recs {
+		assert.NotEqual(t, slog.LevelWarn, rec.Level,
+			"shutdown must not log the budget-saturation warning: %s", rec.Message)
+	}
+}
+
+// deadlineRecorder is a ResponseWriter whose recorded deadlines are safe to read after the
+// handler returns. Tests use it to make sure the watcher completed its cut before the
+// wrapper returned.
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	mu        sync.Mutex
+	deadlines []time.Time
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.deadlines = append(d.deadlines, t)
+	return nil
+}
+
+func (d *deadlineRecorder) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.deadlines)
+}
+
+// TestWatcherCutCompletesBeforeHandlerReturns pins the watcher join: before the wrapped
+// handler returns to net/http, the watcher must complete its cut. Without the join, the cut
+// could touch a connection that net/http already gave to another request, which the writer
+// contract forbids. The handler returns in the middle of a delivery, so the cut makes a
+// real deadline call.
+func TestWatcherCutCompletesBeforeHandlerReturns(t *testing.T) {
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 4})
+	sp := &serverSideStreamProvider{initLimiter: limiter, sendTimeout: 30 * time.Second}
+
+	for i := 0; i < 100; i++ {
+		rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+		wrapped := sp.withInitDeadline(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			iw, ok := r.Context().Value(initWriterKey{}).(*initwrite.Writer)
+			require.True(t, ok)
+			iw.Begin()
+			_, _ = w.Write([]byte("data: x\n\n"))
+			// Return mid-delivery: the wrapper's deferred cancel fires the watcher's cut.
+		}))
+		wrapped.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+
+		// One arm from the write, one deadline-to-now from the watcher's cut: both must have
+		// happened strictly before ServeHTTP returned.
+		if rec.count() != 2 {
+			t.Fatalf("iteration %d: watcher had not completed its cut when the handler returned (%d deadline calls)", i, rec.count())
+		}
+	}
+}
+
+// TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead guards the peek key: a
+// client that reconnects at the CURRENT basis must get an up-to-date reply, also while the
+// older-basis store read of another client is in progress. With one fixed key for all
+// reads, this client joined the older read, failed the up-to-date check against the old
+// selector, and incorrectly received a full basis at the old state.
+// TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission pins the post-admission read:
+// a client queued while its basis was ahead of the store, and the store became equal to
+// that basis during the wait. The client must get the small up-to-date reply, not a full
+// basis serialized from the state that applied when it first asked. On the up-to-date path,
+// the second read also returns the slot immediately.
+func TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission(t *testing.T) {
+	const flagKey = "flagkey"
+	var stateNow atomic.Int64
+	stateNow.Store(1)
+
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		st := int(stateNow.Load())
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(st).Build()
+		sel := "s" + strconv.Itoa(st)
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector(sel, st), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background()) // the only slot is held, so the client queues
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+
+	// The client asks at basis "s2" while the store is at s1: not up-to-date, so it needs a
+	// full basis and parks in the queue.
+	eventCh := repo.ReplayWithContext(context.Background(), "", "s2")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+
+	// While it waits, the store catches up to the client's basis; then the slot frees.
+	stateNow.Store(2)
+	hold()
+
+	var events []eventsource.Event
+	for {
+		e, ok, closed := helpers.TryReceive(eventCh, 2*time.Second)
+		if closed {
+			break
+		}
+		require.True(t, ok, "timed out waiting for replayed event")
+		events = append(events, e)
+	}
+	require.Len(t, events, 1, "expected a single up-to-date event, got a full basis (the read was not refreshed after the queue wait)")
+	assert.Equal(t, string(subsystems.EventServerIntent), events[0].Event())
+	assert.Contains(t, events[0].Data(), `"intentCode":"none"`)
+
+	// The up-to-date path returns the slot at once.
+	deadline = time.Now().Add(2 * time.Second)
+	for limiter.Stats().Held != 0 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "slot not released after the up-to-date reply (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+}
+
+// TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead pins the other half of
+// the post-admission read: a client that continues to need a full basis after its queue
+// wait must receive the store as it is at admission, not the state that applied when it
+// first asked. A serialization from the pre-queue snapshot is the exact fault the second
+// read exists to prevent.
+func TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead(t *testing.T) {
+	const flagKey = "flagkey"
+	var stateNow atomic.Int64
+	stateNow.Store(1)
+
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		st := int(stateNow.Load())
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(st).Build()
+		sel := "s" + strconv.Itoa(st)
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector(sel, st), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+
+	// The client's basis "s9" never becomes current, so it needs a full basis both before and
+	// after the wait.
+	eventCh := repo.ReplayWithContext(context.Background(), "", "s9")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+
+	// The store advances while the client waits; then the slot frees.
+	stateNow.Store(3)
+	hold()
+
+	var payload strings.Builder
+	for {
+		e, ok, closed := helpers.TryReceive(eventCh, 2*time.Second)
+		if closed {
+			break
+		}
+		require.True(t, ok, "timed out waiting for replayed event")
+		payload.WriteString(e.Event())
+		payload.WriteString(e.Data())
+	}
+	// The flag data is what ages: the selector travels separately, so a regression that
+	// serializes the stale snapshot while rechecking the fresh selector still reports "s3".
+	// Only the flag version proves which snapshot fed the serialization.
+	assert.Contains(t, payload.String(), `"version":3`, "the basis must be serialized from the post-admission read")
+	assert.NotContains(t, payload.String(), `"version":1`, "the basis was serialized from the pre-queue read: the queue wait aged the payload")
+	assert.Contains(t, payload.String(), `"state":"s3"`, "the payload must carry the post-admission selector")
+}
+
+// TestStreamReplayPostAdmissionReadErrorReleasesSlot pins the error path of the second
+// read: a store read that fails after the budget admits the replay must return the slot. A
+// leak here would decrease the budget by one for each store error under saturation, exactly
+// when a store failure is most probable, until nothing could initialize at all.
+func TestStreamReplayPostAdmissionReadErrorReleasesSlot(t *testing.T) {
+	const flagKey = "flagkey"
+	var reads atomic.Int64
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		if reads.Add(1) > 1 {
+			return nil, subsystems.NoSelector(), errors.New("store went away")
+		}
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector("s1", 1), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+	eventCh := repo.ReplayWithContext(context.Background(), "", "s9")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+	hold() // admit the client; its refreshed read fails
+
+	select {
+	case e, open := <-eventCh:
+		assert.False(t, open, "a failed replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed after the read error")
+	}
+
+	// The slot must come back despite the error.
+	deadline = time.Now().Add(2 * time.Second)
+	for limiter.Stats().Held != 0 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "the slot leaked on the post-admission read error (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+	// And the budget still has its full capacity.
+	r2, ok2 := limiter.Acquire(context.Background())
+	require.True(t, ok2, "budget capacity eroded by the read error")
+	r2()
+}
+
+func TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead(t *testing.T) {
+	const flagKey = "flagkey"
+	firstReadStarted := make(chan struct{}, 1)
+	releaseFirstRead := make(chan struct{})
+	var mu sync.Mutex
+	state := 0
+
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		mu.Lock()
+		state++
+		s := state
+		mu.Unlock()
+		// Hold only the first read (client A, no basis) in flight so client B subscribes while
+		// it is still running. A plain counter is used rather than sync.Once so B's concurrent
+		// read is not serialized behind A's. Each caller reads the store as it is when its own
+		// read runs, so A sees "s1" and B's separate read sees "s2" -- modeling the store
+		// advancing between the two subscriptions.
+		if s == 1 {
+			firstReadStarted <- struct{}{}
+			<-releaseFirstRead
+		}
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(s).Build()
+		sel := "s" + strconv.Itoa(s)
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector(sel, s), nil
+	})
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true}
+
+	// Client A reconnects with no basis; its read (state s1) blocks in flight.
+	chA := repo.ReplayWithContext(context.Background(), "", "")
+	<-firstReadStarted
+
+	// Client B reconnects at basis "s2" -- the state its own fresh read will observe.
+	chB := repo.ReplayWithContext(context.Background(), "", "s2")
+
+	// B must not have to wait on A's read; it should read fresh and answer up-to-date.
+	drain := func(ch <-chan eventsource.Event) []eventsource.Event {
+		var out []eventsource.Event
+		for {
+			e, ok, closed := helpers.TryReceive(ch, 2*time.Second)
+			if closed {
+				return out
+			}
+			require.True(t, ok, "timed out waiting for replayed event")
+			out = append(out, e)
+		}
+	}
+	eventsB := drain(chB)
+	require.Len(t, eventsB, 1, "expected a single up-to-date event, got a full basis (stale-read regression)")
+	assert.Equal(t, string(subsystems.EventServerIntent), eventsB[0].Event())
+	assert.Contains(t, eventsB[0].Data(), `"intentCode":"none"`)
+
+	// Let A finish so its goroutine is not leaked.
+	close(releaseFirstRead)
+	drain(chA)
 }

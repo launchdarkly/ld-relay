@@ -68,6 +68,7 @@ type Relay struct {
 	archiveManager                filedata.ArchiveManagerInterface
 	config                        config.Config
 	logger                        *slog.Logger
+	initConcurrency               initConcurrency
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -145,9 +146,23 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	userAgent := "LDRelay/" + version.Version
 
+	// The shared initialization-delivery budget limits the concurrent full-data-set writes,
+	// for the polls and for the full-basis stream replays, so a reconnect herd cannot use
+	// memory or egress without limit. It is disabled by default.
+	initConc := newInitConcurrency(c.Concurrency, logger)
+	initConc.logEnabled(logger)
+	if initConc.limiter.Enabled() {
+		if err := metricsManager.RegisterInitConcurrencyObservers(initConc.limiter); err != nil {
+			logger.Warn("failed to register the init-concurrency limiter instruments", "error", err)
+		}
+	}
+
 	r := &Relay{
-		envsByCredential:              NewEnvironmentLookup(),
-		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0),
+		envsByCredential: NewEnvironmentLookup(),
+		serverSideStreamProvider: streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0,
+			streams.WithInitLimiter(initConc.limiter, initConc.sendTimeout),
+			streams.WithInitObserver(metricsManager.InitInstruments()),
+			streams.WithLogger(logger)),
 		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
 		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),
 		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime),
@@ -159,6 +174,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		envLogNameMode:                logNameMode,
 		config:                        c,
 		logger:                        logger,
+		initConcurrency:               initConc,
 	}
 
 	thingsToCleanUp.AddCloser(r)
@@ -336,6 +352,8 @@ func (r *Relay) Close() error {
 	for _, sp := range r.allStreamProviders() {
 		sp.Close()
 	}
+
+	r.initConcurrency.close()
 
 	return nil
 }
