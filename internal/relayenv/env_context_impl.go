@@ -2,6 +2,7 @@ package relayenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -584,7 +585,8 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 }
 
 // reanchor moves the environment's upstream connection to change.NewAnchor. It returns true if the
-// anchor was committed, and false if it rolled back (the build failed, or the env closed).
+// anchor was committed, and false if it rolled back. A rollback happens when the build produces no
+// usable client, or when the env closed.
 // This function is the canonical re-anchor sequence: Reconcile signals the anchor change but does not
 // flip the rotator's pointer; reanchor builds or reuses the client, then commitReanchor moves it.
 //
@@ -612,18 +614,20 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 
 	// A live client is reused as-is, and an offline env builds none. Both cases fall through to commit.
 	why := "reused existing client"
+	var buildErr error
 	if c.clients[newAnchor] == nil {
 		if c.offline {
-			why = "offline — no client build"
+			why = "offline -- no client build"
 		} else {
 			// Build without the lock: sdkClientFactory can block for up to sdkInitTimeout, and holding
 			// c.mu that long would stall every GetClient and GetStore caller.
 			c.mu.Unlock()
-			client := c.buildNewAnchorClient(newAnchor, previousAnchor)
+			client, err := c.buildNewAnchorClient(newAnchor, previousAnchor)
 			c.mu.Lock()
 
 			if client == nil {
-				// Init failed. buildNewAnchorClient logged the error and closed the half-built client.
+				// The re-anchor must roll back. buildNewAnchorClient logged the reason, and it closed
+				// any half-built client.
 				return false
 			}
 			if c.closed {
@@ -639,11 +643,12 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 			c.clients[newAnchor] = client
 			// GetStore() returns the same wrapper the old client used, so there is no empty-store window.
 			c.rebuildEvaluator()
+			buildErr = err
 			why = "built new client"
 		}
 	}
 
-	if !c.commitReanchor(newAnchor, previousAnchor, why) {
+	if !c.commitReanchor(newAnchor, previousAnchor, why, buildErr) {
 		return false
 	}
 
@@ -659,36 +664,42 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	return true
 }
 
-// buildNewAnchorClient constructs the SDK client for a re-anchor to newAnchor. It returns nil if the
-// build failed, after closing any half-built client and logging the error.
+// buildNewAnchorClient constructs the SDK client for a re-anchor to newAnchor. It returns the client
+// and the build error. The error is non-nil when the client exists but is not initialized yet.
+//
+// It returns a nil client when the re-anchor must roll back. Two conditions cause a rollback: the
+// factory produced no client, or the SDK reports ErrInitializationFailed. ErrInitializationFailed is
+// permanent, because the SDK stops the data source and makes no more attempts. A timeout is
+// different. The SDK keeps retrying, so the caller commits that client and lets it connect later.
 //
 // The caller must not hold c.mu: sdkClientFactory can block for sdkInitTimeout, which would stall
 // every GetClient and GetStore caller. This method reads only construction-time fields.
 //
-// It leaves initErr alone on failure. initErr feeds the request middleware, so setting it would 401
-// an env that is still serving on the previous anchor.
+// It leaves initErr alone. commitReanchor records the build error, so a rollback keeps the previous
+// anchor's init status.
 //
 // The Close() below relies on the store-release contract in sdks.ClientFactoryFunc.
-func (c *envContextImpl) buildNewAnchorClient(newAnchor, previousAnchor config.SDKKey) sdks.LDClientContext {
+func (c *envContextImpl) buildNewAnchorClient(newAnchor, previousAnchor config.SDKKey) (sdks.LDClientContext, error) {
 	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
-	if err != nil || client == nil || !client.Initialized() {
-		var initialized bool
+	if client == nil || errors.Is(err, ld.ErrInitializationFailed) {
 		if client != nil {
-			initialized = client.Initialized()
 			_ = client.Close()
 		}
-		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v initialized=%v); "+
+		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed permanently (err=%v); "+
 			"preserving previous anchor %s",
-			newAnchor.Masked(), err, initialized, previousAnchor.Masked())
-		return nil
+			newAnchor.Masked(), err, previousAnchor.Masked())
+		return nil, err
 	}
-	return client
+	return client, err
 }
 
 // commitReanchor is the second half of the re-anchor sequence: move the rotator's anchor pointer,
-// clear a stale init error, and repoint event and metrics forwarding. It returns false without
-// committing if the env was closed first. The caller must hold c.mu.
-func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey, why string) bool {
+// record the new client's init status, and repoint event and metrics forwarding. It returns false
+// without committing if the env was closed first. The caller must hold c.mu.
+//
+// buildErr is the error from this re-anchor's client build. It is nil when the client initialized. It
+// is also nil for a reused client and for an offline env, because neither builds a client.
+func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey, why string, buildErr error) bool {
 	if c.closed {
 		// Close() ran first. The env is being torn down, so do not flip the anchor.
 		return false
@@ -701,8 +712,11 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 	if !c.offline {
 		c.anchorClientGen++
 	}
-	// The anchor now points at a healthy client, so clear any init error a prior client left behind.
-	c.initErr = nil
+	// Record this build's outcome as the env's init status. This also clears an error that a prior
+	// client left behind. A client that is still connecting keeps its timeout error here, which is
+	// safe: the request middleware rejects only ErrInitializationFailed, and that value never reaches
+	// a commit.
+	c.initErr = buildErr
 
 	if c.metricsEventPub != nil {
 		c.metricsEventPub.ReplaceCredential(newAnchor)
@@ -714,7 +728,14 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 	// Big-segment requests authenticate with the anchor SDK key, so the synchronizer follows the anchor.
 	c.reanchorBigSegmentSync(newAnchor)
 
-	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
+	if buildErr == nil {
+		c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)",
+			previousAnchor.Masked(), newAnchor.Masked(), why)
+	} else {
+		c.globalLoggers.Warnf("Re-anchored SDK from %s to %s (%s), but the client is not initialized "+
+			"yet: %v. The SDK continues to retry, and the data store keeps serving requests.",
+			previousAnchor.Masked(), newAnchor.Masked(), why, buildErr)
+	}
 	return true
 }
 
