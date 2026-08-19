@@ -33,6 +33,10 @@ type AcceptedKeySet struct {
 type Rotator struct {
 	loggers ldlog.Loggers
 
+	// anchorPendingRemoval means a payload revoked the anchor, but it stays accepted because it is
+	// still serving. CommitAnchor drops it when the anchor moves. See reconcileSDKKeys.
+	anchorPendingRemoval bool
+
 	// There is only one mobile key active at a given time.
 	primaryMobileKey config.MobileKey
 
@@ -309,6 +313,13 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 func (r *Rotator) CommitAnchor(key config.SDKKey) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// A revoked anchor stays accepted while it serves (see reconcileSDKKeys). It stops serving here, so
+	// drop it. Reconcile already queued its expiration, so the caller removes its mappings next.
+	if r.anchorPendingRemoval && key != r.anchorKey {
+		delete(r.acceptedSDKKeys, r.anchorKey)
+	}
+	r.anchorPendingRemoval = false
 	r.anchorKey = key
 }
 
@@ -323,6 +334,10 @@ func (r *Rotator) CommitAnchor(key config.SDKKey) {
 func (r *Rotator) RevertAnchorChange(change AnchorChange) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// The anchor never moved, so it keeps serving and stays accepted. Clear the flag so a later
+	// CommitAnchor does not act on this reconcile's decision.
+	r.anchorPendingRemoval = false
 
 	// Only re-admit a defined previous anchor. The rotator holds defined keys only, and an env that
 	// gains its first SDK key has an undefined previous anchor.
@@ -384,7 +399,23 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, now time.Time) {
 		}
 		desired[key] = info
 	}
+	// Snapshot the anchor before the diff deletes it, so its expiry and its name survive.
+	anchorBefore, anchorAcceptedBefore := r.acceptedSDKKeys[r.anchorKey]
+
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
+
+	// The anchor keeps serving until a re-anchor commits. That commit happens after the new key's
+	// client is built. So a payload that revokes the anchor must not drop it yet. /status still lists
+	// that key, and GetStreamHandler still authenticates it. CommitAnchor drops the entry when the
+	// anchor moves. The expiration queued above stands, so the key's mappings come down after that.
+	// StepTime and DeprecatedCredentials guard the anchor the same way.
+	r.anchorPendingRemoval = false
+	if anchorAcceptedBefore {
+		if _, stillAccepted := r.acceptedSDKKeys[r.anchorKey]; !stillAccepted {
+			r.acceptedSDKKeys[r.anchorKey] = anchorBefore
+			r.anchorPendingRemoval = true
+		}
+	}
 }
 
 // reconcileMobileKeys does for mobile keys what reconcileSDKKeys does for SDK keys. An empty primary
