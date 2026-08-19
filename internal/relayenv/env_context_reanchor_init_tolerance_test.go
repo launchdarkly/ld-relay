@@ -142,7 +142,7 @@ func TestReanchorInitTolerance_PermanentFailureRollsBack(t *testing.T) {
 		"the anchor stays on the previous key")
 	assert.Same(t, oldClient, env.GetClient(), "the previous anchor's client still serves")
 	assert.NoError(t, env.GetInitError(), "a rollback leaves the serving env's init status alone")
-	mockLog.AssertMessageMatch(t, true, ldlog.Error, "Re-anchor to SDK key .* failed permanently")
+	mockLog.AssertMessageMatch(t, true, ldlog.Error, "Re-anchor to SDK key .* failed")
 
 	rejected.AwaitClose(t, time.Second)
 	select {

@@ -131,6 +131,14 @@ type envContextImpl struct {
 	// is held separately from mu so that readers keep running during the SDK client construction.
 	reconcileMu sync.Mutex
 
+	// pendingReanchor holds the credential set from the most recent reconcile whose re-anchor rolled
+	// back, so the cleanup ticker can retry it. It is nil once a reconcile fully applies. Guarded by
+	// reconcileMu, which the reconcile path and the ticker's replay both already hold.
+	//
+	// The set is immutable and safe to replay. Its expiries are absolute instants, so a later attempt
+	// does not extend a grace period, and it does not resurrect a key whose expiry has passed.
+	pendingReanchor *credential.AcceptedSet
+
 	// anchorClientGen counts how many times the anchor client has been established. A re-anchor
 	// commit bumps it. startSDKClient captures it at launch and discards its build if the value
 	// advanced, because a slow build can finish after a later re-anchor. Guarded by c.mu.
@@ -545,12 +553,22 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
 
+	c.applyCredentialSet(newSet, now)
+}
+
+// applyCredentialSet is the body of reconcileCredentials, split out so the cleanup ticker can replay a
+// rolled-back set without releasing and retaking reconcileMu. The caller must hold reconcileMu.
+func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now time.Time) {
 	result := c.keyRotator.Reconcile(newSet, now)
 	additions, expirations := c.keyRotator.StepTime(now)
 
 	for _, cred := range additions {
 		c.addCredential(cred)
 	}
+
+	// Any pending retry belongs to an earlier payload. This reconcile either re-arms it below or
+	// supersedes it, so drop it up front.
+	c.pendingReanchor = nil
 
 	if result.AnchorChange != nil {
 		if committed := c.reanchor(result.AnchorChange); !committed {
@@ -567,6 +585,11 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 			expirations = slices.DeleteFunc(expirations, func(cred credential.SDKCredential) bool {
 				return cred == previousAnchor
 			})
+			// Arm the cleanup ticker to retry. Without a retry the environment stays on the previous
+			// anchor. LaunchDarkly re-puts the same payload, the MessageReceiver deduplicates it by
+			// version, and nothing drives the re-anchor again. The previous anchor then serves only until
+			// LaunchDarkly invalidates it.
+			c.recordFailedReanchor(newSet)
 		}
 	}
 
@@ -582,6 +605,26 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 	for _, cred := range expirations {
 		c.removeCredential(cred)
 	}
+}
+
+// recordFailedReanchor arms the cleanup ticker to replay set, after a re-anchor rolled back. The caller
+// must hold reconcileMu.
+//
+// The retry has no attempt limit. Giving up would leave the environment on a key LaunchDarkly is
+// invalidating, which is the state this retry prevents. Each attempt costs one SDK client build per
+// cleanup interval, so the cost is already rate-limited. buildNewAnchorClient logs an error on every
+// failed attempt, and commitReanchor logs the re-anchor that finally succeeds.
+//
+// A rollback caused by the environment closing mid-build arms nothing, because the ticker has already
+// stopped and would never run the replay.
+func (c *envContextImpl) recordFailedReanchor(set credential.AcceptedSet) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return
+	}
+	c.pendingReanchor = &set
 }
 
 // reanchor moves the environment's upstream connection to change.NewAnchor. It returns true if the
@@ -668,9 +711,12 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 // and the build error. The error is non-nil when the client exists but is not initialized yet.
 //
 // It returns a nil client when the re-anchor must roll back. Two conditions cause a rollback: the
-// factory produced no client, or the SDK reports ErrInitializationFailed. ErrInitializationFailed is
-// permanent, because the SDK stops the data source and makes no more attempts. A timeout is
-// different. The SDK keeps retrying, so the caller commits that client and lets it connect later.
+// factory produced no client, or the SDK reports ErrInitializationFailed. ErrInitializationFailed
+// stops the SDK's own attempts, so waiting on the client cannot help. A timeout is different. The SDK
+// keeps retrying, so the caller commits that client and lets it connect later.
+//
+// A rollback arms recordFailedReanchor, so the credential cleanup ticker replays the whole set later.
+// That relay-level retry is the only thing that reattempts a rollback.
 //
 // The caller must not hold c.mu: sdkClientFactory can block for sdkInitTimeout, which would stall
 // every GetClient and GetStore caller. This method reads only construction-time fields.
@@ -685,8 +731,8 @@ func (c *envContextImpl) buildNewAnchorClient(newAnchor, previousAnchor config.S
 		if client != nil {
 			_ = client.Close()
 		}
-		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed permanently (err=%v); "+
-			"preserving previous anchor %s",
+		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v); "+
+			"preserving previous anchor %s and retrying on the credential cleanup interval",
 			newAnchor.Masked(), err, previousAnchor.Masked())
 		return nil, err
 	}
@@ -773,6 +819,16 @@ func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredentia
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
+
+	// A rolled-back re-anchor is retried here. The retry replays the whole set instead of only rebuilding
+	// the client. That keeps the retry on the one path that sequences add -> re-anchor -> remove, and it
+	// makes the retry idempotent. A newer payload replaces the pending set, and a set whose anchor is
+	// already current produces no anchor change and clears the retry. The replay also does this method's
+	// StepTime pass, so nothing else runs afterwards.
+	if pending := c.pendingReanchor; pending != nil {
+		c.applyCredentialSet(*pending, now)
+		return
+	}
 
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
