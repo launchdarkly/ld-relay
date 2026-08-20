@@ -120,6 +120,18 @@ func (r *Relay) makeRouter() *mux.Router {
 		)
 	}
 
+	// The FDv1 all-flags poll response is always a full-data-set write, the same resource
+	// that a full-basis stream replay uses. Thus pollLimit charges each such request against
+	// the shared initialization-delivery budget when the request enters. It sheds with a 503
+	// when the budget is full, and it limits how long a slow client can keep a held slot.
+	//
+	// For the FDv2 poll endpoints, provideInitLimiter makes the budget available to the
+	// handler instead. The handler takes a slot only on its full-basis branch, and a cheap
+	// up-to-date reply never uses one. Both wrappers are disabled by default and then do
+	// nothing.
+	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
+	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
+
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
 	// because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
@@ -129,7 +141,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	sdkRouter.Handle("/stream", serverSideMiddlewareStack(metrics.EndpointTypeStream)(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	sdkRouter.Handle("/poll", serverSideMiddlewareStack(metrics.EndpointTypePoll)(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(metrics.EndpointTypePoll)(provideInitLimiter(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2))))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
@@ -156,8 +168,8 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.RequestMetrics(metrics.EndpointTypePoll),
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
-	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("GET", "OPTIONS")
-	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("POST", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("/{context}", provideInitLimiter(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("GET", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("", provideInitLimiter(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("POST", "OPTIONS")
 
 	serverSidePollStack := serverSideMiddlewareStack(metrics.EndpointTypePoll)
 
@@ -170,7 +182,9 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideEvalXRouter.Handle("/user", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
 
 	// PHP SDK endpoints
-	sdkRouter.Handle("/flags", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags", serverSidePollStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler))))).Methods("GET")
+	// The single-flag and single-segment endpoints return one item, and the PHP SDK requests
+	// them for each evaluation. They are not initialization deliveries, so they have no gate.
 	sdkRouter.Handle("/flags/{key}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
 	sdkRouter.Handle("/segments/{key}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
 
