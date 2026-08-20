@@ -2,6 +2,7 @@ package streams
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -62,6 +63,21 @@ func (f *fakeInitObserver) snapshot() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
+}
+func (f *fakeInitObserver) deadlineErrors() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.deadlineNs
+}
+
+// failingDeadlineRecorder rejects every write-deadline call, so a delivery through it
+// accumulates a deadline-set-error count for the observer to report.
+type failingDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (f *failingDeadlineRecorder) SetWriteDeadline(time.Time) error {
+	return errors.New("deadline not supported")
 }
 
 func newObserverRecorder() *deadlineRecorder {
@@ -136,6 +152,95 @@ func TestStreamReplayReportsToInitObserver(t *testing.T) {
 		cancel()
 		calls = waitForCalls(t, obs, 2)
 		assert.Equal(t, "delivery:fdv2:connection_ended:false", calls[1])
+	})
+
+	t.Run("up-to-date after a wait", func(t *testing.T) {
+		// The store starts behind the client's basis and catches up during the queue
+		// wait, so the post-admission read takes the up-to-date path.
+		var stateNow atomic.Int64
+		stateNow.Store(1)
+		store := newMockStoreQueries()
+		store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+			st := int(stateNow.Load())
+			flag := ldbuilders.NewFlagBuilder("flagkey").Version(st).Build()
+			return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+				ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: "flagkey", Item: sharedtest.FlagDesc(flag)}},
+				ldstoreimpl.Segments(): {},
+			}, subsystems.NewSelector("s"+strconv.Itoa(st), st), nil
+		})
+
+		obs := &fakeInitObserver{}
+		limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+		hold, ok := limiter.Acquire(context.Background())
+		require.True(t, ok)
+
+		repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter, initObserver: obs}
+		eventCh := repo.ReplayWithContext(context.Background(), "", "s2")
+		deadline := time.Now().Add(2 * time.Second)
+		for limiter.Stats().Waiting != 1 {
+			if time.Now().After(deadline) {
+				require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+			}
+			time.Sleep(time.Millisecond)
+		}
+		stateNow.Store(2)
+		hold()
+		drainReplay(t, eventCh)
+		assert.Equal(t, []string{"up_to_date:true"}, waitForCalls(t, obs, 1))
+	})
+
+	t.Run("read error after admission", func(t *testing.T) {
+		// The first read decides that a full basis is needed; the refreshed read after
+		// admission fails.
+		var reads atomic.Int64
+		store := newMockStoreQueries()
+		store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+			if reads.Add(1) > 1 {
+				return nil, subsystems.NoSelector(), errors.New("store went away")
+			}
+			flag := ldbuilders.NewFlagBuilder("flagkey").Version(1).Build()
+			return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+				ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: "flagkey", Item: sharedtest.FlagDesc(flag)}},
+				ldstoreimpl.Segments(): {},
+			}, subsystems.NewSelector("s1", 1), nil
+		})
+
+		obs := &fakeInitObserver{}
+		limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+		hold, ok := limiter.Acquire(context.Background())
+		require.True(t, ok)
+
+		repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter, initObserver: obs}
+		eventCh := repo.ReplayWithContext(context.Background(), "", "s9")
+		deadline := time.Now().Add(2 * time.Second)
+		for limiter.Stats().Waiting != 1 {
+			if time.Now().After(deadline) {
+				require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+			}
+			time.Sleep(time.Millisecond)
+		}
+		hold()
+		drainReplay(t, eventCh)
+		assert.Equal(t, []string{"delivery:fdv2:read_error:false"}, waitForCalls(t, obs, 1))
+	})
+
+	t.Run("deadline set errors are reported", func(t *testing.T) {
+		obs := &fakeInitObserver{}
+		limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
+		repo := &serverSideEnvStreamRepository{store: observerStore(t, 1), logger: slog.Default(), isV2: true, initLimiter: limiter, initObserver: obs}
+
+		// The test plays the handler role: after the producer begins the delivery, a
+		// write through the gated writer tries to arm the deadline and fails, and the
+		// end-of-batch flush completes the delivery.
+		iw := initwrite.WrapGated(&failingDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}, 30*time.Second)
+		ctx := context.WithValue(context.Background(), initWriterKey{}, iw)
+		drainReplay(t, repo.ReplayWithContext(ctx, "", "s9"))
+		_, _ = iw.Write([]byte("data: x\n\n"))
+		iw.Flush()
+
+		calls := waitForCalls(t, obs, 1)
+		assert.Equal(t, "delivery:fdv2:completed:false", calls[0])
+		assert.Equal(t, int64(1), obs.deadlineErrors(), "the failed deadline call must be reported")
 	})
 }
 
