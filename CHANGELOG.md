@@ -2,6 +2,58 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.6](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.5...v9.0.0-rc.6) (2026-08-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* Rename OTel attributes to follow the semantic conventions and a single vendor namespace
+* Rename the events send-error metric to launchdarkly.relay.events.failed
+* Remove the relay.id resource attribute
+* Trim high-cardinality attributes off the request metrics ([#807](https://github.com/launchdarkly/ld-relay/issues/807))
+
+### Features
+
+* Add a cumulative request counter ([#810](https://github.com/launchdarkly/ld-relay/issues/810)) ([50e46fb](https://github.com/launchdarkly/ld-relay/commit/50e46fbd02edac1291adb4ee6eda8305feb37cb4))
+* Add an expect query parameter to the status endpoints for server-side health checks ([#710](https://github.com/launchdarkly/ld-relay/issues/710)) ([243e759](https://github.com/launchdarkly/ld-relay/commit/243e759f73fee99705681b322edd6bc863edfffd))
+* Add payload serialization and response write spans to polling endpoints ([#784](https://github.com/launchdarkly/ld-relay/issues/784)) ([3649353](https://github.com/launchdarkly/ld-relay/commit/3649353192c73fc89b39510bf1b6331431a9ca9b))
+* Bound REPORT eval request body size with a 5 MiB default ([#767](https://github.com/launchdarkly/ld-relay/issues/767)) ([984ccf3](https://github.com/launchdarkly/ld-relay/commit/984ccf3633464188e5d93974c56b79e8c922e851))
+* Count active requests for every endpoint, not just streams ([#802](https://github.com/launchdarkly/ld-relay/issues/802)) ([cb7253e](https://github.com/launchdarkly/ld-relay/commit/cb7253ede5812cc18f7486c952c918477b9f708f))
+* Limit concurrent SDK initialization deliveries ([#833](https://github.com/launchdarkly/ld-relay/issues/833)) ([dcfa409](https://github.com/launchdarkly/ld-relay/commit/dcfa409ff6d0d752a68cfa48eac85d15b52e94e0))
+* Make the OTel metric cardinality limit configurable ([#808](https://github.com/launchdarkly/ld-relay/issues/808)) ([852048e](https://github.com/launchdarkly/ld-relay/commit/852048e8f0ee61f5abae1fbe697cc29a8c279546))
+* Make usage metrics event publisher capacity configurable ([#766](https://github.com/launchdarkly/ld-relay/issues/766)) ([cab4d51](https://github.com/launchdarkly/ld-relay/commit/cab4d511b2dd5e2918f6be299e5a3a818d65f7ea))
+* Remove the relay.id resource attribute ([e087794](https://github.com/launchdarkly/ld-relay/commit/e087794768e3a44f93f30790ded8aebb5e380d4b))
+* Rename OTel attributes to follow the semantic conventions and a single vendor namespace ([e087794](https://github.com/launchdarkly/ld-relay/commit/e087794768e3a44f93f30790ded8aebb5e380d4b))
+* Rename the events send-error metric to launchdarkly.relay.events.failed ([e087794](https://github.com/launchdarkly/ld-relay/commit/e087794768e3a44f93f30790ded8aebb5e380d4b))
+
+
+### Bug Fixes
+
+* Count serialized flags, and cover the serialize error paths ([#794](https://github.com/launchdarkly/ld-relay/issues/794)) ([8da4829](https://github.com/launchdarkly/ld-relay/commit/8da482925e141e77e2ca088cbd9b7b75f8c2545a))
+* **deps:** Bump go-server-sdk to v7.15.4, reverting v4 core libraries to v3 ([#776](https://github.com/launchdarkly/ld-relay/issues/776)) ([bb920ab](https://github.com/launchdarkly/ld-relay/commit/bb920ab58f787473fc1d719cb9f14175cc516405))
+* **deps:** bump grpc, x/net, x/text to patch disclosed CVEs ([#773](https://github.com/launchdarkly/ld-relay/issues/773)) ([719f049](https://github.com/launchdarkly/ld-relay/commit/719f049c7d7ae621e677dccb1ab0be07afc2ed60))
+* **deps:** Bump OpenTelemetry dependencies to patch CVE-2026-41178 ([#777](https://github.com/launchdarkly/ld-relay/issues/777)) ([b9519a7](https://github.com/launchdarkly/ld-relay/commit/b9519a7e51d5dbb3c91ff0f7974c67ac5f2d7e5d))
+* **deps:** bump supported Go versions to 1.26.6 and 1.25.13 ([#832](https://github.com/launchdarkly/ld-relay/issues/832)) ([d8b9ead](https://github.com/launchdarkly/ld-relay/commit/d8b9ead80e651f80d86ef80ee8dd8385c536bd18))
+* Encode FDv2 stream events in a single jwriter pass ([#757](https://github.com/launchdarkly/ld-relay/issues/757)) ([40a0c28](https://github.com/launchdarkly/ld-relay/commit/40a0c283bfae8e6483df1a06578efa324ea27374))
+* End auth span before invoking the next handler ([#783](https://github.com/launchdarkly/ld-relay/issues/783)) ([c3719af](https://github.com/launchdarkly/ld-relay/commit/c3719af686bf66fd2c89aafc4a764236a216f218))
+* Keep a malformed OTEL_RESOURCE_ATTRIBUTES entry from erasing the resource identity ([f32bfc2](https://github.com/launchdarkly/ld-relay/commit/f32bfc2e57fc02abd26a4af22ab59d212ceb7671))
+* Let OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES override Relay's resource defaults ([f32bfc2](https://github.com/launchdarkly/ld-relay/commit/f32bfc2e57fc02abd26a4af22ab59d212ceb7671))
+* Redact end-user context from the url.path span attribute ([#791](https://github.com/launchdarkly/ld-relay/issues/791)) ([9116839](https://github.com/launchdarkly/ld-relay/commit/911683927ca5e07a747ba4905cd67bde8440f03c))
+* Redact only the evaluation context segment of url.path ([e087794](https://github.com/launchdarkly/ld-relay/commit/e087794768e3a44f93f30790ded8aebb5e380d4b))
+* Report OTel attribute values as received instead of replacing slashes ([#831](https://github.com/launchdarkly/ld-relay/issues/831)) ([e5dba09](https://github.com/launchdarkly/ld-relay/commit/e5dba092b5d3840408282aed73e335c777be896c))
+* Report server.address from the request host ([e087794](https://github.com/launchdarkly/ld-relay/commit/e087794768e3a44f93f30790ded8aebb5e380d4b))
+* Report the events send failure status per semantic convention ([e087794](https://github.com/launchdarkly/ld-relay/commit/e087794768e3a44f93f30790ded8aebb5e380d4b))
+* Stop reporting response bytes that were never written ([#792](https://github.com/launchdarkly/ld-relay/issues/792)) ([4d6c758](https://github.com/launchdarkly/ld-relay/commit/4d6c758a705f064079b76a3f964982bd04a5fe80))
+* stop server-side stream replay producer when the SDK client disconnects ([#774](https://github.com/launchdarkly/ld-relay/issues/774)) ([42ba69d](https://github.com/launchdarkly/ld-relay/commit/42ba69db91fba5044b44c1e2f807d453d7948ff9))
+
+
+### Performance Improvements
+
+* Deduplicate concurrent polling requests with a flight group ([#798](https://github.com/launchdarkly/ld-relay/issues/798)) ([69ab745](https://github.com/launchdarkly/ld-relay/commit/69ab745c8103d82b39db7468c31dd273908f32ce))
+* Encode FDv2 polling payloads in a single jwriter pass ([#797](https://github.com/launchdarkly/ld-relay/issues/797)) ([bf519ef](https://github.com/launchdarkly/ld-relay/commit/bf519ef00541f51aff6b9a292ec1731be8d054ca))
+* Resolve the tracer once per polling handler ([#793](https://github.com/launchdarkly/ld-relay/issues/793)) ([62ec5cb](https://github.com/launchdarkly/ld-relay/commit/62ec5cbfad3f6bd2bf6b9f158eddad1f1a7b3db6))
+* Trim high-cardinality attributes off the request metrics ([#807](https://github.com/launchdarkly/ld-relay/issues/807)) ([6164d98](https://github.com/launchdarkly/ld-relay/commit/6164d98c64e6a16b50ceaa9caa226a6f82933b38))
+
 ## [9.0.0-rc.5](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.4...v9.0.0-rc.5) (2026-07-16)
 
 
