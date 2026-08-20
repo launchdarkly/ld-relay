@@ -3,7 +3,6 @@ package relay
 import (
 	"context"
 	"net/http"
-	"reflect"
 	"testing"
 	"time"
 
@@ -132,17 +131,45 @@ func (h relayTestHelper) assertEndpointStatus(
 }
 
 func (h relayTestHelper) awaitCredentialsUpdated(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
-	expectedCredentials := credentialsAsSet(expected.EnvID, expected.MobileKey, expected.SDKKey)
-	isChanged := func() bool {
-		return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
+	// Poll until the new expected credentials are present in env.GetCredentials() and the relay's
+	// connection mappings reflect them.  GetCredentials() may also contain additional expiring keys
+	// from a previous rotation — we only require the expected ones to be present (subset check).
+	isReady := func() bool {
+		actual := credentialsAsSet(env.GetCredentials()...)
+		for _, cred := range []credential.SDKCredential{expected.EnvID, expected.MobileKey, expected.SDKKey} {
+			if cred != nil && cred.(interface{ Defined() bool }).Defined() {
+				if _, ok := actual[cred]; !ok {
+					return false
+				}
+			}
+		}
+		for _, cred := range []sdkauth.ScopedCredential{
+			sdkauth.New(expected.EnvID),
+			sdkauth.New(expected.MobileKey),
+			sdkauth.New(expected.SDKKey),
+		} {
+			found, err := h.relay.getEnvironment(cred)
+			if err != nil || found != env {
+				return false
+			}
+		}
+		return true
 	}
-	require.Eventually(h.t, isChanged, time.Second, time.Millisecond*5)
+	require.Eventually(h.t, isReady, time.Second, time.Millisecond*5)
 	h.assertEnvLookup(env, expected)
 }
 
 func assertEnvProps(t *testing.T, expected envfactory.EnvironmentParams, env relayenv.EnvContext) {
-	assert.Equal(t, credentialsAsSet(expected.EnvID, expected.MobileKey, expected.SDKKey),
-		credentialsAsSet(env.GetCredentials()...))
+	t.Helper()
+	// In the multi-key world GetCredentials() may contain additional expiring keys beyond the three
+	// "canonical" ones (anchor SDK key, primary mobile key, env ID). Check that the canonical ones are
+	// present rather than requiring exact equality.
+	actual := credentialsAsSet(env.GetCredentials()...)
+	for _, cred := range []credential.SDKCredential{expected.EnvID, expected.MobileKey, expected.SDKKey} {
+		if cred != nil && cred.(interface{ Defined() bool }).Defined() {
+			assert.Contains(t, actual, cred)
+		}
+	}
 	assert.Equal(t, expected.Identifiers, env.GetIdentifiers())
 	assert.Equal(t, expected.Identifiers.ProjName+" "+expected.Identifiers.EnvName,
 		env.GetIdentifiers().GetDisplayName())

@@ -126,9 +126,10 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
 		assert.Equal(t, []credential.SDKCredential{testAutoConfEnv1.sdkKey.Value}, env.GetDeprecatedCredentials())
 
-		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
-			t.FailNow()
-		}
+		// The deprecated key stays valid for downstream auth (asserted above), but its upstream client
+		// closes as soon as the rotation commits: the new anchor owns the env's single upstream
+		// connection, and a second live stream would broadcast every update twice.
+		client1.AwaitClose(t, time.Second)
 	})
 }
 
@@ -199,15 +200,21 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		assert.Equal(t, modified.SDKKey(), client2.Key)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		newCredentials := credentialsAsSet(env.GetCredentials()...)
+		// Before expiry, old key is still accepted (it's in the accepted set with a countdown).
 		foundEnvWithOldKey, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Equal(t, env, foundEnvWithOldKey)
 
-		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Duration(briefExpiryMillis+100)*time.Millisecond, "timed out waiting for client with old key to close") {
-			t.FailNow()
-		}
+		// The old key's client closes when the rotation commits, well before the expiry fires, so the
+		// client close is no longer a signal of the expiry itself.
+		client1.AwaitClose(t, time.Second)
 
-		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
+		// After expiry, old key is removed; new key + mobile key + env ID are the only credentials left.
+		// The cleanup ticker drives the removal, so poll until it lands.
+		expectedAfterExpiry := credentialsAsSet(modified.id, modified.mobKey, modified.SDKKey())
+		require.Eventually(t, func() bool {
+			return assert.ObjectsAreEqual(expectedAfterExpiry, credentialsAsSet(env.GetCredentials()...))
+		}, time.Duration(briefExpiryMillis)*time.Millisecond+time.Second, 20*time.Millisecond,
+			"timed out waiting for the expired key to be removed")
 		noEnv, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Nil(t, noEnv)
 	})

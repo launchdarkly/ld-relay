@@ -34,6 +34,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -59,12 +60,17 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
+	return makeBasicEnvWithMapper(t, envConfig, clientFactory, loggers, readyCh, mockConnectionMapper{})
+}
+
+func makeBasicEnvWithMapper(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
+	loggers ldlog.Loggers, readyCh chan EnvContext, connMapper ConnectionMapper) EnvContext {
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
 		EnvConfig:        envConfig,
 		ClientFactory:    clientFactory,
 		Loggers:          loggers,
-		ConnectionMapper: mockConnectionMapper{},
+		ConnectionMapper: connMapper,
 	}, readyCh)
 	require.NoError(t, err)
 	return env
@@ -78,6 +84,34 @@ func (m mockConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.Scop
 }
 func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
 
+}
+
+// recordingConnectionMapper tracks which scoped credentials currently have a connection mapping, so a
+// test can assert that a credential's mapping survived (or was torn down).
+type recordingConnectionMapper struct {
+	mu     sync.Mutex
+	mapped map[sdkauth.ScopedCredential]bool
+}
+
+func (m *recordingConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, _ EnvContext) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.mapped == nil {
+		m.mapped = map[sdkauth.ScopedCredential]bool{}
+	}
+	m.mapped[scopedCredential] = true
+}
+
+func (m *recordingConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.mapped, scopedCredential)
+}
+
+func (m *recordingConnectionMapper) isMapped(filterKey config.FilterKey, cred credential.SDKCredential) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mapped[sdkauth.NewScoped(filterKey, cred)]
 }
 
 func TestConstructorBasicProperties(t *testing.T) {
@@ -178,6 +212,14 @@ func TestLogPrefix(t *testing.T) {
 	testPrefix("impossibly short env ID", LogNameIsEnvID, config.SDKKey("1234567890"), config.EnvironmentID("hij"), "[env: hij]")
 }
 
+// mustBuildAcceptedSet builds the set from b, failing the test if Build returns an error.
+func mustBuildAcceptedSet(t *testing.T, b *credential.AcceptedSetBuilder) credential.AcceptedSet {
+	t.Helper()
+	set, err := b.Build()
+	require.NoError(t, err)
+	return set
+}
+
 func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -189,22 +231,30 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.EnvID))
+	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
+	envID := st.EnvWithAllCredentials.Config.EnvID
+
+	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobileKey}).WithEnvironmentID(envID)))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.Contains(t, creds, mobileKey)
+	assert.Contains(t, creds, envID)
 
-	env.UpdateCredential(NewCredentialUpdate(config.MobileKey("evict-the-previous-key")))
+	// Reconciling with a different mobile key evicts the previous one.
+	newMobileKey := config.MobileKey("evict-the-previous-key")
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: newMobileKey}).WithEnvironmentID(envID)))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.NotContains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.NotContains(t, creds, mobileKey)
+	assert.Contains(t, creds, newMobileKey)
+	assert.Contains(t, creds, envID)
 }
 
 func TestAddExistingCredentialDoesNothing(t *testing.T) {
@@ -218,19 +268,23 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
+	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobileKey}))
+
+	env.ReconcileCredentials(set)
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	assert.Contains(t, creds, mobileKey)
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	// Reconciling with the same set again changes nothing.
+	env.ReconcileCredentials(set)
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	assert.Contains(t, creds, mobileKey)
 }
 
 func TestChangeSDKKey(t *testing.T) {
@@ -246,6 +300,7 @@ func TestChangeSDKKey(t *testing.T) {
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
+	envImpl := env.(*envContextImpl)
 
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	client1 := requireClientReady(t, clientCh)
@@ -257,16 +312,26 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
-	// For the purposes of key rotation, we'll make time deterministic.
+	// For the purposes of key rotation, we'll make time deterministic. We build an AcceptedSet
+	// with key2 as anchor and envConfig.SDKKey expiring in one hour, then drive the time-injectable
+	// reconcileCredentials. The cleanup ticker path (triggerCredentialChanges) is exercised below.
 	start := time.Unix(1000, 0)
 
-	// Upon rotating to key2, the original key should still be valid for a hour.
-	env.UpdateCredential(
-		NewCredentialUpdate(key2).
-			WithTime(start).
-			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)))
+	// Upon rotating to key2, the original key should still be valid for an hour.
+	rotationSet, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: key2}).
+		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: util.PtrOrNil(start.Add(1 * time.Hour))}).
+		Build()
+	require.NoError(t, err)
+	envImpl.reconcileCredentials(rotationSet, start)
 
-	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	// In the new accepted-set model both keys are accepted (GetCredentials includes both) until
+	// the old key's expiry elapses. GetDeprecatedCredentials reports the expiring accepted key so
+	// callers like the status endpoint can surface it without distinguishing the rotation path.
+	creds := env.GetCredentials()
+	assert.Len(t, creds, 2)
+	assert.Contains(t, creds, key2)
+	assert.Contains(t, creds, envConfig.SDKKey)
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
 
 	client2 := requireClientReady(t, clientCh)
@@ -277,27 +342,288 @@ func TestChangeSDKKey(t *testing.T) {
 		return env.GetClient() == client2
 	}, time.Second, 10*time.Millisecond, "env.GetClient() should return client2 after rotation")
 
-	// The client for the original SDK key should not have been closed, since it's valid for an hour.
-	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
+	// The demoted key's client is closed as soon as the rotation commits: the anchor owns the env's
+	// single upstream connection, and leaving the old client running would broadcast every update
+	// twice through the shared store wrapper. The key itself stays accepted (asserted above), so
+	// downstream clients can still authenticate with it during the grace window.
+	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed at rotation") {
 		t.FailNow()
 	}
 
-	// Simulate an amount of time passing that is less than the deprecation period. The original key should still be valid.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(45 * time.Minute)))
-	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
-		t.FailNow()
-	}
+	// Simulate an amount of time passing that is less than the expiry window. The original key is
+	// still accepted for authentication.
+	envImpl.triggerCredentialChanges(start.Add(45 * time.Minute))
+	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(envConfig.SDKKey))
 
-	// We are now an instant after the deprecation period. This should cause the original key to become expired
-	// and trigger the client to close.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(1*time.Hour + 1*time.Millisecond)))
+	// We are now an instant after the expiry. This should cause the original key to be removed.
+	envImpl.triggerCredentialChanges(start.Add(1*time.Hour + 1*time.Millisecond))
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
+}
 
-	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed") {
+// TestMobileKeyReconcileExpiry drives a mobile key carrying a per-key expiry end-to-end through the
+// reconcile path: ReconcileCredentials records the expiry as data on the accepted entry, and the
+// cleanup ticker (triggerCredentialChanges → StepTime) later evicts the key once its expiry elapses.
+func TestMobileKeyReconcileExpiry(t *testing.T) {
+	envConfig := st.EnvMobile.Config
+	readyCh := make(chan EnvContext, 1)
+
+	primaryMobile := envConfig.MobileKey
+	expiringMobile := config.MobileKey("mob-expiring")
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, readyCh)
+	defer env.Close()
+	envImpl := env.(*envContextImpl)
+
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+
+	start := time.Unix(2000, 0)
+	expiry := start.Add(1 * time.Hour)
+
+	// Reconcile to a set that accepts the primary mobile key (permanent) plus a second mobile key that
+	// carries a per-key expiry.
+	envImpl.reconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithPrimaryMobileKey(credential.MobileKeyParams{Value: primaryMobile}).
+			WithMobileKey(credential.MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(expiry)})),
+		start)
+
+	// Reconcile stores the expiry as data, so before it elapses the key is accepted (not deprecated).
+	assert.Contains(t, env.GetCredentials(), expiringMobile)
+	assert.NotContains(t, env.GetDeprecatedCredentials(), expiringMobile)
+
+	// Halfway through, still accepted.
+	envImpl.triggerCredentialChanges(start.Add(30 * time.Minute))
+	assert.Contains(t, env.GetCredentials(), expiringMobile)
+
+	// One moment past expiry: the cleanup ticker evicts the expiring mobile key; the primary survives.
+	envImpl.triggerCredentialChanges(expiry.Add(1 * time.Millisecond))
+	assert.NotContains(t, env.GetCredentials(), expiringMobile)
+	assert.Contains(t, env.GetCredentials(), primaryMobile)
+}
+
+// TestNonAnchorSDKKeysDoNotOpenUpstreamClient verifies that non-anchor SDK keys are accepted without
+// opening an upstream client of their own: they share the anchor's single upstream connection.
+//
+// It also pins the GetClient contract that follows from it. Non-anchor keys have no client, so GetClient
+// must keep returning the anchor's — never nil, never a non-anchor client. That is what callers depend
+// on: nil means "env not ready"; non-nil means "use this client."
+func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	readyCh := make(chan EnvContext, 1)
+	// Buffer large enough to catch any unexpected extra clients.
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// One client is opened for the anchor key during construction.
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	anchorClient := requireClientReady(t, clientCh)
+	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
+
+	// GetClient returns the anchor's client even before any non-anchor keys are added.
+	assert.Equal(t, anchorClient, env.GetClient())
+
+	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
+	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
+
+	// Reconcile to anchor + 2 non-anchor SDK keys. The anchor is unchanged, so no new anchor client
+	// is needed. Non-anchor keys must get envStreams + connection mapping but must NOT open an upstream
+	// client.
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey1}).
+			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey2})))
+
+	// All three SDK keys are accepted...
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, envConfig.SDKKey)
+	assert.Contains(t, creds, nonAnchorKey1)
+	assert.Contains(t, creds, nonAnchorKey2)
+
+	// ...but no additional upstream client was started.
+	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
 		t.FailNow()
 	}
 
+	// GetClient still returns the anchor's client — not nil, not a non-anchor client.
+	assert.Equal(t, anchorClient, env.GetClient())
+}
+
+func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	envConfig := st.EnvWithAllCredentials.Config
+	primaryMobile := envConfig.MobileKey
+	nonPrimaryMobile := config.MobileKey("mob-non-primary")
+
+	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+		env, err := NewEnvContext(EnvContextImplParams{
+			Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+			EnvConfig:        envConfig,
+			AllConfig:        allConfig,
+			ClientFactory:    testclient.FakeLDClientFactory(true),
+			Loggers:          mockLog.Loggers,
+			ConnectionMapper: mockConnectionMapper{},
+		}, nil)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+
+		// Reconcile to a set that keeps the original mobile key as primary but also accepts a second,
+		// non-primary mobile key. Accepting the non-primary key must NOT repoint event forwarding —
+		// events collapse to the primary mobile key, mirroring the SDK anchor.
+		env.ReconcileCredentials(mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithPrimaryMobileKey(credential.MobileKeyParams{Value: primaryMobile}).
+			WithMobileKey(credential.MobileKeyParams{Value: nonPrimaryMobile}).
+			WithEnvironmentID(envConfig.EnvID)))
+
+		ed := envImpl.GetEventDispatcher()
+		require.NotNil(t, ed)
+		handler := ed.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, handler)
+
+		rr := httptest.NewRecorder()
+		headers := make(http.Header)
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Authorization", string(primaryMobile))
+		headers.Set("X-LaunchDarkly-Event-Schema", strconv.Itoa(events.SummaryEventsSchemaVersion))
+		body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
+		req := st.BuildRequest("POST", server.URL+"/mobile/events/bulk", []byte(body), headers)
+		handler(rr, req)
+		require.Equal(t, 202, rr.Result().StatusCode)
+
+		// Mobile events forward under the env's primary mobile key, not the freshly-accepted
+		// non-primary one.
+		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
+		assert.Equal(t, string(primaryMobile), eventPost.Request.Header.Get("Authorization"))
+	})
+}
+
+// gatedClientFactory wraps the normal fake factory but blocks the factory call for gateKey until
+// `gate` is closed, signalling on `started` once that call is in flight. This lets a test interleave
+// a credential revocation with an in-flight startSDKClient that has not yet taken c.mu.
+func gatedClientFactory(
+	gate <-chan struct{},
+	started chan<- struct{},
+	createdCh chan<- *testclient.FakeLDClient,
+	gateKey config.SDKKey,
+) sdks.ClientFactoryFunc {
+	inner := testclient.FakeLDClientFactoryWithChannel(true, createdCh)
+	var once sync.Once
+	return func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == gateKey {
+			once.Do(func() { close(started) })
+			<-gate
+		}
+		return inner(sdkKey, cfg, timeout)
+	}
+}
+
+// When an SDK key is revoked while its client is still being constructed, startSDKClient builds the
+// client before taking c.mu, so it can finish and try to install a client for a key that is no longer
+// tracked. That client must be closed rather than installed -- otherwise it leaks its upstream
+// connection and goroutines, because removeCredential already ran and found nothing in c.clients to
+// close, and nothing else will ever close it until env.Close().
+func TestRevokingSDKKeyWhileClientIsStartingDoesNotLeakTheClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	keyA := envConfig.SDKKey
+	keyB := config.SDKKey("keyB")
+	readyCh := make(chan EnvContext, 1)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	gate := make(chan struct{})
+	started := make(chan struct{})
+	factory := gatedClientFactory(gate, started, clientCh, keyA)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// Wait until the initial startSDKClient(keyA) is blocked inside the factory, before it takes c.mu.
+	<-started
+
+	// Revoke keyA by rotating to keyB with no grace. keyA is immediately revoked and removeCredential(keyA)
+	// runs now -- but c.clients[keyA] is still nil because the initial goroutine is blocked in the factory,
+	// so nothing is closed and the mapping is simply removed.
+	env.(*envContextImpl).reconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: keyB})),
+		time.Unix(1000, 0))
+
+	creds := env.GetCredentials()
+	require.NotContains(t, creds, keyA, "keyA should have been revoked")
+
+	// Release the gate; the now-unblocked startSDKClient(keyA) discovers keyA is no longer tracked and
+	// must close the client it just built rather than installing it.
+	close(gate)
+
+	// Collect the client that was created for keyA.
+	var clientA *testclient.FakeLDClient
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case c := <-clientCh:
+				if c.Key == keyA {
+					clientA = c
+				}
+			default:
+				return clientA != nil
+			}
+		}
+	}, 2*time.Second, 10*time.Millisecond, "expected a client to be created for keyA")
+	require.NotNil(t, clientA)
+
+	// The client built for the now-revoked keyA must be closed, not leaked.
+	if !helpers.AssertChannelClosed(t, clientA.CloseCh, time.Second,
+		"client built for the revoked keyA should have been closed rather than installed") {
+		t.FailNow()
+	}
+
+	// And it must not have been installed into the clients map.
+	impl := env.(*envContextImpl)
+	impl.mu.Lock()
+	_, present := impl.clients[keyA]
+	impl.mu.Unlock()
+	assert.False(t, present, "revoked keyA should not have a client in the clients map")
+}
+
+// An environment configured without an SDK key (e.g. offline or not-yet-configured envs, and test
+// fixtures) must still get its SDK client installed. An undefined key is never a tracked credential,
+// so the startup guard that discards clients for revoked keys must not fire for it.
+func TestEnvWithoutSDKKeyStillInstallsClient(t *testing.T) {
+	readyCh := make(chan EnvContext, 1)
+	clientCh := make(chan *testclient.FakeLDClient, 1)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, config.EnvConfig{}, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	client := requireClientReady(t, clientCh)
+	assert.NotNil(t, client)
+	assert.Equal(t, client, env.GetClient())
 }
 
 func TestSDKClientCreationFails(t *testing.T) {
@@ -760,8 +1086,15 @@ func (s *mockBigSegmentSynchronizer) SegmentUpdatesCh() <-chan bigsegments.Updat
 
 func (s *mockBigSegmentSynchronizer) Close() {
 	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.closed {
+		return
+	}
 	s.closed = true
-	s.lock.Unlock()
+	// Mirror the real synchronizer: Close closes the update channel, which is what terminates the
+	// consumer goroutine ranging over SegmentUpdatesCh(). Without this the tests would leak a consumer
+	// per re-anchor and never actually exercise the "old consumer exits on Close" invariant.
+	close(s.updateCh)
 }
 
 func (s *mockBigSegmentSynchronizer) isStarted() bool {

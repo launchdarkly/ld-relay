@@ -3,8 +3,6 @@ package relay
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
-
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
@@ -22,6 +20,8 @@ const (
 	logMsgOfflineEnvTimeoutError          = "Unable to initialize offline environment %q: timed out waiting for client creation"
 	logMsgInternalErrorUpdatedEnvNotFound = "Unexpected error in file data processing: environment ID %s not found when updating"
 	logMsgInternalErrorNoUpdatesForEnv    = "Unexpected error in file data processing: environment ID %s not found in envUpdates"
+
+	logMsgOfflineMalformedPayload = "Malformed credential payload for offline environment %q — preserving previous credentials: %s"
 )
 
 // relayFileDataActions is an implementation of the filedata.UpdateHandler interface. The low-level
@@ -56,10 +56,17 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
 	}
-	if ae.Params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration))
+
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	if buildErr != nil {
+		a.r.loggers.Errorf(logMsgOfflineMalformedPayload, ae.Params.Identifiers.GetDisplayName(), buildErr)
+		// No reconnect for offline mode, which has no live stream: keep the previous credentials and
+		// wait for the next archive reload.
+	} else {
+		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)
+		env.ReconcileCredentials(set)
 	}
+
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
@@ -89,15 +96,13 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 
-	if ae.Params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(ae.Params.MobileKey))
-	}
-	if ae.Params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		if ae.Params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration)
-		}
-		env.UpdateCredential(update)
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	if buildErr != nil {
+		a.r.loggers.Errorf(logMsgOfflineMalformedPayload, ae.Params.Identifiers.GetDisplayName(), buildErr)
+		// Keep the previous credentials. See addEnvironment: offline mode has no reconnect.
+	} else {
+		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)
+		env.ReconcileCredentials(set)
 	}
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.

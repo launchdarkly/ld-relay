@@ -42,6 +42,11 @@ type DataStoreStatusInfo struct {
 
 // ClientFactoryFunc is a function that creates the LaunchDarkly client. This is normally
 // DefaultClientFactory, but it can be changed in order to make configuration changes or for testing.
+//
+// Store-release contract: a factory whose client construction builds the environment's data store must
+// return a non-nil client even when initialization fails, so that the caller's Close() releases the
+// refcounted store reference the build acquired. Returning (nil, err) after the store is built leaks
+// that reference. Returning (nil, err) before the store is built is fine, as nothing was acquired.
 type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (LDClientContext, error)
 
 // LDClientConstructor is the function type of the underlying SDK client constructor.

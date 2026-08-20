@@ -21,9 +21,10 @@ import (
 // Also, since streamUpdatesStoreWrapper is a wrapper for an underlying data store that could be a database,
 // we need to be able to specify which data store implementation is being used - also as a factory.
 //
-// So, this factory implementation - which should only be used for a single client at a time - calls the
-// wrapped factory to produce the underlying data store, then creates our own store instance, and then
-// puts a reference to that instance inside itself where we can see it.
+// So, this factory implementation - which is used by one environment, and hands the same wrapper to
+// the incoming client on a re-anchor (see Build) - calls the wrapped factory to produce the underlying
+// data store, then creates our own store instance, and then puts a reference to that instance inside
+// itself where we can see it.
 type SSERelayDataStoreAdapter struct {
 	store          subsystems.DataStore
 	wrappedFactory subsystems.ComponentConfigurer[subsystems.DataStore]
@@ -67,22 +68,34 @@ func NewSSERelayDataStoreAdapter(
 }
 
 // Build is called by the SDK when the LDClient is being created.
+//
+// Store handover: if the adapter already holds a live wrapper, Build returns that wrapper again
+// instead of building a fresh one. A re-anchor therefore hands the populated store to the new anchor's
+// client with no empty-store window. The wrapper refcounts its holders, so only the final Close tears
+// the store down. A fully-closed wrapper (acquire returns false) is not reused.
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
-	var sw *streamUpdatesStoreWrapper
+	// The lock is held across the whole build so two concurrent Build calls cannot each construct and
+	// install their own wrapper.
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if existing := a.store; existing != nil {
+		if sw, ok := existing.(*streamUpdatesStoreWrapper); ok && sw.acquire() {
+			return sw, nil
+		}
+	}
+
 	wrappedStore, err := a.wrappedFactory.Build(context)
 	if err != nil {
 		return nil, err // this will cause client initialization to fail immediately
 	}
-	sw = newStreamUpdatesStoreWrapper(
+	sw := newStreamUpdatesStoreWrapper(
 		a.updates,
 		wrappedStore,
 		context.GetLogging().Loggers,
 	)
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.store = sw
 	return sw, nil
 }
@@ -93,6 +106,14 @@ type streamUpdatesStoreWrapper struct {
 	store   subsystems.DataStore
 	updates streams.EnvStreamUpdates
 	loggers ldlog.Loggers
+
+	// refCount tracks how many SDK clients hold this wrapper. Each handover calls acquire to bump the
+	// count, and each client's Close decrements it. The underlying store is torn down only when the
+	// count reaches zero, which also sets closed so a later acquire refuses the wrapper. Guarded by
+	// refMu.
+	refMu    sync.Mutex
+	refCount int
+	closed   bool
 }
 
 func newStreamUpdatesStoreWrapper(
@@ -101,14 +122,46 @@ func newStreamUpdatesStoreWrapper(
 	loggers ldlog.Loggers,
 ) *streamUpdatesStoreWrapper {
 	relayStore := &streamUpdatesStoreWrapper{
-		store:   baseFeatureStore,
-		updates: updates,
-		loggers: loggers,
+		store:    baseFeatureStore,
+		updates:  updates,
+		loggers:  loggers,
+		refCount: 1,
 	}
 	return relayStore
 }
 
+// acquire records an additional holder of the wrapper. It returns false if the wrapper is already
+// fully closed, in which case the caller must build a fresh wrapper.
+func (sw *streamUpdatesStoreWrapper) acquire() bool {
+	sw.refMu.Lock()
+	defer sw.refMu.Unlock()
+	if sw.closed {
+		return false
+	}
+	sw.refCount++
+	return true
+}
+
 func (sw *streamUpdatesStoreWrapper) Close() error {
+	sw.refMu.Lock()
+	if sw.closed {
+		// Already torn down. A stray extra Close must not decrement below zero and re-satisfy the
+		// final guard, which would close the underlying store twice and double-release a persistent
+		// store's connection pool.
+		sw.refMu.Unlock()
+		return nil
+	}
+	sw.refCount--
+	final := sw.refCount <= 0
+	if final {
+		sw.closed = true
+	}
+	sw.refMu.Unlock()
+	if !final {
+		// Re-anchor handover in progress: another client still uses this underlying store, so the
+		// retiring client's Close must not tear it down.
+		return nil
+	}
 	return sw.store.Close()
 }
 

@@ -1,9 +1,12 @@
 package relay
 
 import (
+	"strings"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -12,8 +15,19 @@ const (
 	logMsgAutoConfUpdateUnknownEnv        = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
-	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
+
+	logMsgViewScopedKeysRejected = "Environment %q: rejecting credentials scoped to a view: %s." +
+		" The Relay Proxy serves the entire environment payload and cannot filter it to a view," +
+		" so SDKs presenting these credentials will be denied."
 )
+
+// logViewScopedKeys reports the view-scoped credentials that BuildAcceptedSet filtered out of a
+// payload.
+func logViewScopedKeys(loggers ldlog.Loggers, envName string, rejected []string) {
+	if len(rejected) > 0 {
+		loggers.Warnf(logMsgViewScopedKeysRejected, envName, strings.Join(rejected, ", "))
+	}
+}
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
 // autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
@@ -31,12 +45,16 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+		return
 	}
 
-	if params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(params)
+	if buildErr != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
+		return
 	}
+	logViewScopedKeys(a.r.loggers, params.Identifiers.GetDisplayName(), rejected)
+	env.ReconcileCredentials(set)
 }
 
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
@@ -50,16 +68,14 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	if params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(params)
+	if buildErr != nil {
+		// Already validated in StreamManager; keep the previous credentials if it somehow fails.
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
+		return
 	}
-	if params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		if params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
-		}
-		env.UpdateCredential(update)
-	}
+	logViewScopedKeys(a.r.loggers, params.Identifiers.GetDisplayName(), rejected)
+	env.ReconcileCredentials(set)
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
