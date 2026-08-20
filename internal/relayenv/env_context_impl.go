@@ -862,10 +862,17 @@ func (c *envContextImpl) GetAcceptedKeys() credential.AcceptedKeySet {
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// c.clients holds at most one entry: the anchor's client. Only construction and the re-anchor
-	// sequence create clients, so non-anchor server keys never open an upstream connection. Offline mode
-	// iterates instead of looking up by key. Both work: the rotator is initialized with envConfig.SDKKey
-	// before any client is built.
+	return c.anchorClient()
+}
+
+// anchorClient returns the client that owns the upstream connection, or nil when there is none. The
+// caller must hold at least a read lock.
+//
+// c.clients holds at most one entry: the anchor's client. Only construction and the re-anchor sequence
+// create clients, so non-anchor server keys never open an upstream connection. Offline mode iterates
+// instead of looking up by key. Both work: the rotator is initialized with envConfig.SDKKey before any
+// client is built.
+func (c *envContextImpl) anchorClient() sdks.LDClientContext {
 	if c.offline {
 		for _, client := range c.clients {
 			return client
@@ -967,10 +974,38 @@ func (c *envContextImpl) GetFilter() config.FilterKey {
 	return c.filterKey
 }
 
+// GetInitError reports the outcome of the anchor client's build, unless that outcome is a timeout the
+// client has since outgrown.
+//
+// initErr is written once per build, by startSDKClient and by commitReanchor. Neither one runs again
+// when the client connects later. A recorded timeout would therefore describe the environment for the
+// rest of the process, even after the SDK connects on its own.
+//
+// Only a timeout gets this treatment, and only when the data source reports Valid. A timeout means
+// exactly "not connected yet, still trying", so a connected data source contradicts it. Every other
+// error keeps reporting:
+//
+//   - ErrInitializationFailed is terminal, and the request middleware rejects requests on that value
+//     alone. A client whose data source stopped must keep that error.
+//   - A host application supplies its own ClientFactoryFunc, and relay cannot know what an arbitrary
+//     error means. The client's own status must not override it.
+//
+// The extra work happens only while an error is recorded. A healthy environment returns on the first
+// branch, which keeps the request middleware's per-request call cheap.
 func (c *envContextImpl) GetInitError() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if c.initErr == nil {
+		return nil
+	}
+	if !errors.Is(c.initErr, ld.ErrInitializationTimeout) {
+		return c.initErr
+	}
+	if client := c.anchorClient(); client != nil &&
+		client.GetDataSourceStatus().State == interfaces.DataSourceStateValid {
+		return nil
+	}
 	return c.initErr
 }
 
