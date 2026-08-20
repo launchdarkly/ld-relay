@@ -230,6 +230,8 @@ curl -fsS 'http://localhost:8030/status/my-app/production?expect=status=connecte
 
 With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script can branch on the exit code with no body parsing at all.
 
+**Encode the query string properly.** A clause containing a raw `;`, or a `%` that does not begin a valid escape, makes the query string undecodable, and the Relay Proxy answers `400` rather than evaluating the clauses that happened to survive. This matters most where you are hand-encoding a bracket-quoted environment key; let your tooling encode the value (`curl --get --data-urlencode "expect=..."`) instead of assembling the URL by hand.
+
 **Path syntax:**
 
 - Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>`. On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
@@ -247,7 +249,7 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 
 Every clause is evaluated, so one request reports everything you need to fix. The response code is the most serious outcome across all of the clauses, in the order below.
 
-- `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these.
+- `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these. This also covers a query string the Relay Proxy cannot decode: if any part of it is unreadable, the whole request is rejected rather than the clauses that survived being judged on their own, so an assertion is never silently skipped.
 - `422 Unprocessable Content` - a clause was read successfully, but names something the Relay Proxy cannot evaluate: an operator other than `=` or `!=`, a field that does not exist in the status document, or a path that stops on an object rather than on a single value.
 - `412 Precondition Failed` - every clause was evaluable and at least one did not hold. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
 - `200 OK` - every clause held.

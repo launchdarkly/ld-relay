@@ -182,3 +182,57 @@ func TestEndpointsStatusExpect(t *testing.T) {
 		})
 	})
 }
+
+// A clause the relay cannot even decode must not be dropped: Go's URL.Query() discards the query
+// parse error along with the offending segment, so the assertion would go unevaluated and the
+// endpoint would answer 200. For a health gate that is the one direction that must never fail.
+func TestEndpointsStatusExpectQueryFailsClosed(t *testing.T) {
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		// Each of these asserts something FALSE (the relay under test is healthy), so a 200 here
+		// would be a probe reporting healthy on an assertion it never checked.
+		for _, tc := range []struct {
+			name  string
+			query string
+		}{
+			{"raw semicolon in the sole clause", "expect=status=degraded;x"},
+			{"bad percent escape in the sole clause", "expect=status%3Ddegraded%zz"},
+			{"percent-encoded parameter name", "%65xpect=status=degraded;x"},
+			// The true clause survives the parse and the false one does not; judging the survivor
+			// alone would answer 200 satisfied.
+			{"one droppable clause among valid ones", "expect=status=healthy&expect=status=degraded;x"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				r, _ := http.NewRequest("GET", "http://localhost/status?"+tc.query, nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				parsed := ldvalue.Parse(body)
+				assert.False(t, parsed.GetByKey("satisfied").BoolValue())
+				assert.NotEmpty(t, parsed.GetByKey("error").StringValue())
+			})
+		}
+
+		t.Run("single-environment route fails closed too", func(t *testing.T) {
+			r, _ := http.NewRequest("GET",
+				"http://localhost/status/"+url.PathEscape(st.EnvMain.Name)+"?expect=status=disconnected;x", nil)
+			result, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+			assert.NotEmpty(t, ldvalue.Parse(body).GetByKey("error").StringValue())
+		})
+
+		// A malformed query that never asked for a verdict keeps the released behavior of the status
+		// routes: the full document, with the unreadable parameter ignored as before.
+		t.Run("malformed query without an expect clause is unaffected", func(t *testing.T) {
+			for _, query := range []string{"junk=%zz", "cachebust=1;2"} {
+				r, _ := http.NewRequest("GET", "http://localhost/status?"+query, nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode, query)
+				parsed := ldvalue.Parse(body)
+				assert.Equal(t, "healthy", parsed.GetByKey("status").StringValue(), query)
+				assert.Equal(t, ldvalue.NullType, parsed.GetByKey("satisfied").Type(), query)
+			}
+		})
+	})
+}

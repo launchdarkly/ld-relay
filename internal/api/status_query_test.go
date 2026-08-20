@@ -521,3 +521,69 @@ func TestEvaluateExpectationsUnparseableBody(t *testing.T) {
 	assert.False(t, res.Satisfied)
 	assert.NotEmpty(t, res.Error)
 }
+
+// URL.Query() drops a query segment it cannot parse and discards the error, which would turn a
+// clause the relay cannot decode into no clause at all: a 200 with the full status document for an
+// assertion that was never evaluated. The clauses have to be read in a way that can tell those
+// apart.
+func TestParseExpectQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		raw       string
+		clauses   []string
+		requested bool
+		malformed bool
+	}{
+		{name: "empty query", raw: ""},
+		{name: "unrelated parameter", raw: "foo=1"},
+		{
+			name: "one clause", raw: "expect=status=healthy",
+			clauses: []string{"status=healthy"}, requested: true,
+		},
+		{
+			name: "repeated clauses", raw: "expect=a=1&expect=b=2",
+			clauses: []string{"a=1", "b=2"}, requested: true,
+		},
+		{
+			name: "bare parameter with no value is still a request",
+			raw:  "expect", clauses: []string{""}, requested: true,
+		},
+		// A raw ';' makes Go reject the segment holding it.
+		{
+			name: "sole clause holding a raw semicolon",
+			raw:  "expect=status=degraded;x", requested: true, malformed: true,
+		},
+		{
+			name: "sole clause holding a bad percent escape",
+			raw:  "expect=status%3Ddegraded%zz", requested: true, malformed: true,
+		},
+		// The surviving clause must not be judged on its own: the dropped one asserted something
+		// too, and answering 200 on the remainder is the fail-open this guards against.
+		{
+			name:    "one droppable clause among valid ones",
+			raw:     "expect=status=healthy&expect=status=degraded;x",
+			clauses: []string{"status=healthy"}, requested: true, malformed: true,
+		},
+		{
+			name:    "unrelated parameter is the malformed one",
+			raw:     "expect=status=healthy&junk=%zz",
+			clauses: []string{"status=healthy"}, requested: true, malformed: true,
+		},
+		// A percent-encoded parameter name still identifies the request, so a dropped clause cannot
+		// hide behind the encoding.
+		{
+			name: "percent-encoded parameter name",
+			raw:  "%65xpect=status=degraded;x", requested: true, malformed: true,
+		},
+		// A malformed query that never mentions the parameter leaves the full-document path alone.
+		{name: "malformed query without the parameter", raw: "junk=%zz", malformed: true},
+		{name: "semicolon in an unrelated parameter", raw: "cachebust=1;2", malformed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clauses, requested, malformed := ParseExpectQuery(tc.raw)
+			assert.Equal(t, tc.clauses, clauses)
+			assert.Equal(t, tc.requested, requested, "requested")
+			assert.Equal(t, tc.malformed, malformed, "malformed")
+		})
+	}
+}

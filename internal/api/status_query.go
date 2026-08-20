@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -33,6 +34,52 @@ import (
 // while a real field that is merely absent right now -- an unconfigured environment, an omitted
 // expiringSdkKey, a bigSegmentStatus on an environment without big segments -- is a legitimately
 // unmet assertion and reports 412.
+
+// ExpectParam is the query parameter that carries the assertion clauses.
+const ExpectParam = "expect"
+
+// ParseExpectQuery reads the "expect" clauses out of a raw URL query string. requested reports
+// whether the caller used the parameter at all; malformed reports whether the query string could be
+// parsed.
+//
+// This does not go through Request.URL.Query(), which discards the parse error from
+// url.ParseQuery and drops only the offending segment. A clause the relay cannot decode would then
+// look identical to no clause at all, and the handler would answer 200 with the full status document
+// for an assertion it never evaluated. Go rejects a segment holding a raw ";" or a bad "%" escape,
+// and hand-encoding is exactly what the bracket-quoted environment keys ask callers to do, so this
+// is reachable from a single-character typo. A verdict endpoint has to fail closed, so the error is
+// surfaced to the caller instead.
+func ParseExpectQuery(rawQuery string) (clauses []string, requested, malformed bool) {
+	values, err := url.ParseQuery(rawQuery)
+	clauses = values[ExpectParam]
+	requested = len(clauses) > 0
+	if err != nil {
+		malformed = true
+		if !requested {
+			// Every clause was dropped, so the surviving values cannot say whether the caller was
+			// asking for a verdict. Look for the parameter in the raw query instead, to keep a
+			// request that never mentioned it on the unchanged full-document path.
+			requested = rawQueryHasParam(rawQuery, ExpectParam)
+		}
+	}
+	return clauses, requested, malformed
+}
+
+// rawQueryHasParam reports whether the raw query string carries the named parameter, regardless of
+// whether its value can be decoded.
+func rawQueryHasParam(rawQuery, param string) bool {
+	for rawQuery != "" {
+		var segment string
+		segment, rawQuery, _ = strings.Cut(rawQuery, "&")
+		key, _, _ := strings.Cut(segment, "=")
+		// A key that does not unescape is one this cannot identify, which is the same reason
+		// url.ParseQuery dropped it.
+		if decoded, err := url.QueryUnescape(key); err == nil && decoded == param {
+			return true
+		}
+	}
+	return false
+}
 
 // StatusSchema identifies which status document a set of clauses is evaluated against. Paths are
 // relative to the body of the route that serves them, so the two routes validate against different

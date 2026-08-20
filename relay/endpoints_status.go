@@ -61,21 +61,32 @@ func statusHandler(relay *Relay) http.Handler {
 
 		data, _ := json.Marshal(resp)
 
-		if clauses := req.URL.Query()["expect"]; len(clauses) > 0 {
-			writeStatusExpectations(w, data, clauses, api.SchemaAllEnvironments)
-			return
-		}
-
-		_, _ = w.Write(data)
+		writeStatusBody(w, req, data, api.SchemaAllEnvironments)
 	})
 }
 
-// writeStatusExpectations evaluates the "expect" query clauses against a marshaled status body and
-// writes the verdict: the per-clause results as the body, and an HTTP status code the caller can
-// branch on without parsing the body themselves (200 satisfied, 412 unsatisfied, 422 not evaluable,
-// 400 unparseable). schema says which status document the clause paths are checked against.
-func writeStatusExpectations(w http.ResponseWriter, body []byte, clauses []string, schema api.StatusSchema) {
-	result, code := api.EvaluateExpectations(body, clauses, schema)
+// writeStatusBody writes the status document, or -- when the caller supplied "expect" clauses -- the
+// verdict for them: the per-clause results as the body, and an HTTP status code the caller can branch
+// on without parsing the body themselves (200 satisfied, 412 unsatisfied, 422 not evaluable, 400
+// unparseable). schema says which status document the clause paths are checked against.
+func writeStatusBody(w http.ResponseWriter, req *http.Request, body []byte, schema api.StatusSchema) {
+	clauses, requested, malformed := api.ParseExpectQuery(req.URL.RawQuery)
+	switch {
+	case !requested:
+		_, _ = w.Write(body)
+	case malformed:
+		// At least one clause could not be decoded, so the relay does not know everything that was
+		// asserted and must not answer 200 for an assertion it never evaluated. The whole query is
+		// rejected rather than the clauses that survived being judged on their own.
+		writeStatusVerdict(w, api.ExpectationsResult{Error: "could not parse the query string"},
+			http.StatusBadRequest)
+	default:
+		result, code := api.EvaluateExpectations(body, clauses, schema)
+		writeStatusVerdict(w, result, code)
+	}
+}
+
+func writeStatusVerdict(w http.ResponseWriter, result api.ExpectationsResult, code int) {
 	out, _ := json.Marshal(result)
 	w.WriteHeader(code)
 	_, _ = w.Write(out)
@@ -131,12 +142,7 @@ func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 		status, _ := relay.buildEnvironmentStatus(env)
 		data, _ := json.Marshal(status)
 
-		if clauses := req.URL.Query()["expect"]; len(clauses) > 0 {
-			writeStatusExpectations(w, data, clauses, api.SchemaSingleEnvironment)
-			return
-		}
-
-		_, _ = w.Write(data)
+		writeStatusBody(w, req, data, api.SchemaSingleEnvironment)
 	})
 }
 
