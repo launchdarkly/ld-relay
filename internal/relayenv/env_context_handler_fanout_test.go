@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
@@ -25,12 +26,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rotatorAccepting returns a rotator whose accepted set is exactly creds. GetStreamHandler consults the
-// accepted set before asking the provider for a handler, so a test envContextImpl needs a real rotator
-// rather than the zero value.
-func rotatorAccepting(creds ...credential.SDKCredential) *credential.Rotator {
+// rotatorAccepting returns a rotator initialized with these credentials, any of which may be undefined.
+// GetStreamHandler consults the accepted set before asking the provider for a handler, so a test
+// envContextImpl needs a real rotator rather than the zero value.
+func rotatorAccepting(
+	sdkKey config.SDKKey,
+	mobileKey config.MobileKey,
+	envID config.EnvironmentID,
+) *credential.Rotator {
 	r := credential.NewRotator(ldlog.NewDisabledLoggers())
-	r.Initialize(creds)
+	r.Initialize(sdkKey, mobileKey, envID)
+	return r
+}
+
+// rotatorAcceptingSDKKeys returns a rotator anchored on anchor with others accepted alongside it.
+// Initialize takes a single SDK key, so a multi-key accepted set is reached the way a relay reaches one:
+// by reconciling.
+func rotatorAcceptingSDKKeys(t *testing.T, anchor config.SDKKey, others ...config.SDKKey) *credential.Rotator {
+	t.Helper()
+
+	builder := credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: anchor})
+	for _, key := range others {
+		builder.WithSDKKey(credential.SDKKeyParams{Value: key})
+	}
+
+	r := credential.NewRotator(ldlog.NewDisabledLoggers())
+	now := time.Unix(1000, 0)
+	result := r.Reconcile(mustBuildAcceptedSet(t, builder), now)
+	require.NotNil(t, result.AnchorChange, "the first anchor is signaled as a change")
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
 	return r
 }
 
@@ -69,7 +95,7 @@ func TestGetStreamHandler_BuildsOnDemandScopedWithEnvFilterKey(t *testing.T) {
 
 	c := &envContextImpl{
 		filterKey:  filter,
-		keyRotator: rotatorAccepting(config.SDKKey("sdk-A"), config.SDKKey("sdk-B")),
+		keyRotator: rotatorAcceptingSDKKeys(t, config.SDKKey("sdk-A"), config.SDKKey("sdk-B")),
 	}
 
 	// A valid (right-kind) credential: the provider is asked for that credential scoped with the env's
@@ -104,7 +130,7 @@ func TestGetStreamHandler_WrongKindCredentialServes404(t *testing.T) {
 	// wrong credential kind, so the accepted-set check must pass in order for the request to reach it.
 	c := &envContextImpl{
 		filterKey:  config.DefaultFilter,
-		keyRotator: rotatorAccepting(config.MobileKey("mob-key")),
+		keyRotator: rotatorAccepting("", config.MobileKey("mob-key"), ""),
 	}
 
 	// A credential the provider rejects (returns nil for) must fall back to the invalid-stream 404

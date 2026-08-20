@@ -215,11 +215,7 @@ func NewEnvContext(
 		offline:                   envConfig.Offline,
 	}
 
-	envContext.keyRotator.Initialize([]credential.SDKCredential{
-		envConfig.SDKKey,
-		envConfig.MobileKey,
-		envConfig.EnvID,
-	})
+	envContext.keyRotator.Initialize(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID)
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
 	if bigSegmentStoreFactory == nil {

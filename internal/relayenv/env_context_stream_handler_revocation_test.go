@@ -101,7 +101,7 @@ func TestGetStreamHandlerDoesNotConsultProviderForRevokedCredential(t *testing.T
 	// never reach the point of creating a channel subscription.
 	c := &envContextImpl{
 		filterKey:  config.DefaultFilter,
-		keyRotator: rotatorAccepting(config.SDKKey("accepted-sdk-key")),
+		keyRotator: rotatorAccepting(config.SDKKey("accepted-sdk-key"), "", ""),
 	}
 	sp := alwaysServingProvider()
 
@@ -119,7 +119,7 @@ func TestGetStreamHandlerRejectsForeignEnvironmentID(t *testing.T) {
 	// environment's own ID is accepted.
 	c := &envContextImpl{
 		filterKey:  config.DefaultFilter,
-		keyRotator: rotatorAccepting(config.EnvironmentID("this-env")),
+		keyRotator: rotatorAccepting("", "", config.EnvironmentID("this-env")),
 	}
 	sp := alwaysServingProvider()
 
