@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.21.0](https://github.com/launchdarkly/ld-relay/compare/v8.20.0...v8.21.0) (2026-08-20)
+
+
+### Features
+
+* Support concurrent SDK keys and mobile keys ([#817](https://github.com/launchdarkly/ld-relay/issues/817)) ([04043ec](https://github.com/launchdarkly/ld-relay/commit/04043ec31f4b64d6be925d11e519258e7d3c50f1))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.26.6 and 1.25.13 ([#820](https://github.com/launchdarkly/ld-relay/issues/820)) ([4975098](https://github.com/launchdarkly/ld-relay/commit/497509878a1809a15e61cecb1729facdbafb68e9))
+
 ## [8.20.0](https://github.com/launchdarkly/ld-relay/compare/v8.19.6...v8.20.0) (2026-08-03)
 
 
