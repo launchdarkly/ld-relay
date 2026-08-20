@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -19,42 +20,83 @@ import (
 // The parameter is repeatable; all clauses must hold for the request to be considered satisfied.
 // This is deliberately a small, bounded grammar rather than a general query language: the status
 // endpoints are unauthenticated, so an open-ended evaluator would be an unbounded compute surface.
+//
+// A clause can fail in three different ways, and each gets its own status code so that a caller
+// debugging a probe can tell them apart:
+//
+//   - The clause does not parse as <path><operator><value> at all: 400.
+//   - The clause parses, but names an operator or a field the relay cannot evaluate: 422.
+//   - The clause is evaluable and simply does not hold: 412.
+//
+// The distinction between 422 and 412 is drawn against the *schema* of the status document, not
+// against the particular body being served. A misspelled field is a caller error and reports 422,
+// while a real field that is merely absent right now -- an unconfigured environment, an omitted
+// expiringSdkKey, a bigSegmentStatus on an environment without big segments -- is a legitimately
+// unmet assertion and reports 412.
+
+// StatusSchema identifies which status document a set of clauses is evaluated against. Paths are
+// relative to the body of the route that serves them, so the two routes validate against different
+// roots.
+type StatusSchema int
+
+const (
+	// SchemaAllEnvironments is the body of the /status route: a StatusRep.
+	SchemaAllEnvironments StatusSchema = iota
+	// SchemaSingleEnvironment is the body of the per-environment status routes: a bare
+	// EnvironmentStatusRep, with no "environments" wrapper.
+	SchemaSingleEnvironment
+)
+
+// rootType returns the Go type whose JSON encoding a path is checked against. The status handlers
+// marshal exactly these types, so a path that this type cannot address is one the caller got wrong.
+func (s StatusSchema) rootType() reflect.Type {
+	if s == SchemaSingleEnvironment {
+		return reflect.TypeOf(EnvironmentStatusRep{})
+	}
+	return reflect.TypeOf(StatusRep{})
+}
 
 // ExpectationResult is the outcome of evaluating a single "expect" clause.
 type ExpectationResult struct {
 	// Expr is the original clause as supplied by the caller.
 	Expr string `json:"expr"`
-	// Expected is the value the clause asserted.
-	Expected string `json:"expected"`
-	// Actual is the value found at the clause's path, rendered as a string. It is empty when the
-	// path did not resolve to a scalar.
-	Actual string `json:"actual"`
-	// OK reports whether the clause held.
+	// Expected is the value the clause asserted. It is omitted for a clause that was not evaluated.
+	Expected string `json:"expected,omitempty"`
+	// Actual is the value found at the clause's path, rendered as a string. It is omitted for a
+	// clause that was not evaluated, and empty when the path is absent from the body.
+	Actual string `json:"actual,omitempty"`
+	// Problem describes why the clause could not be evaluated. It is empty for a clause that was.
+	Problem string `json:"problem,omitempty"`
+	// OK reports whether the clause held. It is false for a clause that was not evaluated.
 	OK bool `json:"ok"`
 }
 
 // ExpectationsResult is the body returned when a status request includes "expect" clauses.
 type ExpectationsResult struct {
-	// Satisfied reports whether every clause held.
+	// Satisfied reports whether every clause was evaluated and held.
 	Satisfied bool `json:"satisfied"`
 	// Results contains one entry per clause, in the order supplied.
 	Results []ExpectationResult `json:"results,omitempty"`
-	// Error describes why the query was rejected. It is set only for malformed queries.
+	// Error describes why the whole query was abandoned, as opposed to a problem with one clause.
 	Error string `json:"error,omitempty"`
 }
 
 // EvaluateExpectations evaluates the "expect" clauses against a marshaled status body and returns
-// the per-clause results together with the HTTP status code the handler should write:
+// the per-clause results together with the HTTP status code the handler should write. Every clause
+// is evaluated, so one request reports every problem the caller needs to fix; the response code is
+// the most serious outcome across all of them:
 //
+//   - http.StatusBadRequest (400) when any clause does not parse.
+//   - http.StatusUnprocessableEntity (422) when any clause parses but names an operator or a field
+//     that cannot be evaluated against the schema.
+//   - http.StatusPreconditionFailed (412) when every clause is evaluable but at least one does not
+//     hold. A clause whose path is absent from the body is treated as unsatisfied: if the field the
+//     caller asserted about is not even present, the relay is not in the state they assumed.
 //   - http.StatusOK (200) when every clause holds.
-//   - http.StatusPreconditionFailed (412) when at least one clause is well-formed but does not
-//     hold. A clause whose path is absent from the body is treated as unsatisfied: if the field
-//     the caller asserted about is not even present, the relay is not in the state they assumed.
-//   - http.StatusBadRequest (400) when any clause is malformed.
 //
 // body is the JSON the handler would otherwise have written, so a clause path matches exactly
-// what the caller sees in the response.
-func EvaluateExpectations(body []byte, clauses []string) (ExpectationsResult, int) {
+// what the caller sees in the response. schema says which document that is.
+func EvaluateExpectations(body []byte, clauses []string, schema StatusSchema) (ExpectationsResult, int) {
 	var doc interface{}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		// The body is the relay's own freshly-marshaled output, so this is not reachable in
@@ -62,56 +104,103 @@ func EvaluateExpectations(body []byte, clauses []string) (ExpectationsResult, in
 		return ExpectationsResult{Satisfied: false, Error: "could not parse status body"},
 			http.StatusInternalServerError
 	}
+	root := schema.rootType()
 
 	result := ExpectationsResult{Satisfied: true}
+	code := http.StatusOK
 	for _, clause := range clauses {
-		path, op, expected, err := parseClause(clause)
-		if err != nil {
-			return ExpectationsResult{
-				Satisfied: false,
-				Error:     fmt.Sprintf("invalid expect clause %q: %s", clause, err),
-			}, http.StatusBadRequest
-		}
-		steps, err := parsePath(path)
-		if err != nil {
-			return ExpectationsResult{
-				Satisfied: false,
-				Error:     fmt.Sprintf("invalid expect clause %q: %s", clause, err),
-			}, http.StatusBadRequest
-		}
-
-		actual, found := walkPath(doc, steps)
-		actualStr, isScalar := scalarToString(actual)
-
-		ok := false
-		switch {
-		case !found || !isScalar:
-			// An absent field, or a path that lands on an object/array rather than a scalar,
-			// cannot satisfy the clause. Reported as unsatisfied (412), not malformed (400):
-			// the query is well-formed, the response simply is not in the asserted state.
-			ok = false
-			actualStr = ""
-		case op == opEquals:
-			ok = actualStr == expected
-		case op == opNotEquals:
-			ok = actualStr != expected
-		}
-
-		if !ok {
+		clauseResult, clauseCode := evaluateClause(doc, root, clause)
+		if !clauseResult.OK {
 			result.Satisfied = false
 		}
-		result.Results = append(result.Results, ExpectationResult{
-			Expr:     clause,
-			Expected: expected,
-			Actual:   actualStr,
-			OK:       ok,
-		})
+		if severity(clauseCode) > severity(code) {
+			code = clauseCode
+		}
+		result.Results = append(result.Results, clauseResult)
+	}
+	return result, code
+}
+
+// severity ranks the per-clause outcomes so that the response reports the most serious one: a clause
+// that does not parse outranks one that cannot be evaluated, which outranks one that merely does not
+// hold.
+func severity(code int) int {
+	switch code {
+	case http.StatusBadRequest:
+		return 3
+	case http.StatusUnprocessableEntity:
+		return 2
+	case http.StatusPreconditionFailed:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func evaluateClause(doc interface{}, root reflect.Type, clause string) (ExpectationResult, int) {
+	path, op, expected, problem := parseClause(clause)
+	if problem == nil {
+		var steps []pathStep
+		steps, problem = parsePath(path)
+		if problem == nil {
+			problem = validatePath(root, steps)
+		}
+		if problem == nil {
+			return compare(doc, steps, op, expected, clause)
+		}
+	}
+	return ExpectationResult{Expr: clause, Problem: problem.msg}, problem.code()
+}
+
+func compare(doc interface{}, steps []pathStep, op, expected, clause string) (ExpectationResult, int) {
+	// A path that passed validation addresses a scalar, so anything found here renders as one.
+	actual, found := walkPath(doc, steps)
+	actualStr := ""
+	if found {
+		actualStr, _ = scalarToString(actual)
 	}
 
-	if result.Satisfied {
+	ok := false
+	switch {
+	case !found:
+		// An absent field cannot satisfy the clause, for either operator: the caller asserted
+		// something about a field the relay is not currently reporting.
+	case op == opEquals:
+		ok = actualStr == expected
+	case op == opNotEquals:
+		ok = actualStr != expected
+	}
+
+	result := ExpectationResult{Expr: clause, Expected: expected, Actual: actualStr, OK: ok}
+	if ok {
 		return result, http.StatusOK
 	}
 	return result, http.StatusPreconditionFailed
+}
+
+// clauseProblem is a reason a clause could not be evaluated, carrying the status code that reason
+// maps to. It is deliberately a concrete type rather than an error: every producer returns it
+// directly, so there is nothing to unwrap.
+type clauseProblem struct {
+	msg string
+	// semantic distinguishes a clause the relay understood but cannot evaluate (422) from one it
+	// could not parse (400).
+	semantic bool
+}
+
+func (p *clauseProblem) code() int {
+	if p.semantic {
+		return http.StatusUnprocessableEntity
+	}
+	return http.StatusBadRequest
+}
+
+func syntaxProblem(format string, args ...interface{}) *clauseProblem {
+	return &clauseProblem{msg: fmt.Sprintf(format, args...)}
+}
+
+func semanticProblem(format string, args ...interface{}) *clauseProblem {
+	return &clauseProblem{msg: fmt.Sprintf(format, args...), semantic: true}
 }
 
 const (
@@ -119,39 +208,45 @@ const (
 	opNotEquals = "!="
 )
 
-// parseClause splits a clause into its path, operator, and expected value. The operator is the
-// first "=" or "!=" found outside of any "[...]" brackets, so that an array filter such as
-// sdkKeys[key=foo].value is not mistaken for the clause operator.
-func parseClause(clause string) (path, op, value string, err error) {
+// operatorChars are the characters that only ever form a comparison operator, and never part of an
+// unquoted path. Excluding '-', '_' and ':' keeps them available to the environment names and keys
+// that appear as map keys under "environments".
+const operatorChars = "=!<>~"
+
+// parseClause splits a clause into its path, operator, and expected value. The whole run of
+// operator characters is read as one token, so an unsupported operator is reported as one instead of
+// being absorbed into the path ("status>=x" asserting on a field named "status>") or into the value
+// ("status==x" comparing against the literal "=x"). The scan ignores anything inside "[...]", so an
+// array filter such as sdkKeys[key=foo].value is not mistaken for the clause operator.
+func parseClause(clause string) (path, op, value string, problem *clauseProblem) {
 	depth := 0
 	for i := 0; i < len(clause); i++ {
-		switch clause[i] {
-		case '[':
+		switch c := clause[i]; {
+		case c == '[':
 			depth++
-		case ']':
+		case c == ']':
 			// Clamp at zero so an unbalanced ']' cannot drive depth negative and hide the
 			// real top-level operator from the scan below.
 			if depth > 0 {
 				depth--
 			}
-		case '!':
-			if depth == 0 && i+1 < len(clause) && clause[i+1] == '=' {
-				return clause[:i], opNotEquals, clause[i+2:], validateClauseParts(clause[:i])
+		case depth == 0 && strings.IndexByte(operatorChars, c) >= 0:
+			end := i
+			for end < len(clause) && strings.IndexByte(operatorChars, clause[end]) >= 0 {
+				end++
 			}
-		case '=':
-			if depth == 0 {
-				return clause[:i], opEquals, clause[i+1:], validateClauseParts(clause[:i])
+			token := clause[i:end]
+			if i == 0 {
+				return "", "", "", syntaxProblem("missing path before the %s operator", strconv.Quote(token))
 			}
+			if token != opEquals && token != opNotEquals {
+				return "", "", "", semanticProblem("operator %s is not supported; use %s or %s",
+					strconv.Quote(token), strconv.Quote(opEquals), strconv.Quote(opNotEquals))
+			}
+			return clause[:i], token, clause[end:], nil
 		}
 	}
-	return "", "", "", fmt.Errorf("missing '=' or '!=' operator")
-}
-
-func validateClauseParts(path string) error {
-	if path == "" {
-		return fmt.Errorf("missing path before operator")
-	}
-	return nil
+	return "", "", "", syntaxProblem(`missing "=" or "!=" operator`)
 }
 
 const (
@@ -168,6 +263,18 @@ type pathStep struct {
 	value string // stepFilter: the value the field must equal
 }
 
+// label renders a step the way the caller wrote it, for use in a problem message.
+func (s pathStep) label() string {
+	switch s.kind {
+	case stepIndex:
+		return fmt.Sprintf("[%d]", s.index)
+	case stepFilter:
+		return fmt.Sprintf("[%s=%s]", s.key, s.value)
+	default:
+		return s.key
+	}
+}
+
 // parsePath parses a dotted path into ordered steps. Supported syntax:
 //
 //	a.b.c                    map keys
@@ -177,7 +284,7 @@ type pathStep struct {
 //
 // The bracket forms allow the path to address the concurrent-keys arrays that the status
 // representation will grow (e.g. sdkKeys[key=new-production-default].value).
-func parsePath(path string) ([]pathStep, error) {
+func parsePath(path string) ([]pathStep, *clauseProblem) {
 	var steps []pathStep
 	i := 0
 	for i < len(path) {
@@ -190,11 +297,11 @@ func parsePath(path string) ([]pathStep, error) {
 			// (credentials, states, identifiers) do not contain ']'.
 			end := strings.IndexByte(path[i:], ']')
 			if end < 0 {
-				return nil, fmt.Errorf("unterminated '[' in path")
+				return nil, syntaxProblem("unterminated '[' in path")
 			}
-			step, err := parseBracket(path[i+1 : i+end])
-			if err != nil {
-				return nil, err
+			step, problem := parseBracket(path[i+1 : i+end])
+			if problem != nil {
+				return nil, problem
 			}
 			steps = append(steps, step)
 			i += end + 1
@@ -207,14 +314,14 @@ func parsePath(path string) ([]pathStep, error) {
 		}
 	}
 	if len(steps) == 0 {
-		return nil, fmt.Errorf("empty path")
+		return nil, syntaxProblem("empty path")
 	}
 	return steps, nil
 }
 
-func parseBracket(inner string) (pathStep, error) {
+func parseBracket(inner string) (pathStep, *clauseProblem) {
 	if inner == "" {
-		return pathStep{}, fmt.Errorf("empty '[]' in path")
+		return pathStep{}, syntaxProblem("empty '[]' in path")
 	}
 	// Quoted key: ["foo"] or ['foo']. The length guard ensures a lone quote character (where
 	// inner[0] and inner[len-1] are the same byte) is not mistaken for a quoted key, which would
@@ -228,18 +335,18 @@ func parseBracket(inner string) (pathStep, error) {
 	if eq := strings.IndexByte(inner, '='); eq >= 0 {
 		field := inner[:eq]
 		if field == "" {
-			return pathStep{}, fmt.Errorf("missing field name in filter")
+			return pathStep{}, syntaxProblem("missing field name in filter")
 		}
 		return pathStep{kind: stepFilter, key: field, value: unquote(inner[eq+1:])}, nil
 	}
 	// Array index: [0].
 	if idx, err := strconv.Atoi(inner); err == nil {
 		if idx < 0 {
-			return pathStep{}, fmt.Errorf("negative array index %d", idx)
+			return pathStep{}, syntaxProblem("negative array index %d", idx)
 		}
 		return pathStep{kind: stepIndex, index: idx}, nil
 	}
-	return pathStep{}, fmt.Errorf("unrecognized '[%s]' in path", inner)
+	return pathStep{}, syntaxProblem("unrecognized '[%s]' in path", inner)
 }
 
 func unquote(s string) string {
@@ -249,6 +356,109 @@ func unquote(s string) string {
 		}
 	}
 	return s
+}
+
+// validatePath reports whether the steps address a comparable value in the status document that root
+// describes. It answers "could this path ever resolve", not "does it resolve in this body": a field
+// that exists but is currently omitted is a clause that does not hold, not a clause the relay cannot
+// evaluate.
+//
+// The check walks the Go types the handlers marshal, matching each step against the json tags. A map
+// accepts any key, which is what makes environments.<any environment>.<field> addressable while
+// still checking <field>.
+func validatePath(root reflect.Type, steps []pathStep) *clauseProblem {
+	t := root
+	for _, step := range steps {
+		t = deref(t)
+		switch t.Kind() {
+		case reflect.Struct:
+			if step.kind != stepKey {
+				return semanticProblem("%s addresses an array, but that part of the status is an object",
+					strconv.Quote(step.label()))
+			}
+			field, ok := jsonField(t, step.key)
+			if !ok {
+				return semanticProblem("unknown field %s", strconv.Quote(step.key))
+			}
+			t = field
+		case reflect.Map:
+			// Any key is addressable; the value type is what the remaining steps must match.
+			if step.kind != stepKey {
+				return semanticProblem("%s addresses an array, but that part of the status is a map",
+					strconv.Quote(step.label()))
+			}
+			t = t.Elem()
+		case reflect.Slice, reflect.Array:
+			switch step.kind {
+			case stepIndex:
+				t = t.Elem()
+			case stepFilter:
+				if element := deref(t.Elem()); element.Kind() != reflect.Struct {
+					return semanticProblem("cannot filter on field %s: the array does not hold objects",
+						strconv.Quote(step.key))
+				} else if _, ok := jsonField(element, step.key); !ok {
+					return semanticProblem("unknown field %s", strconv.Quote(step.key))
+				}
+				t = t.Elem()
+			default:
+				return semanticProblem("%s addresses a field, but that part of the status is an array",
+					strconv.Quote(step.key))
+			}
+		default:
+			return semanticProblem("%s addresses a field of a value that has none",
+				strconv.Quote(step.label()))
+		}
+	}
+	if !isComparableKind(deref(t).Kind()) {
+		return semanticProblem("%s is not a single value, so it cannot be compared",
+			strconv.Quote(steps[len(steps)-1].label()))
+	}
+	return nil
+}
+
+func deref(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+// isComparableKind reports whether a type marshals to a JSON scalar, which is what a clause can
+// compare against. Every field of the status representations is a string, a bool, a number, or a
+// named type over one of those; a field whose type marshals to a scalar by some other route (a
+// custom MarshalJSON over a struct, say) would need handling here.
+func isComparableKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
+}
+
+// jsonField returns the type of the field that marshals under the given JSON name.
+func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue // unexported, so it is not in the body
+		}
+		tag := field.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		tagName, _, _ := strings.Cut(tag, ",")
+		if tagName == "" {
+			tagName = field.Name
+		}
+		if tagName == name {
+			return field.Type, true
+		}
+	}
+	return nil, false
 }
 
 // walkPath follows steps into a decoded JSON document, returning the value reached and whether the

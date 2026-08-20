@@ -62,7 +62,7 @@ func statusHandler(relay *Relay) http.Handler {
 		data, _ := json.Marshal(resp)
 
 		if clauses := req.URL.Query()["expect"]; len(clauses) > 0 {
-			writeStatusExpectations(w, data, clauses)
+			writeStatusExpectations(w, data, clauses, api.SchemaAllEnvironments)
 			return
 		}
 
@@ -72,9 +72,10 @@ func statusHandler(relay *Relay) http.Handler {
 
 // writeStatusExpectations evaluates the "expect" query clauses against a marshaled status body and
 // writes the verdict: the per-clause results as the body, and an HTTP status code the caller can
-// branch on (200 satisfied, 412 unsatisfied, 400 malformed) without parsing the body themselves.
-func writeStatusExpectations(w http.ResponseWriter, body []byte, clauses []string) {
-	result, code := api.EvaluateExpectations(body, clauses)
+// branch on without parsing the body themselves (200 satisfied, 412 unsatisfied, 422 not evaluable,
+// 400 unparseable). schema says which status document the clause paths are checked against.
+func writeStatusExpectations(w http.ResponseWriter, body []byte, clauses []string, schema api.StatusSchema) {
+	result, code := api.EvaluateExpectations(body, clauses, schema)
 	out, _ := json.Marshal(result)
 	w.WriteHeader(code)
 	_, _ = w.Write(out)
@@ -131,7 +132,7 @@ func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 		data, _ := json.Marshal(status)
 
 		if clauses := req.URL.Query()["expect"]; len(clauses) > 0 {
-			writeStatusExpectations(w, data, clauses)
+			writeStatusExpectations(w, data, clauses, api.SchemaSingleEnvironment)
 			return
 		}
 

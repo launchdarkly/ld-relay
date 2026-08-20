@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // statusURL builds a status URL with the given path and a set of repeated "expect" clauses,
@@ -22,6 +23,12 @@ func statusURL(path string, clauses ...string) string {
 		q.Add("expect", clause)
 	}
 	return fmt.Sprintf("http://localhost%s?%s", path, q.Encode())
+}
+
+// clauseProblem reads the "problem" reported for one clause of a verdict body. It is empty for a
+// clause the relay evaluated.
+func clauseProblem(body []byte, index int) string {
+	return ldvalue.Parse(body).GetByKey("results").GetByIndex(index).GetByKey("problem").StringValue()
 }
 
 func TestEndpointsStatusExpect(t *testing.T) {
@@ -57,18 +64,58 @@ func TestEndpointsStatusExpect(t *testing.T) {
 				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
 			})
 
-			t.Run("malformed clause returns 400", func(t *testing.T) {
+			t.Run("unparseable clause returns 400", func(t *testing.T) {
 				r, _ := http.NewRequest("GET", statusURL("/status", "status"), nil)
 				result, body := st.DoRequest(r, p.relay)
 				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
-				assert.NotEmpty(t, ldvalue.Parse(body).GetByKey("error").StringValue())
+				assert.NotEmpty(t, clauseProblem(body, 0))
 			})
 
 			t.Run("present-but-empty expect value returns 400", func(t *testing.T) {
 				r, _ := http.NewRequest("GET", "http://localhost/status?expect=", nil)
 				result, body := st.DoRequest(r, p.relay)
 				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
-				assert.NotEmpty(t, ldvalue.Parse(body).GetByKey("error").StringValue())
+				assert.NotEmpty(t, clauseProblem(body, 0))
+			})
+
+			t.Run("unsupported operator returns 422", func(t *testing.T) {
+				for _, clause := range []string{"status>=healthy", "status==healthy"} {
+					r, _ := http.NewRequest("GET", statusURL("/status", clause), nil)
+					result, body := st.DoRequest(r, p.relay)
+					assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode, clause)
+					assert.Contains(t, clauseProblem(body, 0), "is not supported", clause)
+				}
+			})
+
+			t.Run("unknown field returns 422", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status", "connexionStatus.state=VALID"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "unknown field")
+			})
+
+			// An unconfigured environment is a well-formed question with the answer "no", so it
+			// stays a 412 rather than joining the unknown-field cases above.
+			t.Run("unconfigured environment returns 412", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL("/status", "environments.no-such-env.status=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+				assert.Empty(t, clauseProblem(body, 0))
+			})
+
+			t.Run("every clause is reported and the worst outcome wins", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status",
+					"status", "connexionStatus.state=VALID", "status=degraded", "status=healthy"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				results := ldvalue.Parse(body).GetByKey("results")
+				require.Equal(t, 4, results.Count())
+				assert.NotEmpty(t, clauseProblem(body, 0))
+				assert.NotEmpty(t, clauseProblem(body, 1))
+				assert.Empty(t, clauseProblem(body, 2))
+				assert.False(t, results.GetByIndex(2).GetByKey("ok").BoolValue())
+				assert.True(t, results.GetByIndex(3).GetByKey("ok").BoolValue())
 			})
 
 			t.Run("no expect param leaves the body unchanged", func(t *testing.T) {
@@ -109,6 +156,21 @@ func TestEndpointsStatusExpect(t *testing.T) {
 				r, _ = http.NewRequest("GET", statusURL(envPath, "status!=connected"), nil)
 				result, _ = st.DoRequest(r, p.relay)
 				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+			})
+
+			t.Run("all-environments path is unknown on this route", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL(envPath, "environments.anything.status=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "unknown field")
+			})
+
+			t.Run("unsupported operator returns 422", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL(envPath, "status~=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "is not supported")
 			})
 
 			t.Run("unknown environment still returns 404 before evaluation", func(t *testing.T) {

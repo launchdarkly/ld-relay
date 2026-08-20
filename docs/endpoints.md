@@ -236,32 +236,44 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 - The keys under `environments` are the same display names used elsewhere in the `/status` body: normally `"<projName> <envName>"` (with a `" (<filterKey>)"` suffix for a filtered variant), or the environment ID in automatic configuration mode. Because these usually contain spaces and parentheses, bracket-quote the key and URL-encode the clause: `expect=environments["My Application Production"].status=connected`. Querying a per-environment route (for example `/status/my-application/production`) avoids the map key entirely and is usually simpler.
 - Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`.
 - For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
-- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`).
+- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). No field of the current status document is an array; this syntax exists so that selectors keep working when one becomes an array, and addressing a field that is not an array today returns `422`.
 
 **Operators and comparison:**
 
-- `=` asserts the value at the path equals the expected value; `!=` asserts it does not.
+- `=` asserts the value at the path equals the expected value; `!=` asserts it does not. These are the only two operators; anything else (`>=`, `==`, `=~`, ...) returns `422`.
 - Comparison is done as strings against the value as it appears in the JSON response (for example `available=true`, `connectionStatus.state=VALID`, or a `stateSince` timestamp such as `stateSince=1618859993000`).
 
 **HTTP status codes:**
 
-- `200 OK` - every clause held.
-- `412 Precondition Failed` - at least one well-formed clause did not hold. A clause whose path is not present in the response is treated as not held, since the field you asserted about does not exist in the current state. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
-- `400 Bad Request` - a clause was malformed (for example, missing an operator).
-- On the per-environment routes, an unknown environment or filter (`404`) or an uninitialized Relay Proxy (`503`) is reported before any clause is evaluated.
+Every clause is evaluated, so one request reports everything you need to fix. The response code is the most serious outcome across all of the clauses, in the order below.
 
-When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging:
+- `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these.
+- `422 Unprocessable Content` - a clause was read successfully, but names something the Relay Proxy cannot evaluate: an operator other than `=` or `!=`, a field that does not exist in the status document, or a path that stops on an object rather than on a single value.
+- `412 Precondition Failed` - every clause was evaluable and at least one did not hold. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
+- `200 OK` - every clause held.
+
+On the per-environment routes, an unknown environment or filter (`404`) or an uninitialized Relay Proxy (`503`) is reported before any clause is evaluated.
+
+**`422` and `412` both mean "not what you asked for", so it is worth being precise about which you get.** The difference is whether the *field* exists in the status document, not whether it is present in this particular response:
+
+- `connexionStatus.state=VALID` returns `422`: there is no such field, so the assertion can never be answered. This is almost always a typo.
+- `environments.my-env.status=connected` returns `412` when `my-env` is not a configured environment. Any environment key is addressable, so this is a well-formed question whose answer is "no".
+- `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `expiringSdkKey=...` returns `412` when no key is expiring. Both fields are real but are omitted when they have no value.
+
+When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging. Clauses appear in the order you supplied them. A clause that was evaluated reports `expected`, `actual`, and `ok`; a clause that could not be evaluated reports `problem` instead:
 
 ```json
 {
   "satisfied": false,
   "results": [
-    { "expr": "status=healthy", "expected": "healthy", "actual": "degraded", "ok": false }
+    { "expr": "status=healthy", "expected": "healthy", "actual": "degraded", "ok": false },
+    { "expr": "connexionStatus.state=VALID", "problem": "unknown field \"connexionStatus\"", "ok": false },
+    { "expr": "status>=healthy", "problem": "operator \">=\" is not supported; use \"=\" or \"!=\"", "ok": false }
   ]
 }
 ```
 
-Requests without an `expect` parameter are unaffected and return the full status document as described above. A present-but-empty value (`?expect=`) is treated as a malformed clause and returns `400`.
+Requests without an `expect` parameter are unaffected and return the full status document as described above.
 
 ### Special flag evaluation endpoints
 
