@@ -208,6 +208,75 @@ curl http://localhost:8030/status/my-app/production/filters/microservice-a
 - **Debugging**: Quickly check the status of a single environment during troubleshooting
 - **Filtered environments**: Verify the status of specific payload filter variants
 
+### Health assertions (the `expect` query parameter)
+
+Any of the status endpoints above (`/status` and the per-environment routes) accept an optional `expect` query parameter that lets the Relay Proxy validate its own state and answer with an HTTP status code. This means a monitoring script or health probe can decide whether the Relay Proxy is in the state it expects without fetching the JSON body and parsing it (for example, with `jq`).
+
+Each `expect` clause is a path into the response body, a comparison operator, and an expected value:
+
+```
+expect=<path><operator><value>
+```
+
+The parameter can be repeated; all clauses must hold for the request to be considered satisfied (they are combined with logical AND).
+
+```shell
+# Is the whole Relay Proxy healthy?
+curl -fsS 'http://localhost:8030/status?expect=status=healthy'
+
+# Is one specific environment connected and its data source valid?
+curl -fsS 'http://localhost:8030/status/my-app/production?expect=status=connected&expect=connectionStatus.state=VALID'
+```
+
+With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script can branch on the exit code with no body parsing at all.
+
+**Encode the query string properly.** A clause containing a raw `;`, or a `%` that does not begin a valid escape, makes the query string undecodable, and the Relay Proxy answers `400` rather than evaluating the clauses that happened to survive. This matters most where you are hand-encoding a bracket-quoted environment key; let your tooling encode the value (`curl --get --data-urlencode "expect=..."`) instead of assembling the URL by hand.
+
+**Path syntax:**
+
+- Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>`. On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
+- The keys under `environments` are the same display names used elsewhere in the `/status` body: normally `"<projName> <envName>"` (with a `" (<filterKey>)"` suffix for a filtered variant), or the environment ID in automatic configuration mode. Because these usually contain spaces and parentheses, bracket-quote the key and URL-encode the clause: `expect=environments["My Application Production"].status=connected`. Querying a per-environment route (for example `/status/my-application/production`) avoids the map key entirely and is usually simpler.
+- Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`.
+- For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
+- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). No field of the current status document is an array; this syntax exists so that selectors keep working when one becomes an array, and addressing a field that is not an array today returns `422`.
+
+**Operators and comparison:**
+
+- `=` asserts the value at the path equals the expected value; `!=` asserts it does not. These are the only two operators; anything else (`>=`, `==`, `=~`, ...) returns `422`.
+- Comparison is done as strings against the value as it appears in the JSON response (for example `available=true`, `connectionStatus.state=VALID`, or a `stateSince` timestamp such as `stateSince=1618859993000`).
+
+**HTTP status codes:**
+
+Every clause is evaluated, so one request reports everything you need to fix. The response code is the most serious outcome across all of the clauses, in the order below.
+
+- `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these. This also covers a query string the Relay Proxy cannot decode: if any part of it is unreadable, the whole request is rejected rather than the clauses that survived being judged on their own, so an assertion is never silently skipped.
+- `422 Unprocessable Content` - a clause was read successfully, but names something the Relay Proxy cannot evaluate: an operator other than `=` or `!=`, a field that does not exist in the status document, or a path that stops on an object rather than on a single value.
+- `412 Precondition Failed` - every clause was evaluable and at least one did not hold. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
+- `200 OK` - every clause held.
+
+On the per-environment routes, an unknown environment or filter (`404`) or an uninitialized Relay Proxy (`503`) is reported before any clause is evaluated.
+
+**`422` and `412` both mean "not what you asked for", so it is worth being precise about which you get.** The difference is whether the *field* exists in the status document, not whether it is present in this particular response:
+
+- `connexionStatus.state=VALID` returns `422`: there is no such field, so the assertion can never be answered. This is almost always a typo.
+- `environments.my-env.status=connected` returns `412` when `my-env` is not a configured environment. Any environment key is addressable, so this is a well-formed question whose answer is "no".
+- `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `expiringSdkKey=...` returns `412` when no key is expiring. Both fields are real but are omitted when they have no value.
+
+When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging. Clauses appear in the order you supplied them. A clause that was evaluated reports `expected`, `actual`, and `ok`; a clause that could not be evaluated reports `problem` instead:
+
+```json
+{
+  "satisfied": false,
+  "results": [
+    { "expr": "status=healthy", "expected": "healthy", "actual": "degraded", "ok": false },
+    { "expr": "connexionStatus.state=VALID", "problem": "unknown field \"connexionStatus\"", "ok": false },
+    { "expr": "status>=healthy", "problem": "operator \">=\" is not supported; use \"=\" or \"!=\"", "ok": false }
+  ]
+}
+```
+
+Requests without an `expect` parameter are unaffected and return the full status document as described above.
+
 ### Special flag evaluation endpoints
 
 If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or want to evaluate feature flags internally without an SDK instance, the Relay Proxy provides endpoints for evaluating all feature flags for a given user.
