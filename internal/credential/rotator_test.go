@@ -23,7 +23,7 @@ func TestInitializePopulatesAcceptedSets(t *testing.T) {
 	mobileKey := config.MobileKey("mob-test-key")
 	envID := config.EnvironmentID("env-test-id")
 
-	rotator.Initialize([]SDKCredential{sdkKey, mobileKey, envID})
+	rotator.Initialize(sdkKey, mobileKey, envID)
 
 	// Verify accepted SDK key set: one entry, no expiry.
 	assert.Len(t, rotator.acceptedSDKKeys, 1)
@@ -41,6 +41,25 @@ func TestInitializePopulatesAcceptedSets(t *testing.T) {
 	assert.Equal(t, sdkKey, rotator.AnchorKey())
 	assert.Equal(t, mobileKey, rotator.MobileKey())
 	assert.Equal(t, envID, rotator.EnvironmentID())
+}
+
+func TestInitializeSkipsUndefinedCredentials(t *testing.T) {
+	rotator := newTestRotator()
+
+	sdkKey := config.SDKKey("sdk-test-key")
+	rotator.Initialize(sdkKey, "", "")
+
+	assert.Equal(t, sdkKey, rotator.AnchorKey())
+	assert.Len(t, rotator.acceptedSDKKeys, 1)
+
+	// An environment legitimately runs without a mobile key or without an environment ID. Neither may
+	// become a primary, and an undefined key must never land in an accepted set -- an entry there would
+	// make IsAccepted admit the empty credential.
+	assert.Empty(t, rotator.MobileKey())
+	assert.Empty(t, rotator.acceptedMobileKeys)
+	assert.Empty(t, rotator.EnvironmentID())
+	assert.False(t, rotator.IsAccepted(config.MobileKey("")))
+	assert.False(t, rotator.IsAccepted(config.EnvironmentID("")))
 }
 
 // TestReconcileDiff covers the additions/expirations diff Reconcile produces for the basic accepted-set

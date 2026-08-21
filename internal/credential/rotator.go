@@ -71,26 +71,26 @@ func NewRotator(loggers ldlog.Loggers) *Rotator {
 	return r
 }
 
-// Initialize sets the initial credentials. Only credentials that are defined
-// will be stored.
-func (r *Rotator) Initialize(credentials []SDKCredential) {
+// Initialize sets an environment's initial credentials: the anchor SDK key, the primary mobile key and
+// the environment ID. Each is stored only if it is defined, because an environment legitimately runs
+// without a mobile key or without an environment ID.
+//
+// It takes one credential of each kind rather than a set: an environment starts from a single
+// configured SDK key, and any further accepted keys arrive later, through Reconcile.
+func (r *Rotator) Initialize(sdkKey config.SDKKey, mobileKey config.MobileKey, envID config.EnvironmentID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, cred := range credentials {
-		if !cred.Defined() {
-			continue
-		}
-		switch cred := cred.(type) {
-		case config.SDKKey:
-			r.anchorKey = cred
-			r.acceptedSDKKeys[cred] = AcceptedKey{}
-		case config.MobileKey:
-			r.primaryMobileKey = cred
-			r.acceptedMobileKeys[cred] = AcceptedKey{}
-		case config.EnvironmentID:
-			r.primaryEnvironmentID = cred
-		}
+	if sdkKey.Defined() {
+		r.anchorKey = sdkKey
+		r.acceptedSDKKeys[sdkKey] = AcceptedKey{}
+	}
+	if mobileKey.Defined() {
+		r.primaryMobileKey = mobileKey
+		r.acceptedMobileKeys[mobileKey] = AcceptedKey{}
+	}
+	if envID.Defined() {
+		r.primaryEnvironmentID = envID
 	}
 }
 
