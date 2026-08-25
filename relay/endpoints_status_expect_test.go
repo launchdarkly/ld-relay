@@ -1,0 +1,238 @@
+package relay
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"testing"
+
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// statusURL builds a status URL with the given path and a set of repeated "expect" clauses,
+// properly query-encoded.
+func statusURL(path string, clauses ...string) string {
+	q := url.Values{}
+	for _, clause := range clauses {
+		q.Add("expect", clause)
+	}
+	return fmt.Sprintf("http://localhost%s?%s", path, q.Encode())
+}
+
+// clauseProblem reads the "problem" reported for one clause of a verdict body. It is empty for a
+// clause the relay evaluated.
+func clauseProblem(body []byte, index int) string {
+	return ldvalue.Parse(body).GetByKey("results").GetByIndex(index).GetByKey("problem").StringValue()
+}
+
+func TestEndpointsStatusExpect(t *testing.T) {
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
+
+	t.Run("all-environments status", func(t *testing.T) {
+		withStartedRelay(t, config, func(p relayTestParams) {
+			t.Run("satisfied clause returns 200", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status", "status=healthy"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+				assert.True(t, ldvalue.Parse(body).GetByKey("satisfied").BoolValue())
+			})
+
+			t.Run("unsatisfied clause returns 412", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status", "status=degraded"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+				assert.False(t, ldvalue.Parse(body).GetByKey("satisfied").BoolValue())
+			})
+
+			t.Run("multiple clauses are AND-ed", func(t *testing.T) {
+				path := fmt.Sprintf("environments.%s.status", st.EnvMain.Name)
+				r, _ := http.NewRequest("GET",
+					statusURL("/status", "status=healthy", path+"=connected"), nil)
+				result, _ := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+
+				r, _ = http.NewRequest("GET",
+					statusURL("/status", "status=healthy", path+"=disconnected"), nil)
+				result, _ = st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+			})
+
+			t.Run("unparseable clause returns 400", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status", "status"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				assert.NotEmpty(t, clauseProblem(body, 0))
+			})
+
+			t.Run("present-but-empty expect value returns 400", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", "http://localhost/status?expect=", nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				assert.NotEmpty(t, clauseProblem(body, 0))
+			})
+
+			t.Run("unsupported operator returns 422", func(t *testing.T) {
+				for _, clause := range []string{"status>=healthy", "status==healthy"} {
+					r, _ := http.NewRequest("GET", statusURL("/status", clause), nil)
+					result, body := st.DoRequest(r, p.relay)
+					assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode, clause)
+					assert.Contains(t, clauseProblem(body, 0), "is not supported", clause)
+				}
+			})
+
+			t.Run("unknown field returns 422", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status", "connexionStatus.state=VALID"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "unknown field")
+			})
+
+			// An unconfigured environment is a well-formed question with the answer "no", so it
+			// stays a 412 rather than joining the unknown-field cases above.
+			t.Run("unconfigured environment returns 412", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL("/status", "environments.no-such-env.status=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+				assert.Empty(t, clauseProblem(body, 0))
+			})
+
+			t.Run("every clause is reported and the worst outcome wins", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL("/status",
+					"status", "connexionStatus.state=VALID", "status=degraded", "status=healthy"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				results := ldvalue.Parse(body).GetByKey("results")
+				require.Equal(t, 4, results.Count())
+				assert.NotEmpty(t, clauseProblem(body, 0))
+				assert.NotEmpty(t, clauseProblem(body, 1))
+				assert.Empty(t, clauseProblem(body, 2))
+				assert.False(t, results.GetByIndex(2).GetByKey("ok").BoolValue())
+				assert.True(t, results.GetByIndex(3).GetByKey("ok").BoolValue())
+			})
+
+			t.Run("no expect param leaves the body unchanged", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+				// Full body, not a verdict object.
+				assert.Equal(t, ldvalue.NullType,
+					ldvalue.Parse(body).GetByKey("satisfied").Type())
+				assert.Equal(t, "healthy", ldvalue.Parse(body).GetByKey("status").StringValue())
+			})
+		})
+	})
+
+	t.Run("single-environment status", func(t *testing.T) {
+		withStartedRelay(t, config, func(p relayTestParams) {
+			envPath := "/status/" + url.PathEscape(st.EnvMain.Name)
+
+			t.Run("paths are relative to the environment object", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL(envPath, "status=connected", "connectionStatus.state=VALID"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+				assert.True(t, ldvalue.Parse(body).GetByKey("satisfied").BoolValue())
+			})
+
+			t.Run("unsatisfied clause returns 412", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL(envPath, "status=disconnected"), nil)
+				result, _ := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+			})
+
+			t.Run("not-equals operator through the handler", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL(envPath, "status!=disconnected"), nil)
+				result, _ := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+
+				r, _ = http.NewRequest("GET", statusURL(envPath, "status!=connected"), nil)
+				result, _ = st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+			})
+
+			t.Run("all-environments path is unknown on this route", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL(envPath, "environments.anything.status=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "unknown field")
+			})
+
+			t.Run("unsupported operator returns 422", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL(envPath, "status~=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "is not supported")
+			})
+
+			t.Run("unknown environment still returns 404 before evaluation", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL("/status/no-such-env", "status=connected"), nil)
+				result, _ := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusNotFound, result.StatusCode)
+			})
+		})
+	})
+}
+
+// A clause the relay cannot even decode must not be dropped: Go's URL.Query() discards the query
+// parse error along with the offending segment, so the assertion would go unevaluated and the
+// endpoint would answer 200. For a health gate that is the one direction that must never fail.
+func TestEndpointsStatusExpectQueryFailsClosed(t *testing.T) {
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		// Each of these asserts something FALSE (the relay under test is healthy), so a 200 here
+		// would be a probe reporting healthy on an assertion it never checked.
+		for _, tc := range []struct {
+			name  string
+			query string
+		}{
+			{"raw semicolon in the sole clause", "expect=status=degraded;x"},
+			{"bad percent escape in the sole clause", "expect=status%3Ddegraded%zz"},
+			{"percent-encoded parameter name", "%65xpect=status=degraded;x"},
+			// The true clause survives the parse and the false one does not; judging the survivor
+			// alone would answer 200 satisfied.
+			{"one droppable clause among valid ones", "expect=status=healthy&expect=status=degraded;x"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				r, _ := http.NewRequest("GET", "http://localhost/status?"+tc.query, nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				parsed := ldvalue.Parse(body)
+				assert.False(t, parsed.GetByKey("satisfied").BoolValue())
+				assert.NotEmpty(t, parsed.GetByKey("error").StringValue())
+			})
+		}
+
+		t.Run("single-environment route fails closed too", func(t *testing.T) {
+			r, _ := http.NewRequest("GET",
+				"http://localhost/status/"+url.PathEscape(st.EnvMain.Name)+"?expect=status=disconnected;x", nil)
+			result, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+			assert.NotEmpty(t, ldvalue.Parse(body).GetByKey("error").StringValue())
+		})
+
+		// A malformed query that never asked for a verdict keeps the released behavior of the status
+		// routes: the full document, with the unreadable parameter ignored as before.
+		t.Run("malformed query without an expect clause is unaffected", func(t *testing.T) {
+			for _, query := range []string{"junk=%zz", "cachebust=1;2"} {
+				r, _ := http.NewRequest("GET", "http://localhost/status?"+query, nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode, query)
+				parsed := ldvalue.Parse(body)
+				assert.Equal(t, "healthy", parsed.GetByKey("status").StringValue(), query)
+				assert.Equal(t, ldvalue.NullType, parsed.GetByKey("satisfied").Type(), query)
+			}
+		})
+	})
+}

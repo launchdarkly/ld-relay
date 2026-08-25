@@ -245,3 +245,46 @@ func TestRelayReturns503ForAllEnvironmentsUntilAutoConfigIsComplete(t *testing.T
 		return false
 	}, time.Second, time.Millisecond*50, "Relay kept returning 503 after receiving configuration")
 }
+
+// When the relay is not yet fully configured, a per-environment status request with an "expect"
+// clause must return the route-level 503 before any clause is evaluated -- not 412 or 400.
+func TestStatusExpectReturns503BeforeEvaluationWhenNotReady(t *testing.T) {
+	envConfig := testEnvBasic
+	config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
+	autoConfigEvent := transformEnvConfigsToAutoConfig(config)
+	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
+
+	handlerHasReceivedRequestCh := make(chan struct{}, 1)
+	allowHandlerToRespondCh := make(chan struct{}, 1)
+	handlerThatWaitsForGate := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		handlerHasReceivedRequestCh <- struct{}{}
+		<-allowHandlerToRespondCh
+		autoConfigHandler.ServeHTTP(w, req)
+	})
+	server := httptest.NewServer(handlerThatWaitsForGate)
+	defer server.Close()
+	defer autoConfigStream.Close()
+
+	entConfig := config
+	entConfig.AutoConfig.Key = testAutoConfKey
+	entConfig.Environment = nil
+	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+
+	r, err := newRelayInternal(entConfig, relayInternalOptions{
+		logger:        slog.Default(),
+		clientFactory: testclient.CreateDummyClient,
+	})
+	require.NoError(t, err)
+	defer r.Close()
+
+	<-handlerHasReceivedRequestCh
+
+	// Even a clause that would fail evaluation must not be reached: the not-ready 503 wins.
+	req, _ := http.NewRequest("GET",
+		"http://fake/status/anything?expect=status=connected", nil)
+	rr := httptest.NewRecorder()
+	r.Handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Result().StatusCode)
+
+	allowHandlerToRespondCh <- struct{}{}
+}

@@ -13,6 +13,7 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -21,16 +22,18 @@ var errAddEnvironmentAfterClosed = errors.New("tried to add new environment afte
 // Manager is the top-level object that controls all of our metrics exporter activity. It should be
 // created and retained by the Relay instance, and closed when the Relay instance is closed.
 type Manager struct {
-	metricsRelayID string
-	instruments    *Instruments
-	meterProvider  *sdkmetric.MeterProvider
-	flushInterval  time.Duration
-	logger         *slog.Logger
-	closeOnce      sync.Once
-	closed         bool
-	lock           sync.Mutex
-	environments   []*EnvironmentManager
-	unscopedEnv    *EnvironmentManager
+	metricsRelayID  string
+	instruments     *Instruments
+	initInstruments *InitInstruments
+	meter           otelmetric.Meter
+	meterProvider   *sdkmetric.MeterProvider
+	flushInterval   time.Duration
+	logger          *slog.Logger
+	closeOnce       sync.Once
+	closed          bool
+	lock            sync.Mutex
+	environments    []*EnvironmentManager
+	unscopedEnv     *EnvironmentManager
 
 	usageChan            chan any
 	environmentsForUsage map[string]*environmentMetricUsage
@@ -74,6 +77,8 @@ func NewManager(
 	// 3.5 KB each, only to be handed to an instrument that discards them.
 	var meterProvider *sdkmetric.MeterProvider
 	var instruments *Instruments
+	var initInstruments *InitInstruments
+	var meter otelmetric.Meter
 	if otlpConfig.Enabled {
 		opts, err := newOTLPExporters(otlpConfig, logger)
 		if err != nil {
@@ -89,23 +94,27 @@ func NewManager(
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
 			logger.Warn("failed to start Go runtime metrics", "error", err)
 		}
-		instruments, err = newInstruments(meterProvider.Meter("ld-relay"))
+		meter = meterProvider.Meter("ld-relay")
+		instruments, err = newInstruments(meter)
 		if err != nil {
 			return nil, err
 		}
+		initInstruments = newInitInstruments(meter)
 	}
 
 	usageChan := make(chan any, 256)
 	m := &Manager{
 		metricsRelayID:       metricsRelayID,
 		instruments:          instruments,
+		initInstruments:      initInstruments,
+		meter:                meter,
 		meterProvider:        meterProvider,
 		flushInterval:        flushInterval,
 		logger:               logger,
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
 		unscopedEnv: &EnvironmentManager{
-			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(""))},
+			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeVerbatimValue(""))},
 		},
 	}
 	if m.flushInterval <= 0 {
@@ -234,7 +243,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 		return nil, errAddEnvironmentAfterClosed
 	}
 
-	envKVs := []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(envName))}
+	envKVs := []attribute.KeyValue{envNameAttrKey.String(sanitizeVerbatimValue(envName))}
 
 	var collector *RelayMetricsCollector
 	if publisher != nil {

@@ -185,6 +185,10 @@ func streamHandlerV2(streamProvider streams.StreamProvider, logMessage string) h
 type pollResult struct {
 	data []byte
 	etag string
+	// upToDate reports that the payload is the small "up-to-date" reply, not a full
+	// transfer. The handler charges the initialization-delivery budget only for a full
+	// transfer.
+	upToDate bool
 }
 
 // Flight-group keys for the polling endpoints. The flight group is scoped to one environment, so
@@ -240,6 +244,18 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
+	}
+
+	if !result.upToDate {
+		// This is a full transfer. The flight group already limits the build to one for
+		// each basis, so the budget's work here is the response write: take a slot and
+		// keep it until the handler returns, so a slow client cannot multiply resident
+		// response payloads. The cheap up-to-date reply is never charged.
+		release, ok := middleware.AcquireInitSlotFromContext(w, req)
+		if !ok {
+			return
+		}
+		defer release()
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
@@ -346,7 +362,11 @@ func buildServerSidePollPayload(
 		tracing.PayloadEventCountKey.Int(eventCount),
 		tracing.PayloadSizeKey.Int(len(data)),
 	)
-	return pollResult{data: data, etag: selector.State()}, nil
+	return pollResult{
+		data:     data,
+		etag:     selector.State(),
+		upToDate: selector.IsDefined() && basis != "" && selector.State() == basis,
+	}, nil
 }
 
 // FDv2 client-side polling endpoint that evaluates flags against a context.
@@ -411,6 +431,17 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 
 	basis := req.URL.Query().Get("basis")
 	upToDate := selector.IsDefined() && basis != "" && selector.State() == basis
+
+	if !upToDate {
+		// This is a full-basis delivery: the evaluation and the serialization are the
+		// memory-heavy work the budget limits. The cheap up-to-date reply is never charged.
+		// The handler keeps the slot until it returns, which covers the response write.
+		release, ok := middleware.AcquireInitSlotFromContext(w, req)
+		if !ok {
+			return
+		}
+		defer release()
+	}
 
 	var evalResults []flagEvalResult
 	if !upToDate {

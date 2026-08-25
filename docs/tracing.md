@@ -51,6 +51,7 @@ activity.
 | `relay.response.write` | Writing the response body to the client |
 | `relay.events.dispatch` | Handing a received analytics or diagnostic event batch to the publisher |
 | `relay.singleflight.wait` | A request waiting for a payload another request was already building |
+| `relay.init.delivery` | One gated stream initialization delivery, from budget admission to the flushed basis or the end of the connection. Active only when the `[Concurrency]` limit is configured. |
 
 Span names are short and unprefixed on purpose: they are display strings in a trace waterfall, not
 queryable dimensions, and the semantic conventions do not namespace them either.
@@ -59,6 +60,10 @@ A failure sets the span's status to `Error`. Where there is an underlying error 
 that failed, a response that could not be written -- it is also recorded as a span event carrying the
 message. A rejected `relay.auth` has no such value: the reason is the
 `launchdarkly.relay.auth.result` attribute.
+
+Two initialization events can appear on the request span of a stream connect: `relay.init.shed`
+(the budget shed the replay; the reason is in `launchdarkly.relay.init.shed.reason`) and
+`relay.init.up_to_date` (the replay was answered with the small up-to-date reply).
 
 ## Span attributes
 
@@ -76,6 +81,12 @@ the Relay Proxy's own work are `launchdarkly.relay.<thing>`.
 | `launchdarkly.relay.payload.size` | `relay.payload.serialize` | Size of the serialized payload, in bytes |
 | `launchdarkly.relay.events.kind` | `relay.events.dispatch` | The kind of event batch received |
 | `http.response.status_code` | `relay.response.write` | The status written to the client |
+| `launchdarkly.relay.init.admitted` | request span | Whether the initialization budget admitted the request; only on requests that asked for a slot |
+| `launchdarkly.relay.init.queue.wait.duration` | request span, `relay.init.delivery` | Time spent waiting for an initialization slot, in seconds |
+| `launchdarkly.relay.init.shed.reason` | request span | Cause of an initialization rejection: `budget_full`, `client_gone`, or `shutdown` |
+| `launchdarkly.relay.init.protocol` | `relay.init.delivery` | `fdv1` or `fdv2` |
+| `launchdarkly.relay.init.outcome` | `relay.init.delivery` | `completed`, `connection_ended`, `read_error`, or `up_to_date`. A `connection_ended` outcome does not say why the connection ended: a client disconnect and a relay deadline cut look the same. |
+| `launchdarkly.relay.init.cap_engaged` | `relay.init.delivery` | The absolute delivery cap, not the throughput floor, governed the write deadline |
 
 `launchdarkly.relay.payload.size` is what the Relay Proxy *built*. What actually went out on the wire
 is `http.response.body.size` on the request span, counted outside the compression middleware, and the

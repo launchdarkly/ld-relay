@@ -60,6 +60,8 @@ func LoadConfigFromEnvironmentBase(c *Config) ct.ValidationResult {
 	reader.ReadStruct(&c.Events, false)
 	rejectObsoleteVariableName("EVENTS_SAMPLING_INTERVAL", "", reader)
 
+	reader.ReadStruct(&c.Concurrency, false)
+
 	for envName, envKey := range reader.FindPrefixedValues("LD_ENV_") {
 		var ec EnvConfig
 		if c.Environment[envName] != nil {

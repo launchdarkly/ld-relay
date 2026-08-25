@@ -18,6 +18,24 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 | `launchdarkly.relay.events.dropped` | Counter | `{event}` | The cumulative number of events dropped due to capacity overflow. |
 | `launchdarkly.relay.events.pending` | Gauge | `{event}` | The current number of events buffered in the queue. |
 
+### Initialization-delivery limiter metrics
+
+These instruments are active only when the `[Concurrency]` limit is configured; read
+[Configuration](./configuration.md). They come from the relay's own layers, so one limitation
+applies: a `connection_ended` delivery outcome does not say why the connection ended -- a client
+disconnect and a relay deadline cut look the same.
+
+| Metric | Type | Unit | Description |
+|--------|------|------|-------------|
+| `launchdarkly.relay.init.slots.held` | Gauge | `{slot}` | The number of initialization-delivery slots currently held. |
+| `launchdarkly.relay.init.queue.waiting` | Gauge | `{request}` | The number of requests currently waiting for a slot. |
+| `launchdarkly.relay.init.admitted` | Counter | `{request}` | The cumulative number of requests the budget admitted. |
+| `launchdarkly.relay.init.rejected` | Counter | `{request}` | The cumulative number of requests the budget rejected, with the cause in `launchdarkly.relay.init.reason`: `budget_full`, `client_gone`, or `shutdown`. Only `budget_full` shows saturation; alert on that cause, not on the total. |
+| `launchdarkly.relay.init.deliveries` | Counter | `{delivery}` | Gated stream deliveries, with `launchdarkly.relay.init.protocol` (`fdv1` or `fdv2`), `launchdarkly.relay.init.outcome` (`completed`, `connection_ended`, or `read_error`), and `launchdarkly.relay.init.cap_engaged` (the absolute cap, not the throughput floor, governed the delivery). |
+| `launchdarkly.relay.init.sheds` | Counter | `{request}` | Requests shed because the budget and queue were full, with `launchdarkly.relay.init.transport` (`poll` or `stream`). Poll sheds carry `launchdarkly.environment.name`; stream sheds do not, because the stream layer does not know its environment. |
+| `launchdarkly.relay.init.replays.up_to_date` | Counter | `{reply}` | Stream replays answered with the small up-to-date reply, which is never charged to the budget. `launchdarkly.relay.init.after_wait` is true when the client's basis became current while it waited in the queue. |
+| `launchdarkly.relay.init.deadline.set_errors` | Counter | `{error}` | Failed attempts to set the connection write deadline. Above zero, the deadline protection is not in force. |
+
 ### Counting stream connections
 
 Version 8 exported two stream-specific metrics, `connections` and `newconnections`. Neither has a
@@ -101,6 +119,11 @@ service returned a response, `error.type` is that status code as a string and
 Attribute values that are absent are reported as `not_provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
 they report `not_provided` for `launchdarkly.environment.name` and the other SDK attributes.
+
+Values that are present are reported as received, apart from bytes that are not valid UTF-8, which are
+stripped because they would otherwise fail the OTLP export. In particular a value containing a slash --
+an application version such as `2026/08/01`, or an environment name such as `My Project / Staging` --
+keeps it.
 
 `platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
 in particular is per SDK *instance*, which made these metrics grow a series per client process. All

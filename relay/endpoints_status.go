@@ -61,8 +61,35 @@ func statusHandler(relay *Relay) http.Handler {
 
 		data, _ := json.Marshal(resp)
 
-		_, _ = w.Write(data)
+		writeStatusBody(w, req, data, api.SchemaAllEnvironments)
 	})
+}
+
+// writeStatusBody writes the status document, or -- when the caller supplied "expect" clauses -- the
+// verdict for them: the per-clause results as the body, and an HTTP status code the caller can branch
+// on without parsing the body themselves (200 satisfied, 412 unsatisfied, 422 not evaluable, 400
+// unparseable). schema says which status document the clause paths are checked against.
+func writeStatusBody(w http.ResponseWriter, req *http.Request, body []byte, schema api.StatusSchema) {
+	clauses, requested, malformed := api.ParseExpectQuery(req.URL.RawQuery)
+	switch {
+	case !requested:
+		_, _ = w.Write(body)
+	case malformed:
+		// At least one clause could not be decoded, so the relay does not know everything that was
+		// asserted and must not answer 200 for an assertion it never evaluated. The whole query is
+		// rejected rather than the clauses that survived being judged on their own.
+		writeStatusVerdict(w, api.ExpectationsResult{Error: "could not parse the query string"},
+			http.StatusBadRequest)
+	default:
+		result, code := api.EvaluateExpectations(body, clauses, schema)
+		writeStatusVerdict(w, result, code)
+	}
+}
+
+func writeStatusVerdict(w http.ResponseWriter, result api.ExpectationsResult, code int) {
+	out, _ := json.Marshal(result)
+	w.WriteHeader(code)
+	_, _ = w.Write(out)
 }
 
 // singleEnvironmentStatusHandler handles requests for the status of a single environment or filter.
@@ -114,7 +141,8 @@ func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 		// Build and return status for the single environment
 		status, _ := relay.buildEnvironmentStatus(env)
 		data, _ := json.Marshal(status)
-		_, _ = w.Write(data)
+
+		writeStatusBody(w, req, data, api.SchemaSingleEnvironment)
 	})
 }
 
