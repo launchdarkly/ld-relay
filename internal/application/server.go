@@ -35,7 +35,7 @@ func StartHTTPServer(
 	}
 
 	if tlsEnabled && tlsMinVersion != 0 {
-		srv.TLSConfig = &tls.Config{ //nolint:gosec // linter doesn't want to see MinVersion being set to a variable
+		srv.TLSConfig = &tls.Config{
 			MinVersion: tlsMinVersion,
 		}
 	}
