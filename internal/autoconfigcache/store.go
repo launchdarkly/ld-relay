@@ -62,7 +62,7 @@ func cacheField(kind autoconfig.CacheKind, id string) string {
 // mergeContext returns a context that is cancelled when either ctx or storeCtx is cancelled,
 // along with a cleanup function that must be called when the operation completes.
 func mergeContext(ctx, storeCtx context.Context) (context.Context, context.CancelFunc) {
-	merged, cancel := context.WithCancel(ctx) //nolint:gosec  // cancellation function is returned to caller, not used in this function
+	merged, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(storeCtx, func() {
 		cancel()
 	})
