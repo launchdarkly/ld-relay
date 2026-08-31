@@ -4,15 +4,18 @@ on:
   - cron: "0 17 * * *"
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   check-go-eol:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
         latest: ${{ steps.parse.outputs.latest }}
         penultimate: ${{ steps.parse.outputs.penultimate }}
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
         # Perform a GET request to endoflife.date for the Go language. The response
         # contains all Go releases; we're interested in the 0'th and 1'th (latest and penultimate.)
       - name: Fetch officially supported Go versions
@@ -24,9 +27,20 @@ jobs:
         # Parse the response JSON and insert into environment variables for the next step.
       - name: Parse officially supported Go versions
         id: parse
+        env:
+          FETCH_API_DATA: ${{ env.fetch-api-data }}
         run: |
-          echo "latest=${{ fromJSON(env.fetch-api-data)[0].latest }}" >> $GITHUB_OUTPUT
-          echo "penultimate=${{ fromJSON(env.fetch-api-data)[1].latest }}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          latest=$(jq -r '.[0].latest' <<< "$FETCH_API_DATA")
+          penultimate=$(jq -r '.[1].latest' <<< "$FETCH_API_DATA")
+          for version in "$latest" "$penultimate"; do
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "Unexpected Go version string from endoflife.date: $version" >&2
+              exit 1
+            fi
+          done
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "penultimate=$penultimate" >> "$GITHUB_OUTPUT"
 
 
   create-prs:
@@ -45,12 +59,12 @@ jobs:
 
       - name: Get current Go versions
         id: go-versions
-        run:  cat ./.github/variables/go-versions.env > $GITHUB_OUTPUT
+        run:  cat ./.github/variables/go-versions.env >> "$GITHUB_OUTPUT"
 
       - name: Run update script
         if: steps.go-versions.outputs.latest != env.officialLatestVersion
         id: update
-        run: ./scripts/update-go-release-version.sh ${{ env.officialLatestVersion }} ${{ env.officialPenultimateVersion }} \
+        run: ./scripts/update-go-release-version.sh "$officialLatestVersion" "$officialPenultimateVersion"
 
       - name: Create pull request
         if: steps.update.outcome == 'success'
