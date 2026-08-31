@@ -110,7 +110,10 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 				}
 				continue
 			}
-			if fileMayHaveChanged(prevInfo, nextInfo) {
+			changed := fileMayHaveChanged(prevInfo, nextInfo)
+			// A file that stays the same is not reloaded again, even if the last load failed.
+			prevInfo = nextInfo
+			if changed {
 				am.loggers.Infof(logMsgFileChanged, am.filePath, nextInfo.Size(), nextInfo.ModTime())
 				reader, err := newArchiveReader(am.filePath)
 				if err != nil {
@@ -125,8 +128,6 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 			} else {
 				am.loggers.Debugf(logMsgFileNotChanged, am.filePath, nextInfo.Size(), nextInfo.ModTime())
 			}
-
-			prevInfo = nextInfo
 		}
 	}
 }
@@ -144,6 +145,10 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 		envMetadata, err := ar.GetEnvironmentMetadata(envID)
 		if err != nil {
 			am.loggers.Errorf(logMsgBadEnvData, envID)
+			continue
+		}
+		if envMetadata.params.EnvID != envID {
+			am.loggers.Warnf(logMsgEnvHasWrongID, envMetadata.params.EnvID, envID)
 			continue
 		}
 		envName := envMetadata.params.Identifiers.GetDisplayName()
@@ -180,9 +185,9 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 	}
 	for envID, envData := range unusedEnvs {
 		// Delete any environments that are no longer in the file
-		am.loggers.Infof(logMsgDeleteEnv, envID, envData.params.Identifiers.GetDisplayName())
+		am.loggers.Infof(logMsgDeleteEnv, envData.params.EnvID, envData.params.Identifiers.GetDisplayName())
 		delete(am.lastKnownEnvs, envID)
-		am.handler.DeleteEnvironment(envID, envData.params.Identifiers.FilterKey)
+		am.handler.DeleteEnvironment(envData.params.EnvID, envData.params.Identifiers.FilterKey)
 	}
 }
 
