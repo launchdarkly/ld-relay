@@ -98,7 +98,7 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 	go func() {
 		defer close(out)
 		event, err := r.getReplayEvent()
-		if err != nil {
+		if err != nil || event == nil {
 			return
 		}
 		out <- event
@@ -109,6 +109,9 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
 func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, error) {
 	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
+		if !r.store.IsInitialized() {
+			return nil, nil
+		}
 		flags, err := r.store.GetAll(ldstoreimpl.Features())
 
 		if err != nil {
@@ -134,7 +137,9 @@ func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, err
 		return nil, err
 	}
 
-	// panic if it's not an eventsource.Event - as this should be impossible
-	event := data.(eventsource.Event)
+	event, ok := data.(eventsource.Event)
+	if !ok {
+		return nil, nil
+	}
 	return event, nil
 }

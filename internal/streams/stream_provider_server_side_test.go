@@ -3,6 +3,7 @@ package streams
 import (
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -322,6 +323,16 @@ func TestStreamProviderServerSide(t *testing.T) {
 
 			assert.Equal(t, 1, getFlagFromEventData(t, events1[0]).Version)
 			assert.Equal(t, 1, getFlagFromEventData(t, events2[0]).Version) // only one computation was done
+		})
+
+		t.Run("store becomes uninitialized after the initial check", func(t *testing.T) {
+			var initializedChecks atomic.Int32
+			store := newMockStoreQueries()
+			store.setupIsInitializedFn(func() bool { return initializedChecks.Add(1) == 1 })
+			store.setupGetAllFn(queryThatIncrementsFlagVersionOnEachCall())
+			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+			assert.Empty(t, expectReplayedEvents(t, repo.Replay("", "")))
 		})
 	})
 }

@@ -125,7 +125,9 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.E
 		return nil, err
 	}
 
-	// panic if it's not an eventsource.Event - as this should be impossible
-	event := data.(eventsource.Event)
+	event, ok := data.(eventsource.Event)
+	if !ok {
+		return nil, nil
+	}
 	return event, nil
 }

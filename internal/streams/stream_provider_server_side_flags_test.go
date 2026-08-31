@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -191,5 +192,14 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 
 			verifyHandlerHeartbeat(t, sp, esp, validCredential)
 		})
+	})
+
+	t.Run("Replay - store becomes uninitialized after the initial check", func(t *testing.T) {
+		var initializedChecks atomic.Int32
+		store := newMockStoreQueries()
+		store.setupIsInitializedFn(func() bool { return initializedChecks.Add(1) == 1 })
+		repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+		assert.Empty(t, readAllEvents(repo.Replay("", "")))
 	})
 }
