@@ -33,8 +33,9 @@ type DataStoreEnvironmentInfo struct {
 	// DBType is the type of database Relay is using, or "" for the default in-memory storage.
 	DBType string
 
-	// DBServer is the URL or host address of the database server, if applicable. Passwords, if any,
-	// must be redacted in this string.
+	// DBServer is the URL or host address of the database server, if applicable. Credentials, if any,
+	// must be redacted in this string with util.RedactURL, since it is exposed by the unauthenticated
+	// status resource.
 	DBServer string
 
 	// DBPrefix is the key prefix used for this environment to distinguish it from data that might be in
@@ -111,7 +112,7 @@ func ConfigureDataStore(
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "dynamodb",
-			DBServer: allConfig.DynamoDB.URL.String(),
+			DBServer: util.RedactURL(allConfig.DynamoDB.URL.String()),
 			DBPrefix: envConfig.Prefix,
 			DBTable:  tableName,
 		}
