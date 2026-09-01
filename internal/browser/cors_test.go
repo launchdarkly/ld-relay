@@ -58,4 +58,33 @@ func TestCORSContext(t *testing.T) {
 		assert.Equal(t, expectedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
 		assert.Equal(t, "Date", rr.Header().Get("Access-Control-Expose-Headers"))
 	})
+
+	t.Run("SetCORSHeaders sets Vary: Origin", func(t *testing.T) {
+		rr := httptest.ResponseRecorder{}
+		SetCORSHeaders(&rr, "http://good.cat", nil)
+		assert.Equal(t, []string{"Origin"}, rr.Header().Values("Vary"))
+	})
+
+	t.Run("SetCORSHeaders preserves an existing Vary value", func(t *testing.T) {
+		rr := httptest.ResponseRecorder{}
+		rr.Header().Set("Vary", "Authorization")
+		SetCORSHeaders(&rr, "http://good.cat", nil)
+		assert.Equal(t, []string{"Authorization", "Origin"}, rr.Header().Values("Vary"))
+	})
+}
+
+func TestAddVaryHeader(t *testing.T) {
+	t.Run("appends to an existing comma-separated value", func(t *testing.T) {
+		rr := httptest.ResponseRecorder{}
+		rr.Header().Set("Vary", "Authorization, Accept-Encoding")
+		AddVaryHeader(&rr, "Origin")
+		assert.Equal(t, []string{"Authorization, Accept-Encoding", "Origin"}, rr.Header().Values("Vary"))
+	})
+
+	t.Run("does not duplicate a value that is already present", func(t *testing.T) {
+		rr := httptest.ResponseRecorder{}
+		rr.Header().Set("Vary", "Authorization, origin")
+		AddVaryHeader(&rr, "Origin")
+		assert.Equal(t, []string{"Authorization, origin"}, rr.Header().Values("Vary"))
+	})
 }
