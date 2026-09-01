@@ -2,7 +2,9 @@ package sdks
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"net/url"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -11,6 +13,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
+	ldredisgoredis "github.com/launchdarkly/go-server-sdk-redis-go-redis"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -20,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	redigo "github.com/gomodule/redigo/redis"
 	consul "github.com/hashicorp/consul/api"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 var (
@@ -57,6 +61,33 @@ func ConfigureDataStore(
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
+
+		if allConfig.Redis.Cluster {
+			// Cluster mode uses the go-redis integration (the redigo integration is not
+			// cluster-aware). This supports managed cluster stores such as AWS MemoryDB or
+			// ElastiCache (cluster mode enabled), which are reached through a single configuration
+			// endpoint.
+			clusterBuilder, redisURL, err := makeRedisClusterDataStoreBuilder(allConfig, envConfig)
+			if err != nil {
+				return nil, DataStoreEnvironmentInfo{}, err
+			}
+			redactedURL := util.RedactURL(redisURL)
+
+			loggers.Infof("Using Redis data store (cluster mode): %s with prefix: %s", redactedURL, envConfig.Prefix)
+
+			storeInfo := DataStoreEnvironmentInfo{
+				DBType:   "redis",
+				DBServer: redactedURL,
+				DBPrefix: envConfig.Prefix,
+			}
+			if storeInfo.DBPrefix == "" {
+				storeInfo.DBPrefix = ldredisgoredis.DefaultPrefix
+			}
+
+			return ldcomponents.PersistentDataStore(clusterBuilder).
+				CacheTime(allConfig.Redis.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+		}
+
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
 		redactedURL := util.RedactURL(redisURL)
 
@@ -167,6 +198,38 @@ func makeRedisDataStoreBuilder[T any](
 		Prefix(prefix).
 		DialOptions(dialOptions...)
 	return b, redisURL
+}
+
+// makeRedisClusterDataStoreBuilder builds a go-redis-based data store configured for Redis cluster
+// mode. Unlike the redigo integration used by makeRedisDataStoreBuilder, the go-redis integration is
+// cluster-aware; ForceClusterMode lets a single configuration endpoint (e.g. AWS MemoryDB) be used
+// as a cluster seed, and applies the {ld}. hash-tag prefix so the store's multi-key operations stay
+// within one hash slot.
+func makeRedisClusterDataStoreBuilder(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (builder *ldredisgoredis.DataStoreBuilder, redisURL string, err error) {
+	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
+
+	parsed, err := url.Parse(redisURL)
+	if err != nil {
+		return nil, redisURL, err
+	}
+
+	opts := goredis.UniversalOptions{
+		Addrs:    []string{parsed.Host},
+		Username: allConfig.Redis.Username,
+		Password: allConfig.Redis.Password,
+	}
+	if allConfig.Redis.TLS {
+		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+
+	builder = ldredisgoredis.DataStore().
+		Options(opts).
+		Prefix(prefix).
+		ForceClusterMode(true)
+	return builder, redisURL, nil
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters

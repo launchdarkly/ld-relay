@@ -6,7 +6,7 @@ You can configure Relay Proxy nodes to persist feature flag settings in Redis, D
 
 To learn more, read [Using a persistent feature store](https://docs.launchdarkly.com/sdk/concepts/data-stores), and the Relay Proxy documentation on [Configuration](./configuration.md).
 
-The Relay Proxy does not support clustered Redis or Redis Sentinel.
+The Relay Proxy supports clustered Redis for the feature data store by setting `cluster` / `REDIS_CLUSTER` to `true` (see [Configuration](./configuration.md)); this works with managed cluster stores such as AWS MemoryDB and ElastiCache (cluster mode enabled). Cluster mode currently covers the feature data store only, not the Big Segments store. Redis Sentinel is not supported.
 
 **Note:** The Redis configurations should also work with [Valkey](https://valkey.io/), as Valkey maintains Redis compatibility.
 

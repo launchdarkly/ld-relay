@@ -31,12 +31,14 @@ require (
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
+	github.com/launchdarkly/go-server-sdk-redis-go-redis v1.1.2
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.4
 	github.com/launchdarkly/go-server-sdk/v7 v7.15.3
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.7
 	github.com/pborman/uuid v1.2.1
 	github.com/prometheus/client_golang v1.23.2 // indirect; override to address CVE-2022-21698
+	github.com/redis/go-redis/v9 v9.1.0
 	github.com/stretchr/testify v1.11.1
 	go.opencensus.io v0.24.0
 	golang.org/x/sync v0.22.0
@@ -145,3 +147,8 @@ require (
 )
 
 retract v8.19.4 // Introduced unintentional breaking changes; use version v8.19.5 or later.
+
+// TEMPORARY (fork build — do not merge upstream): build against the actblue fork of the go-redis
+// integration that adds ForceClusterMode (branch feat/force-cluster-mode). Remove once that change
+// is released upstream and pin the released version above.
+replace github.com/launchdarkly/go-server-sdk-redis-go-redis => github.com/actblue/go-server-sdk-redis-go-redis v0.0.0-20260724162236-4deaf9f9f8b2

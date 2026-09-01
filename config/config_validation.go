@@ -284,6 +284,11 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 		return // no point doing further database config validation if it's in this state
 	}
 
+	if c.Redis.URL.IsDefined() && c.Redis.Cluster {
+		loggers.Warn("Redis cluster mode (REDIS_CLUSTER) applies only to the feature data store; " +
+			"the Redis Big Segments store is not cluster-aware and should not be relied upon in this configuration")
+	}
+
 	if c.Consul.Host != "" {
 		if c.Consul.Token != "" && c.Consul.TokenFile != "" {
 			result.AddError(nil, errConsulTokenAndTokenFile)

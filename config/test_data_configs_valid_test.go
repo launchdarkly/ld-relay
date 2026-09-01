@@ -82,6 +82,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOfflineModeWithMonitoringInterval("5m"),
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
+		makeValidConfigRedisCluster(),
 		makeValidConfigRedisURL(),
 		makeValidConfigRedisPortOnly(),
 		makeValidConfigRedisDockerPort(),
@@ -468,6 +469,32 @@ TLS = 1
 Password = "pass"
 Username = "user"
 LocalTTL = 3s
+`
+	return c
+}
+
+func makeValidConfigRedisCluster() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - cluster mode"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL:     newOptURLAbsoluteMustBeValid("redis://redishost:6400"),
+			TLS:     true,
+			Cluster: true,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":     "1",
+		"REDIS_HOST":    "redishost",
+		"REDIS_PORT":    "6400",
+		"REDIS_TLS":     "1",
+		"REDIS_CLUSTER": "1",
+	}
+	c.fileContent = `
+[Redis]
+Host = "redishost"
+Port = 6400
+TLS = 1
+Cluster = 1
 `
 	return c
 }

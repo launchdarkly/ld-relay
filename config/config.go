@@ -233,6 +233,7 @@ type RedisConfig struct {
 	TLS      bool              `conf:"REDIS_TLS"`
 	Username string            `conf:"REDIS_USERNAME"`
 	Password string            `conf:"REDIS_PASSWORD"`
+	Cluster  bool              `conf:"REDIS_CLUSTER"`
 }
 
 // ConsulConfig configures the optional Consul integration.

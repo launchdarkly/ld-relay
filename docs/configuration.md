@@ -206,6 +206,7 @@ To learn more, read [Persistent storage](./persistent-storage.md).
 | `tls`            | `REDIS_TLS`      | Boolean  | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this). If you specified a `redis://` URL, setting `tls` to `true` will change it to `rediss://`.               |
 | `password`       | `REDIS_PASSWORD` |  String  |             | Optional password if Redis requires authentication.                                                                                                                                             |
 | `username`       | `REDIS_USERNAME` |  String  |             | Optional username if Redis requires authentication.                                                                                                                                            |
+| `cluster`        | `REDIS_CLUSTER`  | Boolean  | `false`     | If `true`, connect in Redis cluster mode. Use this with a managed cluster reached through a single configuration endpoint, such as AWS MemoryDB or ElastiCache (cluster mode enabled). See below. |
 | `localTtl`       | `CACHE_TTL`      | Duration | `30s`       | Length of time that database items can be cached in memory.                                                                                                                                    |
 
 Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` 
@@ -214,6 +215,13 @@ username and password.
 
 You may want to use the separate options instead if, for instance, you want your configuration file to contain the basic 
 Redis configuration, but for security reasons you would rather set the password in an environment variable (`REDIS_PASSWORD`).
+
+Setting `cluster` (`REDIS_CLUSTER`) to `true` connects using a cluster-aware client, seeded from the single 
+configured `host`/`url` (the cluster's configuration endpoint), and stores all keys under a `{ld}.` hash-tag prefix so 
+that the multi-key operations the data store relies on stay within one hash slot. This targets managed cluster stores such 
+as AWS MemoryDB and ElastiCache with cluster mode enabled. Note that this makes the Relay Proxy _compatible with_ cluster 
+Redis; it does not shard the Relay Proxy's data across nodes (its data set is small). Cluster mode currently applies to the 
+feature data store only — the Big Segments store is not cluster-aware.
 
 
 ### File section: `[DynamoDB]`
