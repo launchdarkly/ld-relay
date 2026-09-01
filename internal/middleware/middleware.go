@@ -115,7 +115,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 				return
 			}
 
-			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+			if err != nil || errors.Is(clientCtx.GetInitError(), ld.ErrInitializationFailed) {
 				// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
 				// Our error behavior here is slightly different for JS/browser clients
 				if sdkKind == basictypes.JSClientSDK {
