@@ -89,7 +89,10 @@ func (e *serverSideFlagsOnlyEnvStreamProvider) Close() {
 }
 
 func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
-	out := make(chan eventsource.Event)
+	// Buffered so the goroutine below can always finish its send. The eventsource handler abandons
+	// this channel without draining it when the client disconnects or MaxConnTime fires, which would
+	// otherwise park the goroutine forever and pin the whole environment's replay payload.
+	out := make(chan eventsource.Event, 1)
 	if !r.store.IsInitialized() { // See serverSideEnvStreamRepository.Replay
 		close(out)
 		return out
@@ -125,8 +128,15 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.E
 		return nil, err
 	}
 
+	if data == nil {
+		// The store was not initialized when the query ran; see Replay. The caller sends no event.
+		return nil, nil
+	}
 	event, ok := data.(eventsource.Event)
 	if !ok {
+		// Should be impossible: the closure above returns either nil or a put event.
+		r.loggers.Errorf("Internal error: replay computation returned %T, not an eventsource.Event;"+
+			" sending no initial event", data)
 		return nil, nil
 	}
 	return event, nil

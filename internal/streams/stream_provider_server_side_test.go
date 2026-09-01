@@ -336,3 +336,20 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 	})
 }
+
+// The eventsource handler abandons the replay channel without draining it when the client
+// disconnects or MaxConnTime fires. The Replay goroutine must still finish rather than park on the
+// send forever, holding the environment's entire replay payload alive.
+func TestStreamProviderServerSideReplayDoesNotParkWhenNobodyReads(t *testing.T) {
+	store := newMockStoreQueries()
+	store.setupIsInitialized(true)
+	store.setupGetAllFn(func(_ ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+		return nil, nil
+	})
+	repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+	out := repo.Replay("", "") // deliberately never read
+
+	require.Eventually(t, func() bool { return len(out) == 1 }, time.Second, 10*time.Millisecond,
+		"Replay goroutine never completed its send; it is parked on an unbuffered channel")
+}
