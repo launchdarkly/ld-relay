@@ -53,6 +53,10 @@ func (e *EnvironmentManager) UpdateEnvironment(env envfactory.EnvironmentParams)
 		return
 	}
 
+	// Filtered environments created later are derived from this record, so it must reflect the
+	// environment's current credentials and security parameters.
+	e.defaults[env.EnvID] = env
+
 	e.handler.UpdateEnvironment(env)
 	for _, filter := range e.filtered {
 		e.handler.UpdateEnvironment(env.WithFilter(filter.key))

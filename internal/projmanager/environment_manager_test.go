@@ -3,6 +3,7 @@ package projmanager
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -393,6 +394,35 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 		require.Len(t, spy.updated, 0)
 	})
 
+	t.Run("filters added after an update use the updated environment", func(t *testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		defer mockLog.DumpIfTestFailed(t)
+		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+
+		spy := newHandlerSpy()
+		m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+
+		env := makeEnv("env1", "foo")
+		env.SDKKey = config.SDKKey("old-sdk-key")
+		env.MobileKey = config.MobileKey("old-mobile-key")
+		env.AcceptedSDKKeys = []envfactory.AcceptedSDKKey{{Key: "old", Value: env.SDKKey}}
+		env.AcceptedMobileKeys = []envfactory.AcceptedMobileKey{{Key: "old", Value: env.MobileKey}}
+		m.AddEnvironment(env)
+
+		rotated := env
+		rotated.SDKKey = config.SDKKey("new-sdk-key")
+		rotated.MobileKey = config.MobileKey("new-mobile-key")
+		rotated.AcceptedSDKKeys = []envfactory.AcceptedSDKKey{{Key: "new", Value: rotated.SDKKey}}
+		rotated.AcceptedMobileKeys = []envfactory.AcceptedMobileKey{{Key: "new", Value: rotated.MobileKey}}
+		rotated.SecureMode = true
+		rotated.TTL = time.Minute
+		m.UpdateEnvironment(rotated)
+
+		filter := makeFilter("filter1", "foo")
+		m.AddFilter(filter)
+
+		require.Equal(t, []envfactory.EnvironmentParams{env, rotated.WithFilter(filter.Key)}, spy.added)
+	})
 }
 
 func TestEnvironmentManager_SimpleFilterCombination(t *testing.T) {
