@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -192,4 +193,28 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 			verifyHandlerHeartbeat(t, sp, esp, validCredential)
 		})
 	})
+
+	t.Run("Replay - store becomes uninitialized after the initial check", func(t *testing.T) {
+		var initializedChecks atomic.Int32
+		store := newMockStoreQueries()
+		store.setupIsInitializedFn(func() bool { return initializedChecks.Add(1) == 1 })
+		repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+		assert.Empty(t, readAllEvents(repo.Replay("", "")))
+	})
+}
+
+// See TestStreamProviderServerSideReplayDoesNotParkWhenNobodyReads.
+func TestStreamProviderServerSideFlagsOnlyReplayDoesNotParkWhenNobodyReads(t *testing.T) {
+	store := newMockStoreQueries()
+	store.setupIsInitialized(true)
+	store.setupGetAllFn(func(_ ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+		return nil, nil
+	})
+	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+	out := repo.Replay("", "") // deliberately never read
+
+	require.Eventually(t, func() bool { return len(out) == 1 }, time.Second, 10*time.Millisecond,
+		"Replay goroutine never completed its send; it is parked on an unbuffered channel")
 }
