@@ -141,6 +141,23 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+host)
 	})
 
+	t.Run("credentials are redacted in log and status info", func(t *testing.T) {
+		urlWithCredentials := "https://username:very-secret-password@consul.internal:8501"
+		redactedURL := "https://xxxxx@consul.internal:8501"
+		c := config.Config{
+			Consul: config.ConsulConfig{
+				Host: urlWithCredentials,
+			},
+		}
+		// The store itself still receives the real address; only the displayed copy is redacted.
+		expected := ldcomponents.PersistentDataStore(
+			ldconsul.DataStore().Address(urlWithCredentials),
+		).CacheTime(config.DefaultDatabaseCacheTTL)
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: redactedURL, DBPrefix: ldconsul.DefaultPrefix}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+regexp.QuoteMeta(redactedURL))
+	})
+
 	t.Run("prefix", func(t *testing.T) {
 		c := config.Config{
 			Consul: config.ConsulConfig{

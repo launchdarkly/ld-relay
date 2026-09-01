@@ -78,7 +78,8 @@ func ConfigureDataStore(
 
 	if allConfig.Consul.Host != "" {
 		dbConfig := allConfig.Consul
-		loggers.Infof("Using Consul data store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
+		redactedHost := util.RedactURL(dbConfig.Host)
+		loggers.Infof("Using Consul data store: %s with prefix: %s", redactedHost, envConfig.Prefix)
 
 		builder := ldconsul.DataStore().
 			Prefix(envConfig.Prefix)
@@ -91,7 +92,7 @@ func ConfigureDataStore(
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "consul",
-			DBServer: dbConfig.Host,
+			DBServer: redactedHost,
 			DBPrefix: envConfig.Prefix,
 		}
 		if storeInfo.DBPrefix == "" {
