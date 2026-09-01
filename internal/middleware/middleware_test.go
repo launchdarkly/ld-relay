@@ -423,6 +423,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "blah", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginMatches(t *testing.T) {
