@@ -62,7 +62,9 @@ jobs:
         run:  cat ./.github/variables/go-versions.env >> "$GITHUB_OUTPUT"
 
       - name: Run update script
-        if: steps.go-versions.outputs.latest != env.officialLatestVersion
+        if: >-
+          steps.go-versions.outputs.latest != env.officialLatestVersion ||
+          steps.go-versions.outputs.penultimate != env.officialPenultimateVersion
         id: update
         run: ./scripts/update-go-release-version.sh "$officialLatestVersion" "$officialPenultimateVersion"
 
