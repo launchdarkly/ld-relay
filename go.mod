@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v8
 
-go 1.25.10
+go 1.26.0
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
@@ -62,7 +62,7 @@ require (
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
 	github.com/klauspost/compress v1.18.7
 	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
