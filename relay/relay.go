@@ -430,7 +430,7 @@ func (r *Relay) addEnvironment(
 		jsClientContext.Headers = envConfig.AllowedHeader.Values()
 
 		jsClientContext.Proxy = &httputil.ReverseProxy{
-			Director: func(req *http.Request) {
+			Director: func(req *http.Request) { //nolint:staticcheck // Rewrite would change X-Forwarded-* handling
 				url := req.URL
 				url.Scheme = r.clientSideSDKBaseURL.Scheme
 				url.Host = r.clientSideSDKBaseURL.Host
