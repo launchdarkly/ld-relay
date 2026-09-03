@@ -430,11 +430,7 @@ func (r *Relay) addEnvironment(
 		jsClientContext.Headers = envConfig.AllowedHeader.Values()
 
 		jsClientContext.Proxy = &httputil.ReverseProxy{
-			// Director is deprecated as of Go 1.26, which staticcheck now reports because this
-			// module's go directive was raised to 1.26.0. Migrating to Rewrite is a behavior change
-			// rather than a rename: Rewrite does not append X-Forwarded-* headers unless
-			// SetXForwarded() is called. That belongs in its own change, not a dependency bump.
-			Director: func(req *http.Request) { //nolint:staticcheck // deprecated; see comment above
+			Director: func(req *http.Request) { //nolint:staticcheck // Rewrite would change X-Forwarded-* handling
 				url := req.URL
 				url.Scheme = r.clientSideSDKBaseURL.Scheme
 				url.Host = r.clientSideSDKBaseURL.Host
