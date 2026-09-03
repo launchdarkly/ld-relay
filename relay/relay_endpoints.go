@@ -15,6 +15,7 @@ import (
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/browser"
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
@@ -336,7 +337,7 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	bytes []byte, etagValue string) {
 	ttl := clientContext.GetTTL()
 	if ttl > 0 {
-		w.Header().Set("Vary", "Authorization")
+		browser.AddVaryHeader(w, "Authorization")
 		expiresAt := time.Now().UTC().Add(ttl)
 		w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
 		// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an

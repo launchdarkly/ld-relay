@@ -60,7 +60,11 @@ func WithCORSContext(parent context.Context, cc CORSContext) context.Context {
 
 // SetCORSHeaders sets a standard set of CORS headers on an HTTP response. This is meant to be the same
 // behavior that the LaunchDarkly service endpoints uses for client-side JS requests.
+//
+// Because Access-Control-Allow-Origin is derived from the request's Origin header, "Origin" is added to
+// the response's Vary header so that shared caches do not serve one origin's response to another.
 func SetCORSHeaders(w http.ResponseWriter, origin string, extraAllowedHeaders []string) {
+	AddVaryHeader(w, "Origin")
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", maxAge)
@@ -70,4 +74,17 @@ func SetCORSHeaders(w http.ResponseWriter, origin string, extraAllowedHeaders []
 	}
 	w.Header().Set("Access-Control-Allow-Headers", allAllowedHeaders)
 	w.Header().Set("Access-Control-Expose-Headers", "Date")
+}
+
+// AddVaryHeader adds a field name to the response's Vary header, preserving any values already present
+// and avoiding duplicates.
+func AddVaryHeader(w http.ResponseWriter, fieldName string) {
+	for _, existing := range w.Header().Values("Vary") {
+		for _, value := range strings.Split(existing, ",") {
+			if strings.EqualFold(strings.TrimSpace(value), fieldName) {
+				return
+			}
+		}
+	}
+	w.Header().Add("Vary", fieldName)
 }
