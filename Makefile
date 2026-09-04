@@ -60,10 +60,10 @@ echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
 publish:
-	./scripts/run-goreleaser.sh
+	./scripts/release.sh
 
 products-for-release:
-	./scripts/run-goreleaser.sh --skip=publish --skip=validate
+	./scripts/release.sh --dry-run
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
