@@ -99,7 +99,7 @@ The status properties are defined as follows:
     - In an `INTERRUPTED` state, the Relay Proxy will continue attempting to contact the database and as soon as it succeeds, the state will change back to `VALID`.
     - `stateSince`, which is a Unix time measured in milliseconds, indicated how long ago `state` changed from `VALID` to `INTERRUPTED` or vice versa.
     - `database`, if present, will be `"redis"`, `"consul"`, or `"dynamodb"`. (In the example above, the two environments are using two different databases; that's not currently possible in Relay, so this is only meant to show what the properties might look like for different configurations.)
-    - `dbServer`, if present, is the configured database URL or hostname.
+    - `dbServer`, if present, is the configured database URL or hostname. Because this endpoint is unauthenticated, credential-bearing components of the URL are redacted: the userinfo, query, and fragment components are each replaced with `xxxxx` when present, and a URL that cannot be parsed is replaced entirely. The path is preserved for diagnostics, so a URL that embeds a credential in a path segment is not fully redacted.
     - `dbPrefix`, if present, is the configured database key prefix for this environment.
     - `dbTable`, if present, is the DynamoDB table name for this environment.
 - The `bigSegmentStatus` properties are relevant if you are utilizing Big Segments.
