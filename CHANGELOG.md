@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.21.1](https://github.com/launchdarkly/ld-relay/compare/v8.21.0...v8.21.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **autoconfig:** refresh stored environment defaults on update (SEC-9484) ([#842](https://github.com/launchdarkly/ld-relay/issues/842)) ([e04e3e2](https://github.com/launchdarkly/ld-relay/commit/e04e3e22a8719c73cc9c1ad913e1f2c1904423f7))
+* **deps:** bump golang.org/x/crypto to v0.55.0 for CVE-2026-56854 ([#848](https://github.com/launchdarkly/ld-relay/issues/848)) ([360d624](https://github.com/launchdarkly/ld-relay/commit/360d624f83a6fb5a4648f89aa456bd7512312f69))
+* **deps:** bump golang.org/x/crypto to v0.56.0 for CVE-2026-78662 and CVE-2026-56855 ([#854](https://github.com/launchdarkly/ld-relay/issues/854)) ([6d5d346](https://github.com/launchdarkly/ld-relay/commit/6d5d3461fc94c6211c6bd1f5c894cecd6d4ac10f))
+* **deps:** bump supported Go versions to 1.27.0 and 1.26.7 ([#837](https://github.com/launchdarkly/ld-relay/issues/837)) ([9b4fb46](https://github.com/launchdarkly/ld-relay/commit/9b4fb46934ee7fcfae586d715987b31272d79e82))
+* **deps:** bump supported Go versions to 1.27.1 and 1.26.8 ([#852](https://github.com/launchdarkly/ld-relay/issues/852)) ([4b06ed6](https://github.com/launchdarkly/ld-relay/commit/4b06ed678d8ea8a4db100c4bac6aaae059e0de24))
+* emit Vary: Origin on CORS responses (SEC-9501) ([#844](https://github.com/launchdarkly/ld-relay/issues/844)) ([78a8f05](https://github.com/launchdarkly/ld-relay/commit/78a8f0524d8e7b100d8ccd8b5f075131a54c2a1d))
+* **streams:** treat a nil replay result as no event instead of panicking ([#845](https://github.com/launchdarkly/ld-relay/issues/845)) ([7d7eace](https://github.com/launchdarkly/ld-relay/commit/7d7eace3e75ecca213d4da74ff1e8266d52fc449))
+
 ## [8.21.0](https://github.com/launchdarkly/ld-relay/compare/v8.20.0...v8.21.0) (2026-08-20)
 
 
