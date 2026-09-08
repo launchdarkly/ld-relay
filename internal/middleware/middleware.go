@@ -116,7 +116,10 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			}
 
 			if err != nil || errors.Is(clientCtx.GetInitError(), ld.ErrInitializationFailed) {
-				// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
+				// ErrInitializationFailed means the SDK stopped the data source and makes no more
+				// attempts. The SDK retries an authorization failure, so it reports a timeout instead
+				// and does not reach this branch. Relay then serves any data it already has, which
+				// can come from a persistent store that a previous run populated.
 				// Our error behavior here is slightly different for JS/browser clients
 				if sdkKind == basictypes.JSClientSDK {
 					w.WriteHeader(http.StatusNotFound)

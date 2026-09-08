@@ -17,6 +17,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 )
 
 var basicRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(time.Minute)}
@@ -74,6 +75,40 @@ func TestRelayEndToEndRedisInitTimeoutWithInitializedDataStore(t *testing.T) {
 	}
 	behavior := relayTestBehavior{skipWaitForEnvironments: true}
 	relayEndToEndTest(t, config, behavior, hangingHandler, func(p relayEndToEndTestParams) {
+		p.waitForLogMessage(ldlog.Error, "timeout encountered waiting for LaunchDarkly client initialization",
+			"initialization timeout")
+		p.expectSuccessFromAllEndpoints(testEnv)
+	})
+}
+
+func TestRelayEndToEndRedisUnauthorizedWithInitializedDataStore(t *testing.T) {
+	// The headline behavior of the SDK's retry conformance work, from Relay's side: an upstream 401
+	// no longer blacks out an environment that has usable data in its persistent store. The SDK keeps
+	// retrying, so the client reports a timeout rather than a permanent failure, and Relay serves the
+	// data it already has.
+	putEvent := ldservices.NewServerSDKData().Flags(&testFlag).ToPutEvent()
+	streamHandler, _ := ldservices.ServerSideStreamingServiceHandler(putEvent)
+	unauthorizedHandler := httphelpers.HandlerWithStatus(401)
+	testEnv := st.EnvWithAllCredentials
+
+	// First, run Relay with a successful connection to fake-LD, just to populate the database.
+	preliminaryConfig := c.Config{Environment: st.MakeEnvConfigs(testEnv), Redis: basicRedisConfig}
+	relayEndToEndTest(t, preliminaryConfig, relayTestBehavior{}, streamHandler, func(p relayEndToEndTestParams) {
+		p.waitForSuccessfulInit()
+		p.expectSuccessFromAllEndpoints(testEnv)
+	})
+
+	// Now, run Relay again against a fake-LD endpoint that rejects the SDK key. Clients should still
+	// receive the data that's in the database from the previous run.
+	config := c.Config{
+		Main: c.MainConfig{
+			InitTimeout: configtypes.NewOptDuration(time.Millisecond),
+		},
+		Environment: st.MakeEnvConfigs(testEnv),
+		Redis:       basicRedisConfig,
+	}
+	behavior := relayTestBehavior{skipWaitForEnvironments: true}
+	relayEndToEndTest(t, config, behavior, unauthorizedHandler, func(p relayEndToEndTestParams) {
 		p.waitForLogMessage(ldlog.Error, "timeout encountered waiting for LaunchDarkly client initialization",
 			"initialization timeout")
 		p.expectSuccessFromAllEndpoints(testEnv)
