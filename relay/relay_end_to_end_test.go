@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,9 +9,12 @@ import (
 	"time"
 
 	"github.com/launchdarkly/eventsource"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -129,12 +133,6 @@ func (p relayEndToEndTestParams) expectStreamWithNoEvent(testEnv st.TestEnv, kin
 	}
 }
 
-func (p relayEndToEndTestParams) expectStreamError(testEnv st.TestEnv, kind basictypes.StreamKind, status int) {
-	_, err := p.subscribeStream(testEnv, kind)
-	require.NotNil(p.t, err)
-	assert.Equal(p.t, status, err.Code)
-}
-
 func (p relayEndToEndTestParams) expectEvalResult(testEnv st.TestEnv, kind basictypes.SDKKind) ldvalue.Value {
 	req := st.MakeSDKEvalEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
 	resp, err := http.DefaultClient.Do(req)
@@ -186,20 +184,71 @@ func TestRelayEndToEndSuccess(t *testing.T) {
 	})
 }
 
-func TestRelayEndToEndPermanentFailure(t *testing.T) {
+func TestRelayEndToEndUnauthorizedWithUninitializedDataStore(t *testing.T) {
+	// A 401 from LaunchDarkly is no longer terminal. The SDK reports the data source as interrupted
+	// and retries on an extended backoff, so the client reports a timeout instead of a permanent
+	// failure. Relay rejects requests only on a permanent failure, so it admits these requests and
+	// serves whatever data it has. Here it has none, so this matches the init-timeout behavior in
+	// TestRelayCoreEndToEndInitTimeoutWithUninitializedDataStore.
+	//
+	// For the "unauthorized, but we *do* have previous flag data" condition, see
+	// TestRelayEndToEndRedisUnauthorizedWithInitializedDataStore.
 	streamHandler := httphelpers.HandlerWithStatus(401)
 	testEnv := st.EnvWithAllCredentials
 
-	config := c.Config{Environment: st.MakeEnvConfigs(testEnv)}
+	config := c.Config{
+		Main: c.MainConfig{
+			// Without this the test waits out the default 10s init timeout.
+			InitTimeout: configtypes.NewOptDuration(time.Millisecond),
+		},
+		Environment: st.MakeEnvConfigs(testEnv),
+	}
 	behavior := relayTestBehavior{skipWaitForEnvironments: true}
 	relayEndToEndTest(t, config, behavior, streamHandler, func(p relayEndToEndTestParams) {
-		p.waitForLogMessage(ldlog.Error, "Error initializing LaunchDarkly client for", "initialization failure")
-		p.expectStreamError(testEnv, basictypes.ServerSideStream, 401)
-		p.expectStreamError(testEnv, basictypes.ServerSideFlagsOnlyStream, 401)
-		p.expectStreamError(testEnv, basictypes.MobilePingStream, 401)
-		p.expectStreamError(testEnv, basictypes.JSClientPingStream, 404)
-		p.expectEvalError(testEnv, basictypes.MobileSDK, 401)
-		p.expectEvalError(testEnv, basictypes.JSClientSDK, 404)
+		p.waitForLogMessage(ldlog.Error, "timeout encountered waiting for LaunchDarkly client initialization",
+			"initialization timeout")
+		p.expectStreamWithNoEvent(testEnv, basictypes.ServerSideStream)
+		p.expectStreamWithNoEvent(testEnv, basictypes.ServerSideFlagsOnlyStream)
+		p.expectStreamWithNoEvent(testEnv, basictypes.MobilePingStream)
+		p.expectStreamWithNoEvent(testEnv, basictypes.JSClientPingStream)
+		p.expectEvalError(testEnv, basictypes.MobileSDK, 503)
+		p.expectEvalError(testEnv, basictypes.JSClientSDK, 503)
+	})
+}
+
+func TestRelayEndToEndUnauthorizedKeepsRetrying(t *testing.T) {
+	// Pins the reason the test above expects a timeout rather than a permanent failure: the data
+	// source must stay alive and retry. If a future SDK release makes an auth failure terminal
+	// again, this fails even though the endpoint assertions above might still pass by coincidence.
+	streamHandler := httphelpers.HandlerWithStatus(401)
+	testEnv := st.EnvWithAllCredentials
+
+	config := c.Config{
+		Main: c.MainConfig{
+			InitTimeout: configtypes.NewOptDuration(time.Millisecond),
+		},
+		Environment: st.MakeEnvConfigs(testEnv),
+	}
+	behavior := relayTestBehavior{skipWaitForEnvironments: true}
+	relayEndToEndTest(t, config, behavior, streamHandler, func(p relayEndToEndTestParams) {
+		// The client build runs on its own goroutine, and it records the init error and installs the
+		// client only after the SDK's constructor returns. Poll for that work instead of reading
+		// state the goroutine is still writing. A terminal auth failure would record
+		// ErrInitializationFailed instead, so this condition never becomes true and the test fails
+		// here with a clear message.
+		require.Eventually(p.t, func() bool {
+			env, err := p.relay.getEnvironment(sdkauth.New(testEnv.Config.SDKKey))
+			if err != nil || env == nil || env.GetClient() == nil {
+				return false
+			}
+			return errors.Is(env.GetInitError(), ld.ErrInitializationTimeout)
+		}, time.Second*5, time.Millisecond*50,
+			"timed out waiting for the environment to record an initialization timeout")
+
+		env, err := p.relay.getEnvironment(sdkauth.New(testEnv.Config.SDKKey))
+		require.NoError(p.t, err)
+		assert.NotEqual(p.t, interfaces.DataSourceStateOff, env.GetClient().GetDataSourceStatus().State,
+			"the data source must not be off; Off means it stopped and will make no further attempts")
 	})
 }
 

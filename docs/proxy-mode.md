@@ -38,6 +38,16 @@ If the Relay Proxy receives requests from SDKs by this time, the behavior depend
 
 * If the Relay Proxy does not use persistent storage, or if the database was never populated, then it will respond to all _polling_ requests from SDKs with a `503` error. This indicates that the SDKs should try again later because there is no data yet. The Relay Proxy accepts all _streaming_ requests from SDKs, but they will not receive any data until the Relay Proxy has received flag data from LaunchDarkly.
 
+### Relay Proxy receives a request when LaunchDarkly has rejected its SDK key
+
+If LaunchDarkly rejects the Relay Proxy's own connection with a `401` or `403` error, the SDK key that the Relay Proxy is using for that environment is not valid. The Relay Proxy does not give up. It keeps retrying on a slower schedule, so the connection recovers on its own if the key becomes valid again. That schedule backs off to as long as one hour between attempts, so recovery after you restore a key can take that long. Restart the Relay Proxy if you need it to reconnect immediately.
+
+While the key is rejected, the Relay Proxy handles SDK requests as the previous section describes. If persistent storage holds flag data from a previous run, it serves that data. If there is no such data, it responds to _polling_ requests with a `503` error, and it accepts _streaming_ requests without sending any data.
+
+An invalid SDK key in your configuration therefore does not produce an error for the SDKs that connect to the Relay Proxy. Read the Relay Proxy logs, or the [status resource](./endpoints.md), to tell a rejected key apart from an unreachable LaunchDarkly service. The status resource reports the environment as `disconnected`.
+
+Versions of the Relay Proxy before 8.22.0 treated a rejected key as permanent. They stopped trying to connect, and they responded to every request for that environment with a `401` error, or a `404` error for client-side SDKs, even when persistent storage held usable flag data.
+
 ### Relay Proxy receives a request while starting up in automatic configuration mode
 
 If you're an Enterprise customer using [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration), the first thing the Relay Proxy does on startup is request the configuration data from LaunchDarkly. During this time, the Relay Proxy does not yet know what the configured environments are, so it has no way to know if an SDK key or other credential in a request is valid. Therefore it returns a `503` error for all requests, indicating that it isn't ready yet. In this case, all LaunchDarkly SDKs will retry after a backoff delay.
