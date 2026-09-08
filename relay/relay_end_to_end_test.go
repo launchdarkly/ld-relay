@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -230,13 +231,22 @@ func TestRelayEndToEndUnauthorizedKeepsRetrying(t *testing.T) {
 	}
 	behavior := relayTestBehavior{skipWaitForEnvironments: true}
 	relayEndToEndTest(t, config, behavior, streamHandler, func(p relayEndToEndTestParams) {
-		p.waitForLogMessage(ldlog.Error, "Error in stream connection \\(will retry\\)", "retryable stream error")
+		// The client build runs on its own goroutine, and it records the init error and installs the
+		// client only after the SDK's constructor returns. Poll for that work instead of reading
+		// state the goroutine is still writing. A terminal auth failure would record
+		// ErrInitializationFailed instead, so this condition never becomes true and the test fails
+		// here with a clear message.
+		require.Eventually(p.t, func() bool {
+			env, err := p.relay.getEnvironment(sdkauth.New(testEnv.Config.SDKKey))
+			if err != nil || env == nil || env.GetClient() == nil {
+				return false
+			}
+			return errors.Is(env.GetInitError(), ld.ErrInitializationTimeout)
+		}, time.Second*5, time.Millisecond*50,
+			"timed out waiting for the environment to record an initialization timeout")
 
 		env, err := p.relay.getEnvironment(sdkauth.New(testEnv.Config.SDKKey))
 		require.NoError(p.t, err)
-		require.NotNil(p.t, env)
-		assert.Equal(p.t, ld.ErrInitializationTimeout, env.GetInitError(),
-			"a 401 must record a timeout; the request middleware rejects only ErrInitializationFailed")
 		assert.NotEqual(p.t, interfaces.DataSourceStateOff, env.GetClient().GetDataSourceStatus().State,
 			"the data source must not be off; Off means it stopped and will make no further attempts")
 	})
