@@ -3,11 +3,13 @@ package bigsegments
 import (
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/retry"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -373,7 +375,7 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
 				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
-			segmentSync.streamRetryInterval = time.Millisecond
+			segmentSync.retryStrategy = fastRetryStrategy()
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -461,7 +463,7 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
 				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
-			segmentSync.streamRetryInterval = time.Millisecond
+			segmentSync.retryStrategy = fastRetryStrategy()
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -521,12 +523,109 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 				"BigSegmentSynchronizer: Applied 1 update",
 				"BigSegmentSynchronizer: Applied 1 update",
 			}, mockLog.GetOutput(ldlog.Info))
-			assert.Equal(t, []string{
-				"BigSegmentSynchronizer: Stream connection failed: EOF",
-				"BigSegmentSynchronizer: Will retry",
-				"BigSegmentSynchronizer: Re-established connection",
-			}, mockLog.GetOutput(ldlog.Warn))
+			warnOutput := mockLog.GetOutput(ldlog.Warn)
+			require.Len(t, warnOutput, 3)
+			assert.Equal(t, "BigSegmentSynchronizer: Stream connection failed: EOF", warnOutput[0])
+			// The retry delay carries jitter, so match the message and not the duration.
+			assert.Regexp(t, `^BigSegmentSynchronizer: Will retry in \S+$`, warnOutput[1])
+			assert.Equal(t, "BigSegmentSynchronizer: Re-established connection", warnOutput[2])
 			assert.Len(t, mockLog.GetOutput(ldlog.Error), 0)
+		})
+	})
+}
+
+// fastRetryStrategy scales this component's retry binding down so a test does not wait out
+// real delays. The proportions are kept so the curve still doubles and clamps.
+func fastRetryStrategy() *retry.Strategy {
+	return retry.NewStrategy(retry.Config{
+		InitialDelay:         time.Millisecond,
+		NormalCeiling:        3 * time.Millisecond,
+		ExtendedInitialDelay: 30 * time.Millisecond,
+		ExtendedCeiling:      360 * time.Millisecond,
+		ResetThreshold:       6 * time.Millisecond,
+	})
+}
+
+// hasLogMessage reports whether any line at the given level contains substr.
+func hasLogMessage(mockLog *ldlogtest.MockLog, level ldlog.LogLevel, substr string) bool {
+	for _, line := range mockLog.GetOutput(level) {
+		if strings.Contains(line, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSyncKeepsRetryingAfterUnauthorized(t *testing.T) {
+	// A rejected SDK key must not stop the synchronizer. An operator can make the key valid
+	// again without Relay knowing, so it keeps trying, but on the extended delays so that a
+	// fleet of Relay Proxy instances does not hammer a service rejecting every request.
+	//
+	// Before the retry work, the synchronizer intended to stop here and failed to: it
+	// returned a *httpStatusError while testing for a value-typed httpStatusError, so the
+	// branch never ran. This test pins the behavior either way.
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	pollHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(401))
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(httphelpers.HandlerWithStatus(401), func(streamServer *httptest.Server) {
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+			segmentSync.retryStrategy = fastRetryStrategy()
+			defer segmentSync.Close()
+			segmentSync.Start()
+
+			// Three attempts show it did not give up after the first rejection.
+			for i := 1; i <= 3; i++ {
+				helpers.RequireValue(t, requestsCh, time.Second, "expected poll attempt %d", i)
+			}
+
+			require.Eventually(t, func() bool {
+				return hasLogMessage(mockLog, ldlog.Info, "engaging extended backoff")
+			}, time.Second, 10*time.Millisecond, "expected the extended delays to be engaged")
+
+			// An unexpected failure is worth an error even though it recovers on its own.
+			assert.True(t, hasLogMessage(mockLog, ldlog.Error, "Synchronization failed"))
+		})
+	})
+}
+
+func TestSyncStaysOnNormalDelaysAfterServerError(t *testing.T) {
+	// A 5xx is transient, so it must not engage the extended delays. This is the other half
+	// of the classification: without it, a test that only covers 401 would pass even if
+	// every failure were treated as unexpected.
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	pollHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(503))
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(httphelpers.HandlerWithStatus(503), func(streamServer *httptest.Server) {
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+			segmentSync.retryStrategy = fastRetryStrategy()
+			defer segmentSync.Close()
+			segmentSync.Start()
+
+			for i := 1; i <= 3; i++ {
+				helpers.RequireValue(t, requestsCh, time.Second, "expected poll attempt %d", i)
+			}
+
+			assert.False(t, hasLogMessage(mockLog, ldlog.Info, "engaging extended backoff"),
+				"a 503 is transient and must stay on the normal delays")
+			assert.False(t, hasLogMessage(mockLog, ldlog.Error, "Synchronization failed"),
+				"a transient failure logs at warn, not error")
+			assert.True(t, hasLogMessage(mockLog, ldlog.Warn, "Synchronization failed"))
 		})
 	})
 }
