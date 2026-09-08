@@ -1,11 +1,15 @@
 package autoconfig
 
 const (
-	logMsgStreamConnecting    = "Connecting to auto-configuration stream (%s)"
-	logMsgStreamHTTPError     = "HTTP error %d on auto-configuration stream"
-	logMsgBadURL              = "Couldn't construct auto-configuration URL: %v"
-	logMsgStreamOtherError    = "Unexpected error on auto-configuration stream: %s"
-	logMsgBadKey              = "Invalid auto-configuration key; cannot get environments"
+	logMsgStreamConnecting = "Connecting to auto-configuration stream (%s)"
+	logMsgStreamHTTPError  = "HTTP error %d on auto-configuration stream"
+	logMsgBadURL           = "Couldn't construct auto-configuration URL: %v"
+	logMsgStreamOtherError = "Unexpected error on auto-configuration stream: %s"
+	logMsgBadKey           = "Invalid auto-configuration key; cannot get environments"
+	logMsgBadKeyWillRetry  = "Invalid auto-configuration key; will keep retrying in case it becomes valid"
+	logMsgExtendedBackoff  = "Classified failure as UNEXPECTED; engaging extended backoff."
+	logMsgNoConfigGaveUp   = "Cannot get environments and no cached configuration is available; " +
+		"Relay cannot serve requests. Set ignoreConnectionErrors to keep Relay running and retrying"
 	logMsgDeliberateReconnect = "Will restart auto-configuration stream to get new data due to a policy change"
 	logMsgPutEvent            = "Received configuration for %d environment(s)"
 	logMsgAddEnv              = "Added %s"

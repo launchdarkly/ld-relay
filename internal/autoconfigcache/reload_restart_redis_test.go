@@ -82,7 +82,10 @@ func TestConcurrentKeysCacheReloadSurvivesRestart(t *testing.T) {
 		u, parseErr := url.Parse(streamURL)
 		require.NoError(t, parseErr)
 		return autoconfig.NewStreamManager(cacheConfig().AutoConfig.Key, u, handler, httpConfig,
-			time.Millisecond, restartProtocolV2, loggers, store)
+			time.Millisecond, restartProtocolV2, loggers, store,
+			time.Second, // initTimeout
+			false,       // ignoreConnectionErrors
+		)
 	}
 
 	// A multi-key environment (anchor + one extra SDK key, anchor + one extra mobile key) via the array
