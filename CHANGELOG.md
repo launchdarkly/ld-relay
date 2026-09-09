@@ -2,6 +2,22 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.7](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.6...v9.0.0-rc.7) (2026-09-09)
+
+
+### Features
+
+* Report the auto-config stream connection state in the status endpoint ([#859](https://github.com/launchdarkly/ld-relay/issues/859)) ([12fea11](https://github.com/launchdarkly/ld-relay/commit/12fea11c66294120a98abc9ebe21651159e70ec2))
+
+
+### Bug Fixes
+
+* Close remaining v8 parity gaps ([#865](https://github.com/launchdarkly/ld-relay/issues/865)) ([9cf5e1a](https://github.com/launchdarkly/ld-relay/commit/9cf5e1ad6d637cc3998de8a7cc27f4be81de8de3))
+* **deps:** Bump go-server-sdk to v7.17.0 and eventsource to v1.14.0 ([#862](https://github.com/launchdarkly/ld-relay/issues/862)) ([0de102c](https://github.com/launchdarkly/ld-relay/commit/0de102c261be9b270e6ba77c9dca9e870c001a97))
+* **deps:** Bump security dependencies and Go toolchain ([#860](https://github.com/launchdarkly/ld-relay/issues/860)) ([d760fdc](https://github.com/launchdarkly/ld-relay/commit/d760fdc0eb439d01f70245610294e9c83375b49a))
+* **middleware:** Match wrapped ErrInitializationFailed with errors.Is ([#861](https://github.com/launchdarkly/ld-relay/issues/861)) ([76c164e](https://github.com/launchdarkly/ld-relay/commit/76c164e9394e7d95eb8c34a28efeb2fe49caba9e))
+* Port remaining security fixes from v8 ([#863](https://github.com/launchdarkly/ld-relay/issues/863)) ([1a2d1f6](https://github.com/launchdarkly/ld-relay/commit/1a2d1f6ec16fd4bac51da56b9575254c347a3b18))
+
 ## [9.0.0-rc.6](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.5...v9.0.0-rc.6) (2026-08-20)
 
 
