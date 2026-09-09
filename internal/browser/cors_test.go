@@ -73,6 +73,24 @@ func TestCORSContext(t *testing.T) {
 	})
 }
 
+func TestDefaultAllowedHeaders(t *testing.T) {
+	// The existing CORS assertions compare a response against DefaultAllowedHeaders itself, so they
+	// hold whatever the list happens to contain. This pins the headers a browser SDK actually sends,
+	// so dropping one shows up here rather than as a preflight rejection at runtime.
+	for _, header := range []string{
+		"Cache-Control",
+		"Content-Type",
+		"Content-Length",
+		"Accept-Encoding",
+		"X-LaunchDarkly-User-Agent",
+		"X-LaunchDarkly-Payload-ID",
+		"X-LaunchDarkly-Wrapper",
+		"X-LaunchDarkly-Instance-Id",
+	} {
+		assert.Contains(t, strings.Split(DefaultAllowedHeaders, ","), header)
+	}
+}
+
 func TestAddVaryHeader(t *testing.T) {
 	t.Run("appends to an existing comma-separated value", func(t *testing.T) {
 		rr := httptest.ResponseRecorder{}
