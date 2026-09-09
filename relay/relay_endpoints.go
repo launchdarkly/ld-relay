@@ -17,6 +17,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/browser"
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
@@ -892,7 +893,7 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 ) (int, error) {
 	ttl := clientContext.GetTTL()
 	if ttl > 0 {
-		w.Header().Set("Vary", "Authorization")
+		browser.AddVaryHeader(w, "Authorization")
 		expiresAt := time.Now().UTC().Add(ttl)
 		w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
 		// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an

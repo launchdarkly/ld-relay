@@ -3,6 +3,7 @@ package streams
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,4 +274,28 @@ func TestFlagsOnlyReplayWithContextStopsWhenSubscriberCancels(t *testing.T) {
 	_, ok, closed := helpers.TryReceive(eventCh, time.Second)
 	require.False(t, ok, "producer delivered an event after cancellation")
 	require.True(t, closed, "producer did not stop after context cancellation (channel never closed)")
+}
+
+func TestServerSideFlagsOnlyReplayHandlesStoreThatBecomesUninitialized(t *testing.T) {
+	// replay checks IsInitialized before it starts the producer, and getReplayEvent's flight
+	// checks it again. A store that reports initialized for the first check and uninitialized for
+	// the second makes the flight return a nil result. Without a guard, the type assertion on that
+	// nil panics and takes down the connection's goroutine. The replay must instead send no event
+	// and close the channel, which is the same outcome as an uninitialized store.
+	var calls atomic.Int32
+	store := newMockStoreQueries()
+	store.setupIsInitializedFn(func() bool {
+		return calls.Add(1) == 1
+	})
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		t.Error("snapshot must not run once the store reports uninitialized")
+		return nil, subsystems.NoSelector(), nil
+	})
+	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, logger: slog.Default()}
+
+	eventCh := repo.ReplayWithContext(context.Background(), "", "")
+
+	_, ok, closed := helpers.TryReceive(eventCh, time.Second)
+	assert.False(t, ok, "replay delivered an event even though the store was uninitialized")
+	assert.True(t, closed, "replay did not close the channel")
 }
