@@ -196,3 +196,24 @@ func TestNextWaitBeforeAnyFailure(t *testing.T) {
 	s := NewStrategy(testConfig(), noJitter())
 	assert.Equal(t, time.Second, s.NextWait())
 }
+
+func TestResetRestoresTheNormalCeiling(t *testing.T) {
+	// A reset must lower maxDelay back to the normal ceiling, not only restore the base delay.
+	// Otherwise the normal curve after a recovery would keep doubling up to the extended
+	// ceiling instead of clamping at NormalCeiling.
+	clock := &fakeClock{t: time.Now()}
+	s := NewStrategy(testConfig(), noJitter(), WithClock(clock.now))
+
+	require.True(t, s.OnFailure(Unexpected))
+	s.OnHealthy()
+	clock.advance(30 * time.Second)
+	s.OnHealthy()
+	require.False(t, s.InExtendedRegime())
+
+	// Six normal failures would reach 32s against the extended ceiling; the normal ceiling
+	// must clamp them at 4s.
+	for range 6 {
+		s.OnFailure(Normal)
+	}
+	assert.Equal(t, 4*time.Second, s.NextWait(), "after a reset the normal ceiling clamps the curve again")
+}

@@ -535,15 +535,71 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 }
 
 // fastRetryStrategy scales this component's retry binding down so a test does not wait out
-// real delays. The proportions are kept so the curve still doubles and clamps.
-func fastRetryStrategy() *retry.Strategy {
-	return retry.NewStrategy(retry.Config{
+// real delays. The proportions are kept so the curve still doubles and clamps. Options let a
+// test remove jitter or supply a clock when it needs to assert an exact wait.
+func fastRetryStrategy(options ...retry.Option) *retry.Strategy {
+	return retry.NewStrategy(fastRetryConfig(), options...)
+}
+
+// fastRetryConfig is the scaled-down binding behind fastRetryStrategy.
+func fastRetryConfig() retry.Config {
+	return retry.Config{
 		InitialDelay:         time.Millisecond,
 		NormalCeiling:        3 * time.Millisecond,
 		ExtendedInitialDelay: 30 * time.Millisecond,
 		ExtendedCeiling:      360 * time.Millisecond,
 		ResetThreshold:       6 * time.Millisecond,
-	})
+	}
+}
+
+// zeroJitter removes jitter so a test can assert an exact retry delay.
+func zeroJitter() retry.Option {
+	return retry.WithJitter(func(time.Duration) time.Duration { return 0 })
+}
+
+// testClock is advanced explicitly by the test, never as a side effect of being read, so a
+// test asserts on time it controls rather than on how many times the code reads the clock.
+type testClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *testClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *testClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+// retryDelays returns the delay from each "Will retry in ..." warning, in order. Parsing the
+// duration back out keeps the assertions about time rather than about log formatting.
+func retryDelays(t *testing.T, mockLog *ldlogtest.MockLog) []time.Duration {
+	t.Helper()
+	var out []time.Duration
+	for _, line := range mockLog.GetOutput(ldlog.Warn) {
+		_, after, found := strings.Cut(line, "Will retry in ")
+		if !found {
+			continue
+		}
+		d, err := time.ParseDuration(strings.TrimSpace(after))
+		require.NoError(t, err, "could not parse a delay out of %q", line)
+		out = append(out, d)
+	}
+	return out
+}
+
+// drainUpdates consumes the updates channel so notifySegmentsUpdated never blocks the
+// supervisor while a test is only interested in retry timing.
+func drainUpdates(ch <-chan UpdatesSummary) {
+	go func() {
+		for range ch {
+		}
+	}()
 }
 
 // hasLogMessage reports whether any line at the given level contains substr.
@@ -586,9 +642,18 @@ func TestSyncKeepsRetryingAfterUnauthorized(t *testing.T) {
 				helpers.RequireValue(t, requestsCh, time.Second, "expected poll attempt %d", i)
 			}
 
-			require.Eventually(t, func() bool {
-				return hasLogMessage(mockLog, ldlog.Info, "engaging extended backoff")
-			}, time.Second, 10*time.Millisecond, "expected the extended delays to be engaged")
+			// Keep reading the recorder while waiting for the log line. If a regression left
+			// the synchronizer on the normal delays it would poll every few milliseconds; the
+			// recorder channel then fills, its handler blocks, and the server's Close hangs the
+			// package for the full test timeout instead of failing here.
+			deadline := time.After(time.Second)
+			for !hasLogMessage(mockLog, ldlog.Info, "engaging extended backoff") {
+				select {
+				case <-requestsCh:
+				case <-deadline:
+					require.FailNow(t, "expected the extended delays to be engaged")
+				}
+			}
 
 			// An unexpected failure is worth an error even though it recovers on its own.
 			assert.True(t, hasLogMessage(mockLog, ldlog.Error, "Synchronization failed"))
@@ -626,6 +691,117 @@ func TestSyncStaysOnNormalDelaysAfterServerError(t *testing.T) {
 			assert.False(t, hasLogMessage(mockLog, ldlog.Error, "Synchronization failed"),
 				"a transient failure logs at warn, not error")
 			assert.True(t, hasLogMessage(mockLog, ldlog.Warn, "Synchronization failed"))
+		})
+	})
+}
+
+func TestSyncReturnsToNormalDelaysAfterHealthyPeriod(t *testing.T) {
+	// Once a rejected key is valid again, ResetThreshold of continuous healthy operation must
+	// return the synchronizer to the normal delays. Healthy operation here is setSynced
+	// succeeding, so this pins the OnHealthy call in setSynced; without it the extended
+	// ceiling would persist for the life of the process.
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	patch1 := newPatchBuilder("segment.g1", "1", "").build()
+
+	pollHandler, requestsCh := httphelpers.RecordingHandler(
+		httphelpers.SequentialHandler(
+			httphelpers.HandlerWithStatus(401),                            // rejected key: extended delays engage
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil), // key valid again
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil), // completes alongside the stream
+		),
+	)
+	sseHandler, sseControl := httphelpers.SSEHandler(nil)
+	streamHandler, streamRequestsCh := httphelpers.RecordingHandler(sseHandler)
+
+	clock := &testClock{t: time.Now()}
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+			segmentSync.retryStrategy = fastRetryStrategy(zeroJitter(), retry.WithClock(clock.now))
+			defer segmentSync.Close()
+			segmentSync.Start()
+			drainUpdates(segmentSync.SegmentUpdatesCh())
+
+			helpers.RequireValue(t, requestsCh, time.Second, "expected the rejected poll")
+			helpers.RequireValue(t, requestsCh, time.Second, "expected the poll after recovery")
+			helpers.RequireValue(t, requestsCh, time.Second, "expected the poll alongside the stream")
+			helpers.RequireValue(t, streamRequestsCh, time.Second, "expected the stream request")
+
+			// The first health mark starts the healthy period.
+			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the first health mark")
+
+			// Advance past the reset threshold, then cause a second mark. Advancing here rather
+			// than on every clock read keeps the assertion independent of how often the
+			// implementation reads the clock.
+			clock.advance(fastRetryConfig().ResetThreshold)
+			sseControl.Enqueue(*makePatchEvent(patch1))
+			requirePatch(t, storeMock, patch1)
+			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the second health mark")
+
+			// Drop the healthy stream. That is an ordinary failure, so the wait must come from
+			// the normal curve, not the extended one it was on before the reset.
+			sseControl.EndAll()
+
+			require.Eventually(t, func() bool { return len(retryDelays(t, mockLog)) >= 2 },
+				time.Second, time.Millisecond, "expected a second retry delay to be logged")
+			delays := retryDelays(t, mockLog)
+			cfg := fastRetryConfig()
+			assert.Equal(t, cfg.ExtendedInitialDelay, delays[0], "the rejected key waits the extended base delay")
+			assert.Equal(t, cfg.InitialDelay, delays[1],
+				"after the reset threshold of healthy operation the wait returns to the normal base delay")
+		})
+	})
+}
+
+func TestSyncBacksOffExponentiallyAcrossStreamEnds(t *testing.T) {
+	// A stream that ends reaches the supervisor as a nil error. It must still count as an
+	// ordinary failure, so consecutive stream ends double the wait and clamp at the normal
+	// ceiling rather than retrying on a flat interval.
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	pollHandler := httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil)
+	sseHandler, sseControl := httphelpers.SSEHandler(nil)
+	streamHandler, streamRequestsCh := httphelpers.RecordingHandler(sseHandler)
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+			// Each cycle marks the store once and then fails, and a failure ends the healthy
+			// period, so no reset can interfere with the doubling. The real clock is therefore
+			// safe here.
+			segmentSync.retryStrategy = fastRetryStrategy(zeroJitter())
+			defer segmentSync.Close()
+			segmentSync.Start()
+			drainUpdates(segmentSync.SegmentUpdatesCh())
+
+			for i := 1; i <= 3; i++ {
+				helpers.RequireValue(t, streamRequestsCh, time.Second, "expected stream connection %d", i)
+				helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the store to be marked synchronized")
+				sseControl.EndAll()
+			}
+
+			require.Eventually(t, func() bool { return len(retryDelays(t, mockLog)) >= 3 },
+				time.Second, time.Millisecond, "expected three retry delays to be logged")
+			cfg := fastRetryConfig()
+			assert.Equal(t, []time.Duration{
+				cfg.InitialDelay,     // 1ms
+				2 * cfg.InitialDelay, // 2ms
+				cfg.NormalCeiling,    // 4ms clamped to 3ms
+			}, retryDelays(t, mockLog)[:3], "consecutive stream ends must double and clamp")
 		})
 	})
 }
