@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -448,5 +451,58 @@ func TestIgnoreConnectionErrorsKeepsRunningWithNoConfiguration(t *testing.T) {
 		}
 		p.mockLog.AssertMessageMatch(t, false, ldlog.Error, "no cached configuration is available")
 		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "will keep retrying")
+	})
+}
+
+// firstRetryDelay returns the delay from eventsource's first "retrying in N secs" line, which
+// it logs through the loggers Relay supplies.
+func firstRetryDelay(mockLog *ldlogtest.MockLog) (time.Duration, bool) {
+	for _, line := range mockLog.GetOutput(ldlog.Info) {
+		_, after, found := strings.Cut(line, "retrying in ")
+		if !found {
+			continue
+		}
+		secs, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(after), " secs"), 64)
+		if err != nil {
+			continue
+		}
+		return time.Duration(secs * float64(time.Second)), true
+	}
+	return 0, false
+}
+
+func TestUnauthorizedEngagesTheExtendedDelays(t *testing.T) {
+	// Keeping the stream alive is only half the point. It must also retry slowly, so that a
+	// fleet of Relay Proxy instances does not hammer a service that is rejecting every
+	// request. Without this, removing the profile activation leaves every other test green.
+	//
+	// eventsource computes the delay after applying the profile the error handler returns, and
+	// logs it, so the first line already reflects the extended delays. The delay is never
+	// waited out: the test reads the log line and returns.
+	const extendedDelay = 10 * time.Minute
+
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = extendedDelay
+		// Keep Relay alive, so it does not report the failure and abandon the stream before
+		// the log line appears.
+		p.streamManager.ignoreConnectionErrors = true
+
+		p.streamManager.Start()
+
+		var delay time.Duration
+		require.Eventually(t, func() bool {
+			d, ok := firstRetryDelay(p.mockLog)
+			delay = d
+			return ok
+		}, time.Second, 5*time.Millisecond, "expected eventsource to log a retry delay")
+
+		// Jitter removes up to half the delay, so the floor is half the base. The normal
+		// ceiling is 30s, so any delay above it can only have come from the extended profile.
+		assert.GreaterOrEqual(t, delay, extendedDelay/2, "the delay must come from the extended profile")
+		assert.LessOrEqual(t, delay, extendedDelay)
 	})
 }
