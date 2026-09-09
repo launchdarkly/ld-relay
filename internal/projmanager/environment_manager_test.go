@@ -3,6 +3,7 @@ package projmanager
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
@@ -355,6 +356,30 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 		m.AddEnvironment(makeEnv("known", "proj"))
 		m.UpdateEnvironment(makeEnv("unknown", "proj"))
 		require.Len(t, spy.updated, 0)
+	})
+
+	t.Run("filters added after an update use the updated environment", func(t *testing.T) {
+		mockLog, _ := logtest.NewMockLogger()
+
+		spy := newHandlerSpy()
+		m := NewEnvironmentManager("foo", spy, mockLog)
+
+		env := makeEnv("env1", "foo")
+		env.SDKKey = config.SDKKey("old-sdk-key")
+		env.MobileKey = config.MobileKey("old-mobile-key")
+		m.AddEnvironment(env)
+
+		rotated := env
+		rotated.SDKKey = config.SDKKey("new-sdk-key")
+		rotated.MobileKey = config.MobileKey("new-mobile-key")
+		rotated.SecureMode = true
+		rotated.TTL = time.Minute
+		m.UpdateEnvironment(rotated)
+
+		filter := makeFilter("filter1", "foo")
+		m.AddFilter(filter)
+
+		require.Equal(t, []envfactory.EnvironmentParams{env, rotated.WithFilter(filter.Key)}, spy.added)
 	})
 }
 

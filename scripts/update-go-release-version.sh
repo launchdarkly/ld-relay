@@ -18,26 +18,35 @@ cd $(dirname $0)/..
 github_config_file=.github/variables/go-versions.env
 dockerfile_for_tests=Dockerfile
 
-function ensure_file_was_changed() {
+# Asserts the substituted file ended up with the version we asked for, rather than that it
+# changed at all. The Dockerfile only tracks the latest version, so a release that moves only
+# the penultimate version legitimately leaves it alone.
+function ensure_file_has_version() {
   filename=$1
-  if (( $(diff ${filename} ${filename}.tmp | grep '^>' | wc -l) < 1 )); then
-    echo "failed to update Go version in ${filename}; sed expression did not match any lines or matched more than one line"
+  pattern=$2
+  if ! grep -qE -- "${pattern}" ${filename}.tmp; then
+    echo "failed to update Go version in ${filename}; expected to match /${pattern}/ after substitution"
     diff ${filename} ${filename}.tmp || true
     for f in ${github_config_file} ${dockerfile_for_tests}; do
-      rm -r ${f}.tmp
+      rm -f ${f}.tmp
     done
     exit 1
   fi
 }
 
+# Versions are interpolated into grep patterns below, so escape the dots.
+LATEST_PATTERN=${LATEST_VERSION//./\\.}
+PENULTIMATE_PATTERN=${PENULTIMATE_VERSION//./\\.}
+
 sed <${github_config_file} >${github_config_file}.tmp \
   -e "s#latest=[^ ]*#latest=${LATEST_VERSION}#g" \
   -e "s#penultimate=[^ ]*#penultimate=${PENULTIMATE_VERSION}#g"
-ensure_file_was_changed ${github_config_file}
+ensure_file_has_version ${github_config_file} "^latest=${LATEST_PATTERN}$"
+ensure_file_has_version ${github_config_file} "^penultimate=${PENULTIMATE_PATTERN}$"
 
 sed <${dockerfile_for_tests} >${dockerfile_for_tests}.tmp \
   -e "s#FROM *golang:[^-]*#FROM golang:${LATEST_VERSION}#"
-ensure_file_was_changed ${dockerfile_for_tests}
+ensure_file_has_version ${dockerfile_for_tests} "^FROM golang:${LATEST_PATTERN}-"
 
 for f in ${github_config_file} ${dockerfile_for_tests}; do
   mv ${f}.tmp ${f}

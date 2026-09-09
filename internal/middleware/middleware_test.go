@@ -3,6 +3,7 @@ package middleware
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +26,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -398,6 +400,27 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	})
 
+	t.Run("rejects request when the initialization error wraps ErrInitializationFailed", func(t *testing.T) {
+		for name, initErr := range map[string]error{
+			"bare sentinel":    ld.ErrInitializationFailed,
+			"wrapped sentinel": fmt.Errorf("environment %q: %w", "env", ld.ErrInitializationFailed),
+		} {
+			t.Run(name, func(t *testing.T) {
+				failedEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(initErr), nil)
+				envs := testEnvironments{
+					envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.EnvMain.Config.SDKKey): failedEnv},
+				}
+				selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
+
+				req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
+				resp, body := st.DoRequest(req, selector(nullHandler()))
+
+				assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+				assert.Equal(t, httpStatusMessageInvalidEnvCredential, string(body))
+			})
+		}
+	})
+
 	t.Run("returns 503 if Relay has not been initialized", func(t *testing.T) {
 		envs := testEnvironments{notInited: true}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
@@ -468,6 +491,31 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 		resp, _ := st.DoRequest(req, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("rejects request when the initialization error wraps ErrInitializationFailed", func(t *testing.T) {
+		for name, initErr := range map[string]error{
+			"bare sentinel":    ld.ErrInitializationFailed,
+			"wrapped sentinel": fmt.Errorf("environment %q: %w", "env", ld.ErrInitializationFailed),
+		} {
+			t.Run(name, func(t *testing.T) {
+				failedEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(initErr), nil)
+				envs := testEnvironments{
+					envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+						sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): failedEnv,
+					},
+				}
+				selector := SelectEnvironmentByClientSideAuth(envs)
+
+				headers := make(http.Header)
+				headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.EnvID))
+				req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+				resp, body := st.DoRequest(req, selector(nullHandler()))
+
+				assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+				assert.Equal(t, httpStatusMessageInvalidEnvCredential, string(body))
+			})
+		}
 	})
 
 	t.Run("returns 503 if Relay has not been initialized", func(t *testing.T) {
@@ -725,6 +773,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	assert.Equal(t, "300", resp.Result().Header.Get("Access-Control-Max-Age"))
 	assert.Equal(t, browser.DefaultAllowedHeaders, resp.Result().Header.Get("Access-Control-Allow-Headers"))
 	assert.Equal(t, "Date,X-LD-EnvId", resp.Result().Header.Get("Access-Control-Expose-Headers"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.T) {
@@ -736,6 +785,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "blah", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginMatches(t *testing.T) {
@@ -749,6 +799,7 @@ func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginMatches(t *testing.
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "def", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *testing.T) {
@@ -762,6 +813,22 @@ func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *tes
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "abc", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
+}
+
+func TestCORSMiddlewarePreservesExistingVaryValues(t *testing.T) {
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		browser.AddVaryHeader(w, "Authorization")
+		w.WriteHeader(200)
+	})
+	headers := make(http.Header)
+	headers.Set("Origin", "blah")
+	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+	resp := httptest.NewRecorder()
+
+	CORS(wrappedHandler).ServeHTTP(resp, req)
+
+	assert.Equal(t, []string{"Origin", "Authorization"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedHeaderFromContext(t *testing.T) {

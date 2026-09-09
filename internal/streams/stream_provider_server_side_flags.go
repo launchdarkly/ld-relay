@@ -2,6 +2,7 @@ package streams
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -205,7 +206,16 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent(ctx context.Cont
 		return nil, err
 	}
 
-	// panic if it's not an eventsource.Event - as this should be impossible
-	event := data.(eventsource.Event)
+	if data == nil {
+		// The store was not initialized when the query ran; see replay. The caller sends no event.
+		return nil, nil
+	}
+	event, ok := data.(eventsource.Event)
+	if !ok {
+		// Should be impossible: the closure above returns either nil or a put event.
+		r.logger.Error("internal error: replay computation did not return an event; sending no initial event",
+			"type", fmt.Sprintf("%T", data))
+		return nil, nil
+	}
 	return event, nil
 }
