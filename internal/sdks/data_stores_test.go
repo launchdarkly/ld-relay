@@ -1,6 +1,7 @@
 package sdks
 
 import (
+	"regexp"
 	"testing"
 	"time"
 
@@ -66,14 +67,25 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL)
 	})
 
-	t.Run("password is redacted in log", func(t *testing.T) {
-		urlWithPassword := "redis://username:very-secret-password@redishost:3000"
-		redactedURL := "redis://username:xxxxx@redishost:3000"
-		var c config.Config
-		c.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString(urlWithPassword)
-		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redactedURL, DBPrefix: ldredis.DefaultPrefix}
-		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redactedURL)
+	t.Run("credentials are redacted in log and status info", func(t *testing.T) {
+		for _, p := range []struct {
+			name        string
+			url         string
+			redactedURL string
+		}{
+			{"password", "redis://username:very-secret-password@redishost:3000", "redis://xxxxx@redishost:3000"},
+			{"username-position secret", "redis://very-secret-token@redishost:3000", "redis://xxxxx@redishost:3000"},
+			{"userinfo with query and fragment", "redis://username:very-secret-password@redishost:3000/1?password=very-secret-token#f",
+				"redis://xxxxx@redishost:3000/1?xxxxx#xxxxx"},
+		} {
+			t.Run(p.name, func(t *testing.T) {
+				var c config.Config
+				c.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString(p.url)
+				expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: p.redactedURL, DBPrefix: ldredis.DefaultPrefix}
+				log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
+				log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+regexp.QuoteMeta(p.redactedURL))
+			})
+		}
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -127,6 +139,23 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+host)
+	})
+
+	t.Run("credentials are redacted in log and status info", func(t *testing.T) {
+		urlWithCredentials := "https://username:very-secret-password@consul.internal:8501"
+		redactedURL := "https://xxxxx@consul.internal:8501"
+		c := config.Config{
+			Consul: config.ConsulConfig{
+				Host: urlWithCredentials,
+			},
+		}
+		// The store itself still receives the real address; only the displayed copy is redacted.
+		expected := ldcomponents.PersistentDataStore(
+			ldconsul.DataStore().Address(urlWithCredentials),
+		).CacheTime(config.DefaultDatabaseCacheTTL)
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: redactedURL, DBPrefix: ldconsul.DefaultPrefix}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+regexp.QuoteMeta(redactedURL))
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -195,6 +224,19 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 }
 
 func TestConfigureDataStoreDynamoDB(t *testing.T) {
+	t.Run("endpoint URL credentials are redacted in status info", func(t *testing.T) {
+		var c config.Config
+		c.DynamoDB.Enabled = true
+		c.DynamoDB.TableName = "table"
+		c.DynamoDB.URL, _ = configtypes.NewOptURLAbsoluteFromString("https://username:very-secret-password@ddb-gw.internal:8000/path?token=very-secret-token#f")
+		expectedInfo := DataStoreEnvironmentInfo{
+			DBType:   "dynamodb",
+			DBServer: "https://xxxxx@ddb-gw.internal:8000/path?xxxxx#xxxxx",
+			DBTable:  "table",
+		}
+		assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
+	})
+
 	t.Run("error - no table", func(t *testing.T) {
 		c := config.Config{
 			DynamoDB: config.DynamoDBConfig{
