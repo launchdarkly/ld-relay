@@ -773,6 +773,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	assert.Equal(t, "300", resp.Result().Header.Get("Access-Control-Max-Age"))
 	assert.Equal(t, browser.DefaultAllowedHeaders, resp.Result().Header.Get("Access-Control-Allow-Headers"))
 	assert.Equal(t, "Date,X-LD-EnvId", resp.Result().Header.Get("Access-Control-Expose-Headers"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.T) {
@@ -784,6 +785,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "blah", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginMatches(t *testing.T) {
@@ -797,6 +799,7 @@ func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginMatches(t *testing.
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "def", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *testing.T) {
@@ -810,6 +813,22 @@ func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *tes
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "abc", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, []string{"Origin"}, resp.Result().Header.Values("Vary"))
+}
+
+func TestCORSMiddlewarePreservesExistingVaryValues(t *testing.T) {
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		browser.AddVaryHeader(w, "Authorization")
+		w.WriteHeader(200)
+	})
+	headers := make(http.Header)
+	headers.Set("Origin", "blah")
+	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+	resp := httptest.NewRecorder()
+
+	CORS(wrappedHandler).ServeHTTP(resp, req)
+
+	assert.Equal(t, []string{"Origin", "Authorization"}, resp.Result().Header.Values("Vary"))
 }
 
 func TestCORSMiddlewareSetsAllowedHeaderFromContext(t *testing.T) {

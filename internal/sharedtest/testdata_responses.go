@@ -68,6 +68,9 @@ func AssertExpectedCORSHeaders(t *testing.T, resp *http.Response, endpointMethod
 	assert.ElementsMatch(t, []string{endpointMethod, "OPTIONS"},
 		strings.Split(resp.Header.Get("Access-Control-Allow-Methods"), ","))
 	assert.Equal(t, host, resp.Header.Get("Access-Control-Allow-Origin"))
+	// Access-Control-Allow-Origin is derived from the request's Origin header, so every response
+	// that carries it must also vary on Origin.
+	assert.Contains(t, resp.Header.Values("Vary"), "Origin")
 }
 
 func MakeEvalBody(flags []TestFlag, reasons bool) string {

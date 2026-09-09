@@ -221,6 +221,43 @@ func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
 	})
 }
 
+func TestCacheableResponseKeepsVaryAcceptEncodingWhenCompressed(t *testing.T) {
+	// gzhttp adds "Vary: Accept-Encoding" in the outermost middleware, so writeCacheableJSONResponse
+	// must append "Authorization" rather than overwrite the header. Otherwise a shared cache honoring
+	// the Expires header could store the gzipped representation and serve it to a client that never
+	// sent Accept-Encoding -- made worse by the fact that both encodings share one Etag.
+	config := c.Config{
+		HTTP: c.HTTPConfig{
+			EnableCompression: true,
+		},
+		Environment: map[string]*c.EnvConfig{
+			"test": {
+				SDKKey: "test-key",
+				TTL:    configtypes.NewOptDuration(time.Minute),
+			},
+		},
+	}
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		req, _ := http.NewRequest("GET", "/sdk/flags", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		req.Header.Set("Authorization", "test-key")
+
+		w := httptest.NewRecorder()
+		p.relay.ServeHTTP(w, req)
+
+		result := w.Result()
+		require.Equal(t, http.StatusOK, result.StatusCode)
+		// Guards the test itself: without Expires we are not on the ttl > 0 path at all.
+		require.NotEmpty(t, result.Header.Get("Expires"), "test requires the ttl > 0 code path")
+		assert.Equal(t, "gzip", result.Header.Get("Content-Encoding"))
+
+		vary := result.Header.Values("Vary")
+		assert.Contains(t, vary, "Accept-Encoding")
+		assert.Contains(t, vary, "Authorization")
+	})
+}
+
 func TestCompressionIsNotAppliedWhenDisabled(t *testing.T) {
 	// Test with compression disabled
 	configWithoutCompression := c.Config{
