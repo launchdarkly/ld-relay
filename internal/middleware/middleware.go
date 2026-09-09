@@ -157,7 +157,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					return false
 				}
 
-				if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+				if err != nil || errors.Is(clientCtx.GetInitError(), ld.ErrInitializationFailed) {
 					span.SetAttributes(tracing.AuthResultKey.String("not_found"))
 					span.SetStatus(codes.Error, "environment not found")
 					// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
@@ -272,7 +272,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					return false
 				}
 
-				if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+				if err != nil || errors.Is(clientCtx.GetInitError(), ld.ErrInitializationFailed) {
 					span.SetAttributes(tracing.AuthResultKey.String("not_found"))
 					span.SetStatus(codes.Error, "environment not found")
 					w.WriteHeader(http.StatusUnauthorized)
