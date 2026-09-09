@@ -77,5 +77,7 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        TAG: ${{ inputs.tag }}
       run: |
-        gh release upload ${{ inputs.tag }} ./dist/*.deb ./dist/*.rpm ./dist/*.tar.gz ./dist/*.txt --clobber
+        set -euo pipefail
+        gh release upload "$TAG" ./dist/*.deb ./dist/*.rpm ./dist/*.tar.gz ./dist/*.txt --clobber
