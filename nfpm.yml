@@ -1,0 +1,32 @@
+name: ld-relay
+arch: "${NFPM_ARCH}"
+version: "v${VERSION}"
+homepage: https://launchdarkly.com/
+maintainer: LaunchDarkly <team@launchdarkly.com>
+description: LaunchDarkly Stream Relay Proxy
+license: Apache 2.0
+vendor: Catamorphic Co.
+
+contents:
+  - src: ./dist/build/ld-relay_${VERSION}_linux_${NFPM_ARCH_LABEL}/ld-relay
+    dst: /usr/bin/ld-relay
+
+  - src: linux/etc/ld-relay.conf
+    dst: /etc/ld-relay.conf
+    type: config
+
+  - src: linux/etc/init/ld-relay.conf
+    dst: /etc/init/ld-relay.conf
+    packager: deb
+
+  - src: linux/etc/system/ld-relay.service
+    dst: /usr/lib/systemd/system/ld-relay.service
+    packager: rpm
+
+overrides:
+  deb:
+    depends:
+      - upstart
+  rpm:
+    depends:
+      - systemd
