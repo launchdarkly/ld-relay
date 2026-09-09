@@ -173,6 +173,27 @@ func TestAutoConfigStatusEndpoints(t *testing.T) {
 		})
 	})
 
+	t.Run("auto-config stream status", func(t *testing.T) {
+		envConfig := testEnvBasic
+		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
+		withStartedAutoConfigRelay(t, config, func(p relayTestParams) {
+			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+			result, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			status := ldvalue.Parse(body)
+
+			st.AssertJSONPathMatch(t, "VALID", status, "autoConfigStatus", "state")
+			assert.False(t, status.GetByKey("autoConfigStatus").GetByKey("stateSince").IsNull())
+			assert.True(t, status.GetByKey("autoConfigStatus").GetByKey("lastError").IsNull(),
+				"a working stream should report no error")
+
+			// The state is assertable with an "expect" clause, which is the point of reporting it.
+			r, _ = http.NewRequest("GET", "http://localhost/status?expect=autoConfigStatus.state%3DVALID", nil)
+			result, _ = st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+		})
+	})
+
 	t.Run("expiring SDK key", func(t *testing.T) {
 		envConfig := testEnvWithExpiringKey
 		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
@@ -287,4 +308,68 @@ func TestStatusExpectReturns503BeforeEvaluationWhenNotReady(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rr.Result().StatusCode)
 
 	allowHandlerToRespondCh <- struct{}{}
+}
+
+// Once the auto-config stream breaks, the status document must say so. Relay keeps serving the
+// environments it already knows about, so nothing else in the document changes.
+func TestAutoConfigStatusReportsAnInterruptedStream(t *testing.T) {
+	envConfig := testEnvBasic
+	config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
+	autoConfigEvent := transformEnvConfigsToAutoConfig(config)
+	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
+	defer autoConfigStream.Close()
+
+	// The first connection works, so the stream reaches VALID. Every connection after it fails, so
+	// the interrupted state persists instead of flickering back.
+	handler := httphelpers.SequentialHandler(
+		autoConfigHandler,
+		httphelpers.HandlerWithStatus(503),
+		httphelpers.HandlerWithStatus(503),
+		httphelpers.HandlerWithStatus(503),
+	)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	entConfig := config
+	entConfig.AutoConfig.Key = testAutoConfKey
+	entConfig.Environment = nil
+	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+
+	r, err := newRelayInternal(entConfig, relayInternalOptions{
+		logger:        slog.Default(),
+		clientFactory: testclient.CreateDummyClient,
+	})
+	require.NoError(t, err)
+	defer r.Close()
+
+	waitForAutoConfigInit(t, r, config)
+
+	autoConfigStream.EndAll() // drop the connection, so the retries meet the failing handler
+
+	readStatus := func() ldvalue.Value {
+		req, _ := http.NewRequest("GET", "http://localhost/status", nil)
+		_, body := st.DoRequest(req, r)
+		return ldvalue.Parse(body)
+	}
+
+	// The dropped connection reports a network error first, and the failing handler that the retry
+	// meets reports the HTTP error, so this waits for the state the stream settles in.
+	var status ldvalue.Value
+	require.Eventuallyf(t, func() bool {
+		status = readStatus()
+		autoConfig := status.GetByKey("autoConfigStatus")
+		return autoConfig.GetByKey("state").StringValue() == "INTERRUPTED" &&
+			autoConfig.GetByKey("lastError").GetByKey("kind").StringValue() == "ERROR_RESPONSE"
+	}, 2*time.Second, 10*time.Millisecond,
+		"auto-config state never reported an interrupting HTTP error: %s", status.String())
+
+	st.AssertJSONPathMatch(t, "ERROR_RESPONSE", status, "autoConfigStatus", "lastError", "kind")
+	st.AssertJSONPathMatch(t, float64(503), status, "autoConfigStatus", "lastError", "statusCode")
+
+	// The environment is still served, and the relay-level status is unchanged: a broken
+	// auto-config stream does not stop flag serving, so probes that only check "status" keep
+	// passing. That is why the auto-config state is reported separately.
+	envKey := string(envConfig.Config.EnvID)
+	st.AssertJSONPathMatch(t, "connected", status, "environments", envKey, "status")
+	st.AssertJSONPathMatch(t, "healthy", status, "status")
 }

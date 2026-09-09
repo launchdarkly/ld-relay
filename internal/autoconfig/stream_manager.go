@@ -15,6 +15,7 @@ import (
 	"time"
 
 	es "github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
@@ -61,6 +62,18 @@ type Cache interface {
 	Delete(ctx context.Context, kind CacheKind, id string) error
 }
 
+// StreamStatus is the state of the auto-configuration stream connection. It uses the same types as
+// the SDK data source status, so that the two report the same states and error kinds.
+type StreamStatus struct {
+	// State is the current connection state.
+	State interfaces.DataSourceState
+	// StateSince is the time when State last changed.
+	StateSince time.Time
+	// LastError describes the most recent failure. Its Kind is empty if there has been none. It is
+	// retained after a recovery, so a caller can still see what went wrong.
+	LastError interfaces.DataSourceErrorInfo
+}
+
 // StreamManager manages the auto-configuration SSE stream.
 //
 // That includes managing the stream connection itself (reconnecting as needed, the same as the SDK streams),
@@ -82,6 +95,14 @@ type StreamManager struct {
 	halt              chan struct{}
 	done              chan struct{} // closed when the subscribe goroutine exits
 	closeOnce         sync.Once
+
+	// statusLock guards status and failures. The eventsource error handler, the stream-consuming
+	// goroutine, and the HTTP handlers that serve the status endpoint all touch them.
+	statusLock sync.Mutex
+	status     StreamStatus
+	// failures counts the failures recorded so far. It lets a caller that started work at one point
+	// in time tell whether the connection has failed since.
+	failures uint64
 
 	// cacheCh receives the result of the async cache read started by Start().
 	// It is consumed by consumeStream and nilled out after use.
@@ -120,6 +141,10 @@ func NewStreamManager(
 		initialRetryDelay: initialRetryDelay,
 		logger:            logger,
 		halt:              make(chan struct{}),
+		status: StreamStatus{
+			State:      interfaces.DataSourceStateInitializing,
+			StateSince: time.Now(),
+		},
 	}
 
 	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
@@ -179,11 +204,87 @@ func (s *StreamManager) Start() <-chan error {
 func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
+		s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{})
 	})
 	if s.done != nil {
 		<-s.done
 	}
 	_ = s.cache.Close()
+}
+
+// Status returns the current state of the stream connection.
+func (s *StreamManager) Status() StreamStatus {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	return s.status
+}
+
+// updateStatus records a connection state change.
+func (s *StreamManager) updateStatus(state interfaces.DataSourceState, errorInfo interfaces.DataSourceErrorInfo) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	s.setStatus(state, errorInfo)
+}
+
+// failureGeneration returns the number of failures recorded so far. Pass it to markValid to record
+// success only if nothing has failed in the meantime.
+func (s *StreamManager) failureGeneration() uint64 {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	return s.failures
+}
+
+// markValid records that the connection works, unless a failure was recorded since the caller read
+// generation.
+//
+// Handling one event is not instant: a dispatch creates environments, starts SDK clients, and writes
+// the cache, and the connection can die while that runs. The event was delivered by a connection
+// that is now gone, so it is not evidence that the stream works. Without this check the stream
+// reports VALID until something else reports on it, and if the reconnect hangs, nothing ever does.
+func (s *StreamManager) markValid(generation uint64) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	if s.failures != generation {
+		return
+	}
+	s.setStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{})
+}
+
+// setStatus applies a state change. The caller must hold statusLock.
+//
+// An interruption that happens while the stream is still initializing keeps the initializing state,
+// the same as the SDK data source status does. A first connection that has never succeeded must not
+// report that it was once working. The error is still recorded, so the caller sees why.
+func (s *StreamManager) setStatus(state interfaces.DataSourceState, errorInfo interfaces.DataSourceErrorInfo) {
+	if state == "" {
+		// The SDK data source status ignores an empty state rather than reporting one. Nothing here
+		// passes a zero value today; this keeps the two consistent if something ever does.
+		return
+	}
+
+	if s.status.State == interfaces.DataSourceStateOff {
+		// OFF is terminal: either Close was called, or the key was rejected and the stream will not
+		// be retried. An event that was already in flight must not report the stream as working.
+		return
+	}
+
+	if errorInfo.Kind != "" {
+		s.failures++
+	}
+
+	if state == interfaces.DataSourceStateInterrupted &&
+		s.status.State == interfaces.DataSourceStateInitializing {
+		state = interfaces.DataSourceStateInitializing
+	}
+
+	if state != s.status.State {
+		s.status.State = state
+		s.status.StateSince = time.Now()
+	}
+	if errorInfo.Kind != "" {
+		s.status.LastError = errorInfo
+	}
 }
 
 type streamResult struct {
@@ -214,16 +315,27 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		}
 
 		if se, ok := err.(es.SubscriptionError); ok {
+			errorInfo := interfaces.DataSourceErrorInfo{
+				Kind:       interfaces.DataSourceErrorKindErrorResponse,
+				StatusCode: se.Code,
+				Time:       time.Now(),
+			}
 			if se.Code == 401 || se.Code == 403 {
 				s.logger.Error("invalid auto-configuration key; cannot get environments")
+				s.updateStatus(interfaces.DataSourceStateOff, errorInfo)
 				signalReady(errors.New("invalid auto-configuration key"))
 				return es.StreamErrorHandlerResult{CloseNow: true}
 			}
 			s.logger.Warn("HTTP error on auto-configuration stream", "statusCode", se.Code)
+			s.updateStatus(interfaces.DataSourceStateInterrupted, errorInfo)
 			return es.StreamErrorHandlerResult{CloseNow: false}
 		}
 
 		s.logger.Warn("unexpected error on auto-configuration stream", "error", err)
+		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
+			Kind: interfaces.DataSourceErrorKindNetworkError,
+			Time: time.Now(),
+		})
 		return es.StreamErrorHandlerResult{CloseNow: false}
 	}
 
@@ -235,6 +347,10 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	rpacEndpoint, err := url.JoinPath(s.uri.String(), autoConfigStreamPath)
 	if err != nil {
 		s.logger.Error("couldn't construct auto-configuration URL", "error", err)
+		s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{
+			Kind: interfaces.DataSourceErrorKindUnknown,
+			Time: time.Now(),
+		})
 		signalReady(err)
 		return
 	}
@@ -284,6 +400,9 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		case result := <-streamCh:
 			if result.err != nil {
 				s.logger.Error("unexpected error on auto-configuration stream", "error", result.err)
+				// The error handler has already recorded why the connection failed, so this reports
+				// only that the stream is permanently off, and keeps that specific error.
+				s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{})
 				signalReady(result.err)
 				return
 			}
@@ -365,12 +484,22 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 		s.logger.Debug("received SSE event", "event", event.Event(), "data", obfuscateEventData(event.Data()))
 	}
 
+	// Read this before the dispatch below, so a failure that happens while the event is being
+	// handled is not overwritten by the success this event would otherwise report.
+	generation := s.failureGeneration()
+
 	shouldRestart := false
+	malformed := false
+	// The stream delivered an event, which is what proves the connection works. Only malformed data
+	// takes that back, the same as the SDK streaming data source.
+	processedEvent := true
 	gotMalformedEvent := func(event es.Event, err error) {
 		s.logger.Error("received streaming event with malformed JSON data; will restart stream",
 			"event", event.Event(),
 			"error", err,
 		)
+		malformed = true
+		processedEvent = false
 		shouldRestart = true
 	}
 
@@ -471,6 +600,20 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 
 	default:
 		s.logger.Warn("ignoring unrecognized stream event", "event", event.Event())
+	}
+
+	// A delivered event is the only proof the connection works: eventsource reports errors, but
+	// never reports that a connection came back, and it discards the stream's heartbeat comments. So
+	// any event counts, including one this version does not recognize -- what it contained says
+	// nothing about the connection that carried it.
+	switch {
+	case malformed:
+		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
+			Kind: interfaces.DataSourceErrorKindInvalidData,
+			Time: time.Now(),
+		})
+	case processedEvent:
+		s.markValid(generation)
 	}
 
 	return shouldRestart

@@ -80,6 +80,10 @@ Making a `GET` request to the URL path `/status` provides JSON information about
       }
     }
   },
+  "autoConfigStatus": {
+    "state": "VALID",
+    "stateSince": 10000000
+  },
   "status": "healthy",
   "version": "5.11.1",
   "clientVersion": "4.17.2"
@@ -93,7 +97,7 @@ The status properties are defined as follows:
 - The `connectionStatus` properties provide more detailed information about the current connectivity to LaunchDarkly.
     - For `state`, `"VALID"` means that the connection is currently working; `"INITIALIZING"` means that it is still starting up; `"INTERRUPTED"` means that it is currently having a problem; `"OFF"` means that it has permanently failed (which only happens if the SDK key is invalid).
     - The `stateSince` property, which is a Unix time measured in milliseconds, indicates how long ago the state changed (so for instance if it is `INTERRUPTED`, this is the time when the connection went from working to not working). 
-    - The `lastError` indicates the nature of the most recent failure, with a `kind` that is one of the constants defined by the Go SDK's [DataSourceErrorKind](https://pkg.go.dev/github.com/launchdarkly/go-server-sdk/v7/interfaces?tab=doc#DataSourceErrorKind).
+    - The `lastError` indicates the nature of the most recent failure, with a `kind` that is one of the constants defined by the Go SDK's [DataSourceErrorKind](https://pkg.go.dev/github.com/launchdarkly/go-server-sdk/v7/interfaces?tab=doc#DataSourceErrorKind). It also carries a `statusCode` when the failure was an HTTP response; that property is absent for a failure with no status code, such as a network error.
 - The `dataStoreStatus` properties are, for the most part, only relevant if you are using [persistent storage](./persistent-storage.md).
     - `state` is `"VALID"` if the last database operation succeeded, or `"INTERRUPTED"` if it failed. If you are not using persistent storage, this is always `VALID` since there is no way for in-memory storage to fail, but the property is provided anyway so you can simply check for a non-`VALID` state to detect problems regardless of how the Relay Proxy is configured.
     - In an `INTERRUPTED` state, the Relay Proxy will continue attempting to contact the database and as soon as it succeeds, the state will change back to `VALID`.
@@ -106,6 +110,11 @@ The status properties are defined as follows:
     - `available` is a boolean that is `true` if the database being used for Big Segments seems to be working, or `false` if the most recent database operation failed.
     - `potentiallyStale` is a boolean that indicates if Big Segments are potentially not fully synchronized. This might be because initial synchronization has not completed, or due to a networking error.
     - `lastSynchronizedOn` indicates the last time in Unix milliseconds that Relay can be sure Big Segments were synchronized. Active but incomplete synchronization does not update this timestamp.
+- The `autoConfigStatus` properties describe the connection to the [automatic configuration](configuration.md#file-section-autoconfig) stream, which is how the Relay Proxy learns about environments being added, removed, or re-keyed. The property is present only in automatic configuration mode.
+    - `state`, `stateSince`, and `lastError` have the same meanings and the same values as in `connectionStatus` above, but describe the configuration stream rather than a flag-data connection.
+    - A non-`VALID` state does not stop flag serving: the environments the Relay Proxy already knows about keep their own connections to LaunchDarkly. What it means is that the Relay Proxy is no longer learning about *changes* to the environment list, so it may be serving a configuration that is out of date.
+    - `"INITIALIZING"` with a `lastError` present means the Relay Proxy has never completed a connection to the configuration stream. If it is nonetheless serving environments, they came from the [persistent auto-config cache](configuration.md#file-section-autoconfig), so treat their configuration as potentially stale.
+    - Because a broken configuration stream leaves flag serving intact, the top-level `status` does **not** become `"degraded"` for it. A monitor that cares about configuration freshness should check this property directly, for example with `?expect=autoConfigStatus.state=VALID`.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
     - In [automatic configuration mode](configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
     - When Big Segments are enabled, this value will also be `"degraded"` if the Big Segments status has an `available` property of `false` (indicating a database error), or if `potentiallyStale` is `true` (meaning Big Segments are potentially not fully synchronized) _and_ the configuration setting `bigSegmentsStaleAsDegraded` is enabled.
@@ -226,6 +235,9 @@ curl -fsS 'http://localhost:8030/status?expect=status=healthy'
 
 # Is one specific environment connected and its data source valid?
 curl -fsS 'http://localhost:8030/status/my-app/production?expect=status=connected&expect=connectionStatus.state=VALID'
+
+# in automatic configuration mode, check that the configuration stream is working
+curl -fsS 'http://localhost:8030/status?expect=autoConfigStatus.state=VALID'
 ```
 
 With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script can branch on the exit code with no body parsing at all.
@@ -236,7 +248,8 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 
 - Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>`. On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
 - The keys under `environments` are the same display names used elsewhere in the `/status` body: normally `"<projName> <envName>"` (with a `" (<filterKey>)"` suffix for a filtered variant), or the environment ID in automatic configuration mode. Because these usually contain spaces and parentheses, bracket-quote the key and URL-encode the clause: `expect=environments["My Application Production"].status=connected`. Querying a per-environment route (for example `/status/my-application/production`) avoids the map key entirely and is usually simpler.
-- Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`.
+- Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`, `autoConfigStatus.lastError.kind`.
+- `autoConfigStatus` is only addressable on `/status`, since the per-environment routes return a single environment object. Outside automatic configuration mode the Relay Proxy omits the block, so a clause on it returns `412` (see the `422`-versus-`412` note below) rather than `422`.
 - For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
 - Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). No field of the current status document is an array; this syntax exists so that selectors keep working when one becomes an array, and addressing a field that is not an array today returns `422`.
 

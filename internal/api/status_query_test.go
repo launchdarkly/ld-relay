@@ -16,6 +16,10 @@ func statusRepBody(t *testing.T) []byte {
 		Status:        "healthy",
 		Version:       "9.0.0",
 		ClientVersion: "7.15.2",
+		AutoConfigStatus: &AutoConfigStatusRep{
+			State:      "VALID",
+			StateSince: 1600000000000,
+		},
 		Environments: map[string]EnvironmentStatusRep{
 			"My Project my-env": {
 				SDKKey:  "sdk-***",
@@ -586,4 +590,68 @@ func TestParseExpectQuery(t *testing.T) {
 			assert.Equal(t, tc.malformed, malformed, "malformed")
 		})
 	}
+}
+
+func TestEvaluateExpectationsAutoConfigStatus(t *testing.T) {
+	t.Run("satisfied state", func(t *testing.T) {
+		res, code := EvaluateExpectations(statusRepBody(t),
+			[]string{"autoConfigStatus.state=VALID"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+		assert.True(t, res.Satisfied)
+		assert.Equal(t, "VALID", res.Results[0].Actual)
+	})
+
+	t.Run("unsatisfied state", func(t *testing.T) {
+		res, code := EvaluateExpectations(statusRepBody(t),
+			[]string{"autoConfigStatus.state=INTERRUPTED"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusPreconditionFailed, code)
+		assert.False(t, res.Satisfied)
+	})
+
+	t.Run("error details are addressable", func(t *testing.T) {
+		rep := StatusRep{
+			Status: "healthy",
+			AutoConfigStatus: &AutoConfigStatusRep{
+				State:      "INTERRUPTED",
+				StateSince: 1600000000000,
+				LastError: &ConnectionErrorRep{
+					Kind:       "ERROR_RESPONSE",
+					StatusCode: 503,
+					Time:       1600000000000,
+				},
+			},
+		}
+		body, err := json.Marshal(rep)
+		require.NoError(t, err)
+
+		res, code := EvaluateExpectations(body, []string{
+			"autoConfigStatus.state=INTERRUPTED",
+			"autoConfigStatus.lastError.kind=ERROR_RESPONSE",
+			"autoConfigStatus.lastError.statusCode=503",
+		}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+		assert.True(t, res.Satisfied)
+	})
+
+	// Relay omits the block outside automatic configuration mode. The field is still part of the
+	// schema, so the clause is unmet rather than unevaluable: 412, not 422.
+	t.Run("absent block is unsatisfied, not unevaluable", func(t *testing.T) {
+		body, err := json.Marshal(StatusRep{Status: "healthy"})
+		require.NoError(t, err)
+
+		res, code := EvaluateExpectations(body,
+			[]string{"autoConfigStatus.state=VALID"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusPreconditionFailed, code)
+		assert.False(t, res.Satisfied)
+		assert.Empty(t, res.Results[0].Problem)
+		assert.Empty(t, res.Results[0].Actual)
+	})
+
+	// The per-environment routes serve an EnvironmentStatusRep, which has no such field.
+	t.Run("not addressable on the single-environment schema", func(t *testing.T) {
+		res, code := EvaluateExpectations(envRepBody(t),
+			[]string{"autoConfigStatus.state=VALID"}, SchemaSingleEnvironment)
+		assert.Equal(t, http.StatusUnprocessableEntity, code)
+		assert.Contains(t, res.Results[0].Problem, "unknown field")
+	})
 }

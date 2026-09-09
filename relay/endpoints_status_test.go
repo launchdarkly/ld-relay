@@ -55,6 +55,9 @@ func TestEndpointsStatus(t *testing.T) {
 			st.AssertJSONPathMatch(t, "healthy", status, "status")
 			st.AssertJSONPathMatch(t, p.relay.version, status, "version")
 			st.AssertJSONPathMatch(t, ld.Version, status, "clientVersion")
+
+			// There is no auto-config stream in manual configuration mode, so nothing to report.
+			assert.True(t, status.GetByKey("autoConfigStatus").IsNull())
 		})
 	})
 
@@ -90,6 +93,66 @@ func TestEndpointsStatus(t *testing.T) {
 			st.AssertJSONPathMatch(t, "VALID", status, "environments", st.EnvMobile.Name, "connectionStatus", "state")
 
 			st.AssertJSONPathMatch(t, "healthy", status, "status")
+		})
+	})
+
+	t.Run("per-environment lastError", func(t *testing.T) {
+		var config c.Config
+		config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+		errorTime := time.Now()
+		readLastError := func(p relayTestParams) ldvalue.Value {
+			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+			result, body := st.DoRequest(r, p.relay)
+			require.Equal(t, http.StatusOK, result.StatusCode)
+			return ldvalue.Parse(body).GetByKey("environments").
+				GetByKey(st.EnvMain.Name).GetByKey("connectionStatus").GetByKey("lastError")
+		}
+
+		t.Run("an HTTP failure reports its status code", func(t *testing.T) {
+			withStartedRelay(t, config, func(p relayTestParams) {
+				envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+				require.NoError(t, err)
+				envMain.GetClient().(*testclient.FakeLDClient).SetDataSourceStatus(
+					interfaces.DataSourceStatus{
+						State:      interfaces.DataSourceStateInterrupted,
+						StateSince: errorTime,
+						LastError: interfaces.DataSourceErrorInfo{
+							Kind:       interfaces.DataSourceErrorKindErrorResponse,
+							StatusCode: 503,
+							Time:       errorTime,
+						},
+					})
+
+				lastError := readLastError(p)
+				assert.Equal(t, "ERROR_RESPONSE", lastError.GetByKey("kind").StringValue())
+				assert.Equal(t, 503, lastError.GetByKey("statusCode").IntValue())
+				assert.Equal(t, float64(ldtime.UnixMillisFromTime(errorTime)),
+					lastError.GetByKey("time").Float64Value())
+			})
+		})
+
+		// The documented contract is that statusCode is absent, not zero, for a failure that never
+		// had one. A probe asserting on its absence depends on the omitempty tag surviving.
+		t.Run("a network failure omits the status code", func(t *testing.T) {
+			withStartedRelay(t, config, func(p relayTestParams) {
+				envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+				require.NoError(t, err)
+				envMain.GetClient().(*testclient.FakeLDClient).SetDataSourceStatus(
+					interfaces.DataSourceStatus{
+						State:      interfaces.DataSourceStateInterrupted,
+						StateSince: errorTime,
+						LastError: interfaces.DataSourceErrorInfo{
+							Kind: interfaces.DataSourceErrorKindNetworkError,
+							Time: errorTime,
+						},
+					})
+
+				lastError := readLastError(p)
+				assert.Equal(t, "NETWORK_ERROR", lastError.GetByKey("kind").StringValue())
+				assert.True(t, lastError.GetByKey("statusCode").IsNull(),
+					"statusCode must be omitted when the failure had none")
+			})
 		})
 	})
 
