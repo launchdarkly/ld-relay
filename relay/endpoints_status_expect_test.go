@@ -96,6 +96,16 @@ func TestEndpointsStatusExpect(t *testing.T) {
 
 			// An unconfigured environment is a well-formed question with the answer "no", so it
 			// stays a 412 rather than joining the unknown-field cases above.
+			// The relay under test uses manual configuration, so it omits the block. The field is
+			// part of the schema either way, so this is an unmet assertion, not an unknown field.
+			t.Run("absent auto-config block returns 412", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL("/status", "autoConfigStatus.state=VALID"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+				assert.Empty(t, clauseProblem(body, 0))
+			})
+
 			t.Run("unconfigured environment returns 412", func(t *testing.T) {
 				r, _ := http.NewRequest("GET",
 					statusURL("/status", "environments.no-such-env.status=connected"), nil)
@@ -161,6 +171,14 @@ func TestEndpointsStatusExpect(t *testing.T) {
 			t.Run("all-environments path is unknown on this route", func(t *testing.T) {
 				r, _ := http.NewRequest("GET",
 					statusURL(envPath, "environments.anything.status=connected"), nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+				assert.Contains(t, clauseProblem(body, 0), "unknown field")
+			})
+
+			t.Run("auto-config path is unknown on this route", func(t *testing.T) {
+				r, _ := http.NewRequest("GET",
+					statusURL(envPath, "autoConfigStatus.state=VALID"), nil)
 				result, body := st.DoRequest(r, p.relay)
 				assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
 				assert.Contains(t, clauseProblem(body, 0), "unknown field")

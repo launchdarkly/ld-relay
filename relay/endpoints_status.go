@@ -53,6 +53,8 @@ func statusHandler(relay *Relay) http.Handler {
 			resp.Environments[statusKey] = status
 		}
 
+		resp.AutoConfigStatus = relay.buildAutoConfigStatus()
+
 		if healthy {
 			resp.Status = statusRelayHealthy
 		} else {
@@ -146,6 +148,30 @@ func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 	})
 }
 
+// buildAutoConfigStatus constructs the auto-configuration stream status, or nil if Relay is not in
+// automatic configuration mode. A non-VALID state means Relay is no longer learning about
+// environment changes, even though the environments it already knows about keep serving flags.
+func (r *Relay) buildAutoConfigStatus() *api.AutoConfigStatusRep {
+	// autoConfigStream is assigned once, when the Relay is constructed, so this needs no lock.
+	if r.autoConfigStream == nil {
+		return nil
+	}
+
+	status := r.autoConfigStream.Status()
+	rep := &api.AutoConfigStatusRep{
+		State:      status.State,
+		StateSince: ldtime.UnixMillisFromTime(status.StateSince),
+	}
+	if status.LastError.Kind != "" {
+		rep.LastError = &api.ConnectionErrorRep{
+			Kind:       status.LastError.Kind,
+			StatusCode: status.LastError.StatusCode,
+			Time:       ldtime.UnixMillisFromTime(status.LastError.Time),
+		}
+	}
+	return rep
+}
+
 // buildEnvironmentStatus constructs an EnvironmentStatusRep for a single environment.
 // Returns the status and a boolean indicating whether the environment is healthy.
 func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.EnvironmentStatusRep, bool) {
@@ -193,8 +219,9 @@ func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.Envir
 		}
 		if sourceStatus.LastError.Kind != "" {
 			status.ConnectionStatus.LastError = &api.ConnectionErrorRep{
-				Kind: sourceStatus.LastError.Kind,
-				Time: ldtime.UnixMillisFromTime(sourceStatus.LastError.Time),
+				Kind:       sourceStatus.LastError.Kind,
+				StatusCode: sourceStatus.LastError.StatusCode,
+				Time:       ldtime.UnixMillisFromTime(sourceStatus.LastError.Time),
 			}
 		}
 		if sourceStatus.State != interfaces.DataSourceStateValid &&

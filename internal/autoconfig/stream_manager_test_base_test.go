@@ -227,6 +227,16 @@ func streamManagerTestWithStreamHandler(
 	stream httphelpers.SSEStreamControl,
 	action func(p streamManagerTestParams),
 ) {
+	streamManagerTestWithCache(t, streamHandler, stream, noopTestCache{}, action)
+}
+
+func streamManagerTestWithCache(
+	t *testing.T,
+	streamHandler http.Handler,
+	stream httphelpers.SSEStreamControl,
+	cache Cache,
+	action func(p streamManagerTestParams),
+) {
 	logger, mockHandler := logtest.NewMockLogger()
 
 	handler, requestsCh := httphelpers.RecordingHandler(autoConfigEndpointHandler(streamHandler))
@@ -251,7 +261,7 @@ func streamManagerTestWithStreamHandler(
 			time.Millisecond,
 			rpacProtocolVersion,
 			logger,
-			noopTestCache{},
+			cache,
 		)
 		defer p.streamManager.Close()
 
