@@ -24,8 +24,6 @@ const (
 	ReconnectEvent = "reconnect"
 
 	environmentPathPrefix = "/environments/"
-
-	filterPathPrefix = "/filters/"
 )
 
 // PutMessageData is the JSON data for an SSE message that provides a full set of environments.

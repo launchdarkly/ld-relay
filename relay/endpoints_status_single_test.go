@@ -105,24 +105,6 @@ func TestEndpointsSingleEnvironmentStatus(t *testing.T) {
 		})
 	})
 
-	t.Run("404 for non-existent filter", func(t *testing.T) {
-		var config c.Config
-		config.Environment = st.MakeEnvConfigs(st.EnvClientSide)
-
-		withStartedRelay(t, config, func(p relayTestParams) {
-			// Request status for environment with non-existent filter
-			url := fmt.Sprintf("http://localhost/status/%s/filters/nonexistent-filter", st.EnvClientSide.Config.EnvID)
-			r, _ := http.NewRequest("GET", url, nil)
-			result, body := st.DoRequest(r, p.relay)
-
-			assert.Equal(t, http.StatusNotFound, result.StatusCode)
-
-			// Verify error response
-			errorResp := ldvalue.Parse(body)
-			assert.NotEqual(t, "", errorResp.GetByKey("error").StringValue())
-		})
-	})
-
 	t.Run("response has expected structure", func(t *testing.T) {
 		var config c.Config
 		config.Environment = st.MakeEnvConfigs(st.EnvClientSide)

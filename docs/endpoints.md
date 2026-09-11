@@ -131,9 +131,7 @@ For querying the status of a specific environment without fetching data for all 
 
 ```
 GET /status/{identifier}
-GET /status/{identifier}/filters/{filterKey}
 GET /status/{projKey}/{envKey}
-GET /status/{projKey}/{envKey}/filters/{filterKey}
 ```
 
 **Identifier formats:**
@@ -147,13 +145,6 @@ The `{identifier}` parameter supports different formats depending on your config
 **Automatic configuration mode:**
 - **Environment ID** (e.g., `507f1f77bcf86cd799439011`) - Always available. This is a stable identifier, ideal for automation and monitoring scripts.
 - **Project/environment key route**: `/status/{projKey}/{envKey}` (e.g., `/status/my-app/production`) - Human-readable hierarchical identifiers.
-
-**Filter support:**
-
-When [payload filters](./configuration.md#payload-filtering) are configured, you can query the status of specific filtered variants:
-
-- `/status/{identifier}/filters/{filterKey}` - Status for a filtered variant by environment ID or configured name
-- `/status/{projKey}/{envKey}/filters/{filterKey}` - Status for a filtered variant by project/environment keys
 
 **Response format:**
 
@@ -205,17 +196,12 @@ curl http://localhost:8030/status/507f1f77bcf86cd799439011
 
 # Auto-config mode - by project/environment keys
 curl http://localhost:8030/status/my-app/production
-
-# With filters (any mode)
-curl http://localhost:8030/status/507f1f77bcf86cd799439011/filters/microservice-a
-curl http://localhost:8030/status/my-app/production/filters/microservice-a
 ```
 
 **Use cases:**
 
 - **Monitoring**: Poll specific environments without fetching data for all environments
 - **Debugging**: Quickly check the status of a single environment during troubleshooting
-- **Filtered environments**: Verify the status of specific payload filter variants
 
 ### Health assertions (the `expect` query parameter)
 
@@ -247,7 +233,7 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 **Path syntax:**
 
 - Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>`. On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
-- The keys under `environments` are the same display names used elsewhere in the `/status` body: normally `"<projName> <envName>"` (with a `" (<filterKey>)"` suffix for a filtered variant), or the environment ID in automatic configuration mode. Because these usually contain spaces and parentheses, bracket-quote the key and URL-encode the clause: `expect=environments["My Application Production"].status=connected`. Querying a per-environment route (for example `/status/my-application/production`) avoids the map key entirely and is usually simpler.
+- The keys under `environments` are the same display names used elsewhere in the `/status` body: normally `"<projName> <envName>"`, or the environment ID in automatic configuration mode. Because these usually contain spaces and parentheses, bracket-quote the key and URL-encode the clause: `expect=environments["My Application Production"].status=connected`. Querying a per-environment route (for example `/status/my-application/production`) avoids the map key entirely and is usually simpler.
 - Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`, `autoConfigStatus.lastError.kind`.
 - `autoConfigStatus` is only addressable on `/status`, since the per-environment routes return a single environment object. Outside automatic configuration mode the Relay Proxy omits the block, so a clause on it returns `412` (see the `422`-versus-`412` note below) rather than `422`.
 - For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.

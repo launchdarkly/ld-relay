@@ -181,7 +181,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
-	for envName, envConfig := range makeFilteredEnvironments(&c) {
+	for envName, envConfig := range c.Environment {
 		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
 		if err != nil {
 			return nil, err
@@ -270,45 +270,6 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	r.Handler = r.makeRouter()
 	thingsToCleanUp.Clear() // we succeeded, don't close anything
 	return r, nil
-}
-
-func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
-	if c.Filters == nil {
-		return c.Environment
-	}
-	out := make(map[string]*config.EnvConfig)
-	type namedEnv struct {
-		name   string
-		config *config.EnvConfig
-	}
-	byProj := make(map[string][]*namedEnv)
-
-	for k, v := range c.Environment {
-		byProj[v.ProjKey] = append(byProj[v.ProjKey], &namedEnv{name: k, config: v})
-	}
-
-	for projKey, envs := range byProj {
-		// First, add the default environments for a project
-		for _, e := range envs {
-			out[e.name] = e.config
-		}
-		associatedFilters, ok := c.Filters[projKey]
-		if ok {
-			for _, filterKey := range associatedFilters.Keys.Values() {
-				key := strings.Trim(filterKey, " ")
-				for _, e := range envs {
-					copied := *e.config
-					copied.FilterKey = config.FilterKey(key)
-					if copied.Prefix != "" {
-						copied.Prefix = copied.Prefix + "/" + key
-					}
-					out[e.name+"/"+key] = &copied
-				}
-			}
-		}
-	}
-
-	return out
 }
 
 func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, logger *slog.Logger) (

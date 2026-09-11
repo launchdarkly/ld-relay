@@ -26,10 +26,8 @@ var (
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
-	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
 	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
 	errCacheKeyWithoutDynamoTable              = errors.New("AUTO_CONFIG_CACHE_KEY with DynamoDB requires DYNAMODB_TABLE to be set")
-	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
@@ -49,18 +47,6 @@ func errEnvWithoutDBDisambiguation(envName string, canUseTableName bool) error {
 		return fmt.Errorf("environment %q does not have a prefix or table name specified for database storage", envName)
 	}
 	return fmt.Errorf("environment %q does not have a prefix specified for database storage", envName)
-}
-
-func errFilterUnknownProject(projKey string) error {
-	return fmt.Errorf("filters are configured for project '%s', but no environment references that project", projKey)
-}
-
-func errFilterEmptyKeys(projKey string) error {
-	return fmt.Errorf("filter key list for project '%s' cannot be empty", projKey)
-}
-
-func errFilterInvalidKey(projKey string, i int) error {
-	return fmt.Errorf("filter key [%d] for project '%s' is malformed (note: lists are comma-delimited)", i, projKey)
 }
 
 func warnEnvWithoutDBDisambiguation(envName string, canUseTableName bool) string {
@@ -86,7 +72,6 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 	validateConfigTLS(&result, c)
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, logger)
-	validateConfigFilters(&result, c)
 	validateAutoConfigCache(&result, c)
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
@@ -155,50 +140,6 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	for envName, envConfig := range c.Environment {
 		if envConfig.SDKKey == "" {
 			result.AddError(nil, errEnvironmentWithNoSDKKey(envName))
-		}
-	}
-}
-
-func validateConfigFilters(result *ct.ValidationResult, c *Config) {
-	if len(c.Filters) == 0 {
-		return
-	}
-	// If Auto Config is enabled, then filters will have no effect and should cause an error.
-	if c.AutoConfig.Key != "" {
-		result.AddError(nil, errAutoConfWithFilters)
-		return
-	}
-	for _, proj := range c.Environment {
-		if proj.ProjKey == "" {
-			result.AddError(nil, errMissingProjKey)
-			return
-		}
-	}
-	for projKey, conf := range c.Filters {
-		// For every project key defined by a [filter] section,
-		// that project key must be referenced by at least one environment.
-		foundProj := false
-		for _, e := range c.Environment {
-			if e.ProjKey == projKey {
-				foundProj = true
-				break
-			}
-		}
-		if !foundProj {
-			result.AddError(nil, errFilterUnknownProject(projKey))
-			continue
-		}
-
-		// The list of filter keys cannot be empty
-		if len(conf.Keys.Values()) == 0 {
-			result.AddError(nil, errFilterEmptyKeys(projKey))
-		} else {
-			// Filter keys cannot be empty strings
-			for i, k := range conf.Keys.Values() {
-				if k == "" {
-					result.AddError(nil, errFilterInvalidKey(projKey, i))
-				}
-			}
 		}
 	}
 }
