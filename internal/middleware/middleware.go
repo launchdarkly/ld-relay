@@ -35,11 +35,10 @@ const (
 	ldTagsHeader       = "X-LaunchDarkly-Tags"
 	ldEnvIDHeader      = "X-LD-EnvId"
 
-	httpStatusMessageInvalidEnvCredential  = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
-	httpStatusMessageNotFullyConfigured    = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
-	httpStatusMessagePayloadFilterNotFound = "Relay Proxy recognizes the provided credential, but the payload filter was not found"
-	httpStatusMessageMissingEnvURLParam    = "URL did not contain an environment ID"
-	httpStatusMessageSDKClientNotInited    = "client was not initialized"
+	httpStatusMessageInvalidEnvCredential = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
+	httpStatusMessageNotFullyConfigured   = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
+	httpStatusMessageMissingEnvURLParam   = "URL did not contain an environment ID"
+	httpStatusMessageSDKClientNotInited   = "client was not initialized"
 )
 
 var (
@@ -51,15 +50,12 @@ var (
 // RelayEnvironments defines the methods for looking up environments. This is represented as an interface
 // so that test code can mock that capability.
 type RelayEnvironments interface {
-	// GetEnvironment returns the potentially filtered environment corresponding to scopedCred, or an error if no matching
+	// GetEnvironment returns the environment corresponding to scopedCred, or an error if no matching
 	// environment could be found.
 	GetEnvironment(scopedCred sdkauth.ScopedCredential) (env relayenv.EnvContext, err error)
 	// IsNotReady should return true if the error returned by GetEnvironment represents the fact that Relay is not yet
 	// fully configured.
 	IsNotReady(error) bool
-	// IsPayloadFilterNotFound should return true if the error returned by GetEnvironment represents the fact that
-	// the credential was correct, but the payload filter was not found.
-	IsPayloadFilterNotFound(error) bool
 }
 
 // getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
@@ -136,24 +132,15 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					return false
 				}
 
-				queryValues := authScopedReq.URL.Query()
-				filterKey := config.FilterKey(queryValues.Get("filter"))
-
-				clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, credential))
+				// A filter query parameter is ignored. Payload filters are not supported, and an SDK
+				// that still sends one is served the environment's full data rather than refused.
+				clientCtx, err := envs.GetEnvironment(sdkauth.New(credential))
 
 				if envs.IsNotReady(err) {
 					span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
 					span.SetStatus(codes.Error, "not ready")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
-					return false
-				}
-
-				if envs.IsPayloadFilterNotFound(err) {
-					span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
-					span.SetStatus(codes.Error, "filter not found")
-					w.WriteHeader(http.StatusNotFound)
-					_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
 					return false
 				}
 
@@ -251,24 +238,15 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.JSClientSDK)))
 				}
 
-				queryValues := authScopedReq.URL.Query()
-				filterKey := config.FilterKey(queryValues.Get("filter"))
-
-				clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, cred))
+				// A filter query parameter is ignored. Payload filters are not supported, and an SDK
+				// that still sends one is served the environment's full data rather than refused.
+				clientCtx, err := envs.GetEnvironment(sdkauth.New(cred))
 
 				if envs.IsNotReady(err) {
 					span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
 					span.SetStatus(codes.Error, "not ready")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
-					return false
-				}
-
-				if envs.IsPayloadFilterNotFound(err) {
-					span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
-					span.SetStatus(codes.Error, "filter not found")
-					w.WriteHeader(http.StatusNotFound)
-					_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
 					return false
 				}
 

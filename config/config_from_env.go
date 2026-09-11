@@ -77,19 +77,6 @@ func LoadConfigFromEnvironmentBase(c *Config) ct.ValidationResult {
 		c.Environment[envName] = &ec
 	}
 
-	for projKey := range reader.FindPrefixedValues("LD_FILTER_KEYS_") {
-		var fc FiltersConfig
-		if c.Filters[projKey] != nil {
-			fc = *c.Filters[projKey]
-		}
-		subReader := reader.WithVarNameSuffix(projKey)
-		subReader.ReadStruct(&fc, false)
-		if c.Filters == nil {
-			c.Filters = make(map[string]*FiltersConfig)
-		}
-		c.Filters[projKey] = &fc
-	}
-
 	useRedis := false
 	reader.Read("USE_REDIS", &useRedis)
 	if useRedis || c.Redis.Host != "" || c.Redis.URL.IsDefined() {

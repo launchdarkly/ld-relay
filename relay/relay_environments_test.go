@@ -80,10 +80,6 @@ func TestRelayGetEnvironment(t *testing.T) {
 	env, err = relay.getEnvironment(sdkauth.New(st.UnsupportedSDKCredential{}))
 	assert.Nil(t, env)
 	assert.True(t, IsUnrecognizedEnvironment(err))
-
-	env, err = relay.getEnvironment(sdkauth.NewScoped("nonexistent-filter", st.EnvMain.Config.SDKKey))
-	assert.Nil(t, env)
-	assert.True(t, IsPayloadFilterNotFound(err))
 }
 
 func TestRelayGetAllEnvironments(t *testing.T) {

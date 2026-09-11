@@ -109,8 +109,7 @@ type StreamManager struct {
 	cacheCh     <-chan *PutContent
 	cacheCancel context.CancelFunc
 
-	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
-	filterReceiver *MessageReceiver[envfactory.FilterRep]
+	envReceiver *MessageReceiver[envfactory.EnvironmentRep]
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
@@ -152,7 +151,6 @@ func NewStreamManager(
 	// incorrect disruptions to connected SDKs. For example, modifying an environment config that *could* be done without
 	// recreating an environment *should* be done without recreating that environment.
 	s.envReceiver = NewMessageReceiver[envfactory.EnvironmentRep](logger)
-	s.filterReceiver = NewMessageReceiver[envfactory.FilterRep](logger)
 
 	// The data flow is:
 	//
@@ -549,17 +547,6 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			if action != ActionNoop {
 				s.cacheUpsert(CacheKindEnvironment, id, envRep)
 			}
-		case filterPathPrefix:
-			filterRep := envfactory.FilterRep{}
-			if err = json.Unmarshal(patchMsg.Data, &filterRep); err != nil {
-				gotMalformedEvent(event, err)
-				break
-			}
-			action := s.filterReceiver.Upsert(id, filterRep, filterRep.Version)
-			s.dispatchFilterAction(config.FilterID(id), filterRep, action)
-			if action != ActionNoop {
-				s.cacheUpsert(CacheKindFilter, id, filterRep)
-			}
 		default:
 			// It's important for this to be a debug message, so that it is effectively silent when unrecognized
 			// entities are received. If new entities are added in the future, we don't want the log blowing
@@ -580,12 +567,6 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, action)
 			if action == ActionDelete {
 				s.cacheDelete(CacheKindEnvironment, id)
-			}
-		case filterPathPrefix:
-			action := s.filterReceiver.Delete(id, deleteMessage.Version)
-			s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, action)
-			if action == ActionDelete {
-				s.cacheDelete(CacheKindFilter, id)
 			}
 		default:
 			// It's important for this to be a debug message, so that it is effectively silent when unrecognized
@@ -634,21 +615,9 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 	}
 }
 
-func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.FilterRep, action Action) {
-	switch action {
-	case ActionNoop:
-		return
-	case ActionInsert:
-		s.handler.AddFilter(rep.ToParams(id))
-	case ActionDelete:
-		s.handler.DeleteFilter(id)
-	}
-}
-
 func (s *StreamManager) applyCachedContent(content *PutContent) {
 	s.handlePut(PutContent{
 		Environments: content.Environments,
-		Filters:      content.Filters,
 		Persist:      false,
 	})
 	s.logger.Info("AutoConfig loaded from persistent cache; Relay can serve while connecting to LaunchDarkly")
@@ -676,18 +645,6 @@ func (s *StreamManager) handlePut(content PutContent) {
 		return ok
 	}) {
 		s.dispatchEnvAction(config.EnvironmentID(deleted), envfactory.EnvironmentRep{}, ActionDelete)
-	}
-
-	for id, filter := range content.Filters {
-		s.dispatchFilterAction(id, filter, s.filterReceiver.Upsert(string(id), filter, filter.Version))
-	}
-
-	// Retain only the filters that were added in the PUT.
-	for _, deleted := range s.filterReceiver.Retain(func(id string) bool {
-		_, ok := content.Filters[config.FilterID(id)]
-		return ok
-	}) {
-		s.dispatchFilterAction(config.FilterID(deleted), envfactory.FilterRep{}, ActionDelete)
 	}
 
 	s.handler.ReceivedAllEnvironments()

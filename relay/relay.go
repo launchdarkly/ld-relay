@@ -181,7 +181,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
-	for envName, envConfig := range makeFilteredEnvironments(&c) {
+	for envName, envConfig := range c.Environment {
 		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
 		if err != nil {
 			return nil, err
@@ -272,45 +272,6 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	return r, nil
 }
 
-func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
-	if c.Filters == nil {
-		return c.Environment
-	}
-	out := make(map[string]*config.EnvConfig)
-	type namedEnv struct {
-		name   string
-		config *config.EnvConfig
-	}
-	byProj := make(map[string][]*namedEnv)
-
-	for k, v := range c.Environment {
-		byProj[v.ProjKey] = append(byProj[v.ProjKey], &namedEnv{name: k, config: v})
-	}
-
-	for projKey, envs := range byProj {
-		// First, add the default environments for a project
-		for _, e := range envs {
-			out[e.name] = e.config
-		}
-		associatedFilters, ok := c.Filters[projKey]
-		if ok {
-			for _, filterKey := range associatedFilters.Keys.Values() {
-				key := strings.Trim(filterKey, " ")
-				for _, e := range envs {
-					copied := *e.config
-					copied.FilterKey = config.FilterKey(key)
-					if copied.Prefix != "" {
-						copied.Prefix = copied.Prefix + "/" + key
-					}
-					out[e.name+"/"+key] = &copied
-				}
-			}
-		}
-	}
-
-	return out
-}
-
 func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, logger *slog.Logger) (
 	filedata.ArchiveManagerInterface, error,
 ) {
@@ -370,7 +331,6 @@ func (r *Relay) allStreamProviders() []streams.StreamProvider {
 var (
 	errRelayNotReady           = errors.New("relay is not yet fully configured")
 	errUnrecognizedEnvironment = errors.New("no environment corresponds to given credentials")
-	errPayloadFilterNotFound   = errors.New("credential corresponds to an environment but filter is unrecognized")
 )
 
 func IsNotReady(err error) bool {
@@ -379,10 +339,6 @@ func IsNotReady(err error) bool {
 
 func IsUnrecognizedEnvironment(err error) bool {
 	return err == errUnrecognizedEnvironment
-}
-
-func IsPayloadFilterNotFound(err error) bool {
-	return err == errPayloadFilterNotFound
 }
 
 // getEnvironment returns the environment object corresponding to the given credential, or nil
@@ -396,11 +352,6 @@ func (r *Relay) getEnvironment(req sdkauth.ScopedCredential) (relayenv.EnvContex
 		env, found := r.envsByCredential.Lookup(req)
 		if found {
 			return env, nil
-		}
-		// This secondary lookup is necessary to present a 404 to downstream SDKs if the credential was correct
-		// but the filter wrong, to mirror LaunchDarkly behavior.
-		if _, foundUnfiltered := r.envsByCredential.Lookup(req.Unscope()); foundUnfiltered {
-			return nil, errPayloadFilterNotFound
 		}
 		return nil, errUnrecognizedEnvironment
 	}
@@ -437,13 +388,6 @@ func (r *Relay) getEnvironmentByIdentifier(identifier string, filterKey config.F
 	env, found := r.envsByCredential.LookupByIdentifier(identifier, filterKey)
 	if found {
 		return env, nil
-	}
-
-	// Check if the environment exists but the filter doesn't
-	if filterKey != "" {
-		if _, foundUnfiltered := r.envsByCredential.LookupByIdentifier(identifier, ""); foundUnfiltered {
-			return nil, errPayloadFilterNotFound
-		}
 	}
 
 	return nil, errUnrecognizedEnvironment
