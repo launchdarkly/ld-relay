@@ -65,116 +65,17 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfFileDataSourceIsSet(t *testing.
 	assert.NotEqual(t, errNoEnvironments, err)
 }
 
-func TestNewRelayDisallowsFiltersWhenNoEnvironmentsSpecified(t *testing.T) {
-	config := c.Config{
-		Filters: map[string]*c.FiltersConfig{
-			"proj": {
-				Keys: configtypes.NewOptStringList([]string{"foo"}),
-			},
-		},
-	}
-	_, err := NewRelay(config, slog.Default(), nil)
-	require.Error(t, err)
-}
-
-func TestNewRelayDisallowsFiltersWhenProjKeyNotSpecified(t *testing.T) {
-	config := c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "proj",
-			},
-			"b": {
-				SDKKey: "234",
-				// missing project key
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"proj": {
-				Keys: configtypes.NewOptStringList([]string{"foo"}),
-			},
-		},
-	}
-	_, err := NewRelay(config, slog.Default(), nil)
-	require.Error(t, err)
-}
-
-func TestNewRelayDisallowsFiltersWithUnmatchedProjects(t *testing.T) {
-	config := c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "proj",
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"notProj": {
-				Keys: configtypes.NewOptStringList([]string{"foo"}),
-			},
-		},
-	}
-	_, err := NewRelay(config, slog.Default(), nil)
-	require.Error(t, err)
-}
-
-func TestMakeFilteredEnvironments_NoFilters(t *testing.T) {
-	cfg := &c.Config{Environment: map[string]*c.EnvConfig{
-		"a": {
-			SDKKey: "123",
-		},
-		"b": {
-			SDKKey: "234",
-		},
+func TestNewRelayDoesNotCreateFilteredEnvironments(t *testing.T) {
+	// Relay used to fan each environment out into one extra environment per configured filter key,
+	// registered as "<env>/<filterKey>". Nothing creates those now, so the environment set holds
+	// exactly what the configuration declares.
+	config := c.Config{Environment: map[string]*c.EnvConfig{
+		"a": {SDKKey: "123", ProjKey: "proj"},
+		"b": {SDKKey: "234", ProjKey: "proj"},
 	}}
-	envs := makeFilteredEnvironments(cfg)
-	for _, id := range []string{"a", "b"} {
-		require.Contains(t, envs, id)
-	}
-}
-
-func TestMakeFilteredEnvironments_OneFilter_OneEnvironment(t *testing.T) {
-	cfg := &c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "proj",
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"proj": {Keys: configtypes.NewOptStringList([]string{"foo", "bar"})},
-		},
-	}
-	envs := makeFilteredEnvironments(cfg)
-	for _, id := range []string{"a", "a/foo", "a/bar"} {
-		require.Contains(t, envs, id)
-	}
-}
-
-func TestMakeFilteredEnvironments_ManyFilters_ManyEnvironments(t *testing.T) {
-	cfg := &c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "projA",
-			},
-			"b": {
-				SDKKey:  "123",
-				ProjKey: "projA",
-			},
-			"c": {
-				SDKKey:  "123",
-				ProjKey: "projB",
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"projA": {Keys: configtypes.NewOptStringList([]string{"foo", "bar"})},
-			"projB": {Keys: configtypes.NewOptStringList([]string{"baz"})},
-		},
-	}
-	envs := makeFilteredEnvironments(cfg)
-	for _, id := range []string{"a", "b", "c", "a/foo", "a/bar", "b/foo", "b/bar", "c/baz"} {
-		assert.Contains(t, envs, id)
-	}
+	withStartedRelay(t, config, func(p relayTestParams) {
+		assert.Len(t, p.relay.getAllEnvironments(), 2)
+	})
 }
 
 func TestCompressionIsAppliedWhenEnabled(t *testing.T) {

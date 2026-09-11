@@ -189,7 +189,6 @@ func NewEnvContext(
 		ttl:                       envConfig.TTL.GetOrElse(0),
 		dataStoreInfo:             params.DataStoreInfo,
 		creationTime:              time.Now(),
-		filterKey:                 params.EnvConfig.FilterKey,
 		keyRotator:                credential.NewRotator(params.Logger),
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
@@ -356,19 +355,6 @@ func NewEnvContext(
 	streamingBuilder := ldcomponents.StreamingDataSourceV2().BaseURI(streamURI)
 	pollingBuilder := ldcomponents.PollingDataSourceV2().BaseURI(baseURI)
 	fallbackBuilder := ldcomponents.FDv1PollingDataSourceV2().BaseURI(baseURI)
-
-	if params.EnvConfig.FilterKey != "" {
-		// go-server-sdk v7.17.0 deprecates PayloadFilter on the v2 builders, because the FDv2
-		// data system does not support payload filtering. Relay still sets it, so the behavior
-		// of a filtered environment does not change with this SDK bump. Whether Relay keeps
-		// payload filtering on the FDv2 path is a separate decision, and the SDK plans to remove
-		// these methods.
-		//nolint:staticcheck // SA1019: deprecated, but removing it would change filtering behavior
-		streamingBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
-		//nolint:staticcheck // SA1019: see above
-		pollingBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
-		fallbackBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
-	}
 
 	dataSystemBuilder := ldcomponents.DataSystem().
 		Custom().

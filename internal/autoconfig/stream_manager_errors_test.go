@@ -68,11 +68,6 @@ func TestWellFormedJSONThatIsNotWellFormedEventDataCausesStreamRestart(t *testin
 			event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
 			eventShouldCauseStreamRestart(t, event)
 		})
-		t.Run("filters", func(t *testing.T) {
-			json := `{"path": "/filters/filterid1","data": 999}`
-			event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
-			eventShouldCauseStreamRestart(t, event)
-		})
 	})
 
 	t.Run("delete", func(t *testing.T) {

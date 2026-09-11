@@ -212,17 +212,6 @@ LD_ENV_Spree_Project_Test=SPREE_TEST_SDK_KEY
 LD_MOBILE_KEY_Spree_Project_Test=SPREE_TEST_MOBILE_KEY
 ```
 
-### File section: `[Filters "PROJECT-KEY"]`
-
-To learn more, read [Filters](TBD).
-
-
-| Property in file | Environment var            |  Type   | Default | Description                                                                                                                                                                                                                         |
-|------------------|----------------------------|:-------:|:--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `keys`           | `LD_FILTER_KEYS_MyProjKey` | String  |         | Specify one or more filter keys for this project _(1)_. This variable can be provided multiple times, or specified using a comma-delimited list (if using the `LD_FILTER_KEYS_MyProjKey` variable, specify a comma-delimited list.) |
-
-_(1)_ SDKs may request filtered environments identified by any of these keys, as well as the default unfiltered environment.
-
 ### File section: `[Redis]`
 
 To learn more, read [Persistent storage](./persistent-storage.md).

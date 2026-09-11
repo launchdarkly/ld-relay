@@ -137,13 +137,13 @@ func TestRedactContextSegmentFallsBackToTheTemplate(t *testing.T) {
 }
 
 func TestPathsWithoutAContextAreLeftAlone(t *testing.T) {
-	// Routes with no context variable: their variables are flag and segment keys, environment
-	// identifiers and payload filter keys, all of which are useful in a trace.
+	// Routes with no context variable: their variables are flag and segment keys and environment
+	// identifiers, all of which are useful in a trace.
 	for _, params := range []struct{ template, path string }{
 		{"/sdk/flags/{key}", "/sdk/flags/my-flag-key"},
 		{"/sdk/segments/{key}", "/sdk/segments/my-segment-key"},
 		{"/sdk/goals/{envId}", "/sdk/goals/507f1f77bcf86cd799439011"},
-		{"/status/{projKey}/{envKey}/filters/{filterKey}", "/status/my-proj/my-env/filters/my-filter"},
+		{"/status/{projKey}/{envKey}", "/status/my-proj/my-env"},
 		{"/status", "/status"},
 	} {
 		t.Run(params.template, func(t *testing.T) {
