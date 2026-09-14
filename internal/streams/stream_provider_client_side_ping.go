@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -47,26 +45,26 @@ func (s *clientSidePingStreamProvider) validateCredential(credential credential.
 	return false
 }
 
-func (s *clientSidePingStreamProvider) HandlerV1(credential sdkauth.ScopedCredential) http.HandlerFunc {
-	if !s.validateCredential(credential.SDKCredential) {
+func (s *clientSidePingStreamProvider) HandlerV1(credential credential.SDKCredential) http.HandlerFunc {
+	if !s.validateCredential(credential) {
 		return nil
 	}
 	return s.fdv1Server.Handler(credential.String())
 }
 
-func (s *clientSidePingStreamProvider) HandlerV2(credential sdkauth.ScopedCredential) http.HandlerFunc {
-	if !s.validateCredential(credential.SDKCredential) {
+func (s *clientSidePingStreamProvider) HandlerV2(credential credential.SDKCredential) http.HandlerFunc {
+	if !s.validateCredential(credential) {
 		return nil
 	}
 	return s.fdv2Server.Handler(credential.String())
 }
 
 func (s *clientSidePingStreamProvider) RegisterV1(
-	credential sdkauth.ScopedCredential,
+	credential credential.SDKCredential,
 	store EnvStoreQueries,
 	_ *slog.Logger,
 ) EnvStreamProvider {
-	if !s.validateCredential(credential.SDKCredential) {
+	if !s.validateCredential(credential) {
 		return nil
 	}
 	repo := &clientSidePingEnvStreamRepository{store: store}
@@ -76,11 +74,11 @@ func (s *clientSidePingStreamProvider) RegisterV1(
 }
 
 func (s *clientSidePingStreamProvider) RegisterV2(
-	credential sdkauth.ScopedCredential,
+	credential credential.SDKCredential,
 	store EnvStoreQueries,
 	_ *slog.Logger,
 ) EnvStreamProvider {
-	if !s.validateCredential(credential.SDKCredential) {
+	if !s.validateCredential(credential) {
 		return nil
 	}
 	repo := &clientSidePingEnvStreamRepository{store: store}

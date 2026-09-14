@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
@@ -20,9 +18,9 @@ import (
 // authorization credential they support.
 
 func TestStreamProviderMobilePing(t *testing.T) {
-	validCredential := sdkauth.New(testMobileKey)
-	invalidCredential1 := sdkauth.New(testSDKKey)
-	invalidCredential2 := sdkauth.New(testEnvID)
+	validCredential := testMobileKey
+	invalidCredential1 := testSDKKey
+	invalidCredential2 := testEnvID
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
 		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0)
@@ -64,9 +62,9 @@ func TestStreamProviderMobilePing(t *testing.T) {
 }
 
 func TestStreamProviderJSClientPing(t *testing.T) {
-	validCredential := sdkauth.New(testEnvID)
-	invalidCredential1 := sdkauth.New(testSDKKey)
-	invalidCredential2 := sdkauth.New(testMobileKey)
+	validCredential := testEnvID
+	invalidCredential1 := testSDKKey
+	invalidCredential2 := testMobileKey
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
 		sp := NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, 0)
@@ -112,7 +110,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 	// implementation type for both mobile and JS client and we've already tested the individual
 	// constructors above.
 
-	validCredential := sdkauth.New(testMobileKey)
+	validCredential := testMobileKey
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
 		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0)
 		require.NotNil(t, sp)

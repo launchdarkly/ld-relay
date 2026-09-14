@@ -9,15 +9,17 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/launchdarkly/ld-relay/v9/config"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -70,15 +72,15 @@ type serverSideEnvStreamRepository struct {
 	flightGroup singleflight.Group
 }
 
-func (s *serverSideStreamProvider) HandlerV1(credential sdkauth.ScopedCredential) http.HandlerFunc {
-	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
+func (s *serverSideStreamProvider) HandlerV1(credential credential.SDKCredential) http.HandlerFunc {
+	if _, ok := credential.(config.SDKKey); !ok {
 		return nil
 	}
 	return s.withInitDeadline(s.fdv1Server.Handler(credential.String()))
 }
 
-func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential) http.HandlerFunc {
-	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
+func (s *serverSideStreamProvider) HandlerV2(credential credential.SDKCredential) http.HandlerFunc {
+	if _, ok := credential.(config.SDKKey); !ok {
 		return nil
 	}
 
@@ -163,11 +165,11 @@ type initWriterKey struct{}
 var testHookSlowBasisClose atomic.Bool //nolint:gochecknoglobals // test-only seam; production reads observe the zero value (false)
 
 func (s *serverSideStreamProvider) RegisterV1(
-	credential sdkauth.ScopedCredential,
+	credential credential.SDKCredential,
 	store EnvStoreQueries,
 	logger *slog.Logger,
 ) EnvStreamProvider {
-	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
+	if _, ok := credential.(config.SDKKey); !ok {
 		return nil
 	}
 	repo := &serverSideEnvStreamRepository{
@@ -181,11 +183,11 @@ func (s *serverSideStreamProvider) RegisterV1(
 }
 
 func (s *serverSideStreamProvider) RegisterV2(
-	credential sdkauth.ScopedCredential,
+	credential credential.SDKCredential,
 	store EnvStoreQueries,
 	logger *slog.Logger,
 ) EnvStreamProvider {
-	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
+	if _, ok := credential.(config.SDKKey); !ok {
 		return nil
 	}
 	repo := &serverSideEnvStreamRepository{

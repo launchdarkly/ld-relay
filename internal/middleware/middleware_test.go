@@ -12,8 +12,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
@@ -55,7 +53,7 @@ func buildPreRoutedRequestWithAuth(key credential.SDKCredential) *http.Request {
 }
 
 type testEnvironments struct {
-	envs      map[sdkauth.ScopedCredential]relayenv.EnvContext
+	envs      map[credential.SDKCredential]relayenv.EnvContext
 	notInited bool
 }
 
@@ -64,7 +62,7 @@ var (
 	errUnrecognized = errors.New("unrecognized environment")
 )
 
-func (t testEnvironments) GetEnvironment(c sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
+func (t testEnvironments) GetEnvironment(c credential.SDKCredential) (relayenv.EnvContext, error) {
 	if t.notInited {
 		return nil, errNotReady
 	}
@@ -172,9 +170,9 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	t.Run("finds by SDK key", func(t *testing.T) {
 		t.Run("unfiltered environment", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvMain.Config.SDKKey):   env1,
-					sdkauth.New(st.EnvMobile.Config.SDKKey): env2,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvMain.Config.SDKKey:   env1,
+					st.EnvMobile.Config.SDKKey: env2,
 				},
 			}
 			selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
@@ -192,10 +190,10 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	t.Run("finds by mobile key", func(t *testing.T) {
 		t.Run("unfiltered environment", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvMain.Config.SDKKey):      env1,
-					sdkauth.New(st.EnvMobile.Config.SDKKey):    env2,
-					sdkauth.New(st.EnvMobile.Config.MobileKey): env2,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvMain.Config.SDKKey:      env1,
+					st.EnvMobile.Config.SDKKey:    env2,
+					st.EnvMobile.Config.MobileKey: env2,
 				},
 			}
 			selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
@@ -212,10 +210,10 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("finds by environment ID in URL", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.EnvMain.Config.SDKKey):       env1,
-				sdkauth.New(st.EnvClientSide.Config.SDKKey): env2,
-				sdkauth.New(st.EnvClientSide.Config.EnvID):  env2,
+			envs: map[credential.SDKCredential]relayenv.EnvContext{
+				st.EnvMain.Config.SDKKey:       env1,
+				st.EnvClientSide.Config.SDKKey: env2,
+				st.EnvClientSide.Config.EnvID:  env2,
 			},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, envs)
@@ -231,7 +229,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects unknown SDK key", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.EnvMain.Config.SDKKey): env1},
+			envs: map[credential.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: env1},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
@@ -243,7 +241,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects unknown mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.EnvMain.Config.MobileKey): env1},
+			envs: map[credential.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.MobileKey: env1},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
 
@@ -255,7 +253,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects unknown environment ID", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.EnvMain.Config.SDKKey): env1},
+			envs: map[credential.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: env1},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, envs)
 
@@ -268,7 +266,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects malformed SDK key", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.MalformedSDKKey): testenv.NewTestEnvContext("server", false, nil)},
+			envs: map[credential.SDKCredential]relayenv.EnvContext{st.MalformedSDKKey: testenv.NewTestEnvContext("server", false, nil)},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
@@ -280,9 +278,9 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects malformed mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.MalformedSDKKey):    testenv.NewTestEnvContext("server", false, nil),
-				sdkauth.New(st.MalformedMobileKey): testenv.NewTestEnvContext("server", false, nil),
+			envs: map[credential.SDKCredential]relayenv.EnvContext{
+				st.MalformedSDKKey:    testenv.NewTestEnvContext("server", false, nil),
+				st.MalformedMobileKey: testenv.NewTestEnvContext("server", false, nil),
 			},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
@@ -296,7 +294,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	t.Run("returns 503 if client has not been created", func(t *testing.T) {
 		notReadyEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(errors.New("sorry")), nil)
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.EnvMain.Config.SDKKey): notReadyEnv},
+			envs: map[credential.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: notReadyEnv},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
@@ -314,7 +312,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				failedEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(initErr), nil)
 				envs := testEnvironments{
-					envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{sdkauth.New(st.EnvMain.Config.SDKKey): failedEnv},
+					envs: map[credential.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: failedEnv},
 				}
 				selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
@@ -343,8 +341,8 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 
 	t.Run("finds by environment ID", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): envWithAllCreds,
+			envs: map[credential.SDKCredential]relayenv.EnvContext{
+				st.EnvWithAllCredentials.Config.EnvID: envWithAllCreds,
 			},
 		}
 		selector := SelectEnvironmentByClientSideAuth(envs)
@@ -359,8 +357,8 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 
 	t.Run("finds by mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithAllCreds,
+			envs: map[credential.SDKCredential]relayenv.EnvContext{
+				st.EnvWithAllCredentials.Config.MobileKey: envWithAllCreds,
 			},
 		}
 		selector := SelectEnvironmentByClientSideAuth(envs)
@@ -374,7 +372,7 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 	})
 
 	t.Run("skips auth for OPTIONS preflight", func(t *testing.T) {
-		envs := testEnvironments{envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{}}
+		envs := testEnvironments{envs: map[credential.SDKCredential]relayenv.EnvContext{}}
 		selector := SelectEnvironmentByClientSideAuth(envs)
 
 		req := buildPreRoutedRequest("OPTIONS", nil, nil, nil, nil)
@@ -385,8 +383,8 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 
 	t.Run("rejects unknown credential", func(t *testing.T) {
 		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): envWithAllCreds,
+			envs: map[credential.SDKCredential]relayenv.EnvContext{
+				st.EnvWithAllCredentials.Config.EnvID: envWithAllCreds,
 			},
 		}
 		selector := SelectEnvironmentByClientSideAuth(envs)
@@ -407,8 +405,8 @@ func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				failedEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(initErr), nil)
 				envs := testEnvironments{
-					envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-						sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): failedEnv,
+					envs: map[credential.SDKCredential]relayenv.EnvContext{
+						st.EnvWithAllCredentials.Config.EnvID: failedEnv,
 					},
 				}
 				selector := SelectEnvironmentByClientSideAuth(envs)
@@ -479,8 +477,8 @@ func TestSelectEnvironmentByAuthorizationKeyEndsAuthSpanBeforeNext(t *testing.T)
 
 	env1 := testenv.NewTestEnvContext("env1", false, nil)
 	envs := testEnvironments{
-		envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-			sdkauth.New(st.EnvMain.Config.SDKKey): env1,
+		envs: map[credential.SDKCredential]relayenv.EnvContext{
+			st.EnvMain.Config.SDKKey: env1,
 		},
 	}
 	selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
@@ -512,8 +510,8 @@ func TestSelectEnvironmentByClientSideAuthEndsAuthSpanBeforeNext(t *testing.T) {
 
 	envWithAllCreds := testenv.NewTestEnvContextWithEnvConfig("env-all", st.EnvWithAllCredentials.Config, false, nil)
 	envs := testEnvironments{
-		envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-			sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithAllCreds,
+		envs: map[credential.SDKCredential]relayenv.EnvContext{
+			st.EnvWithAllCredentials.Config.MobileKey: envWithAllCreds,
 		},
 	}
 	selector := SelectEnvironmentByClientSideAuth(envs)
@@ -554,8 +552,8 @@ func TestEnvIDHeader(t *testing.T) {
 	t.Run("SelectEnvironmentByAuthorizationKey", func(t *testing.T) {
 		t.Run("sets header for server-side SDK when env has env ID", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvMain.Config.SDKKey): envWithEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvMain.Config.SDKKey: envWithEnvID,
 				},
 			}
 			selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
@@ -569,8 +567,8 @@ func TestEnvIDHeader(t *testing.T) {
 
 		t.Run("sets header for mobile SDK when env has env ID", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvMobile.Config.MobileKey): envWithEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvMobile.Config.MobileKey: envWithEnvID,
 				},
 			}
 			selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
@@ -584,8 +582,8 @@ func TestEnvIDHeader(t *testing.T) {
 
 		t.Run("sets header for JS client SDK when env has env ID", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvClientSide.Config.EnvID): envWithEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvClientSide.Config.EnvID: envWithEnvID,
 				},
 			}
 			selector := SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, envs)
@@ -600,8 +598,8 @@ func TestEnvIDHeader(t *testing.T) {
 
 		t.Run("does not set header when env has no env ID", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvMain.Config.SDKKey): envWithoutEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvMain.Config.SDKKey: envWithoutEnvID,
 				},
 			}
 			selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
@@ -617,8 +615,8 @@ func TestEnvIDHeader(t *testing.T) {
 	t.Run("SelectEnvironmentByClientSideAuth", func(t *testing.T) {
 		t.Run("sets header when authenticating with env ID", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): envWithEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvWithAllCredentials.Config.EnvID: envWithEnvID,
 				},
 			}
 			selector := SelectEnvironmentByClientSideAuth(envs)
@@ -634,8 +632,8 @@ func TestEnvIDHeader(t *testing.T) {
 
 		t.Run("sets header when authenticating with mobile key", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvWithAllCredentials.Config.MobileKey: envWithEnvID,
 				},
 			}
 			selector := SelectEnvironmentByClientSideAuth(envs)
@@ -651,8 +649,8 @@ func TestEnvIDHeader(t *testing.T) {
 
 		t.Run("does not set header when env has no env ID", func(t *testing.T) {
 			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithoutEnvID,
+				envs: map[credential.SDKCredential]relayenv.EnvContext{
+					st.EnvWithAllCredentials.Config.MobileKey: envWithoutEnvID,
 				},
 			}
 			selector := SelectEnvironmentByClientSideAuth(envs)

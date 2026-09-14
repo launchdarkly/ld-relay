@@ -9,7 +9,6 @@ import (
 
 	ct "github.com/launchdarkly/go-configtypes"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
@@ -52,7 +51,7 @@ var (
 type RelayEnvironments interface {
 	// GetEnvironment returns the environment corresponding to scopedCred, or an error if no matching
 	// environment could be found.
-	GetEnvironment(scopedCred sdkauth.ScopedCredential) (env relayenv.EnvContext, err error)
+	GetEnvironment(scopedCred credential.SDKCredential) (env relayenv.EnvContext, err error)
 	// IsNotReady should return true if the error returned by GetEnvironment represents the fact that Relay is not yet
 	// fully configured.
 	IsNotReady(error) bool
@@ -134,7 +133,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 
 				// A filter query parameter is ignored. Payload filters are not supported, and an SDK
 				// that still sends one is served the environment's full data rather than refused.
-				clientCtx, err := envs.GetEnvironment(sdkauth.New(credential))
+				clientCtx, err := envs.GetEnvironment(credential)
 
 				if envs.IsNotReady(err) {
 					span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
@@ -240,7 +239,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 
 				// A filter query parameter is ignored. Payload filters are not supported, and an SDK
 				// that still sends one is served the environment's full data rather than refused.
-				clientCtx, err := envs.GetEnvironment(sdkauth.New(cred))
+				clientCtx, err := envs.GetEnvironment(cred)
 
 				if envs.IsNotReady(err) {
 					span.SetAttributes(tracing.AuthResultKey.String("not_ready"))

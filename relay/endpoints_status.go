@@ -97,9 +97,7 @@ func writeStatusVerdict(w http.ResponseWriter, result api.ExpectationsResult, co
 // singleEnvironmentStatusHandler handles requests for the status of a single environment or filter.
 // Supports multiple route patterns:
 // - /status/{identifier}
-// - /status/{identifier}/filters/{filterKey}
 // - /status/{projKey}/{envKey}
-// - /status/{projKey}/{envKey}/filters/{filterKey}
 func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -112,17 +110,15 @@ func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 		projKey := vars["projKey"]
 		envKey := vars["envKey"]
 		if projKey != "" && envKey != "" {
-			// Route: /status/{projKey}/{envKey}[/filters/{filterKey}]
+			// Route: /status/{projKey}/{envKey}
 			identifier = projKey + "/" + envKey
 		} else {
-			// Route: /status/{identifier}[/filters/{filterKey}]
+			// Route: /status/{identifier}
 			identifier = vars["identifier"]
 		}
 
-		filterKey := config.FilterKey(vars["filterKey"]) // empty string if not present
-
 		// Look up the environment
-		env, err := relay.getEnvironmentByIdentifier(identifier, filterKey)
+		env, err := relay.getEnvironmentByIdentifier(identifier)
 		if err != nil {
 			// Determine appropriate status code
 			statusCode := http.StatusNotFound

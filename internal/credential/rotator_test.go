@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestNewRotator(t *testing.T) {

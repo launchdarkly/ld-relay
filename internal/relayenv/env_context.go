@@ -11,12 +11,13 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"golang.org/x/sync/singleflight"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
-	"golang.org/x/sync/singleflight"
 
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
@@ -69,10 +70,6 @@ type EnvContext interface {
 
 	// GetIdentifiers returns information about the environment and project names and keys.
 	GetIdentifiers() EnvIdentifiers
-
-	// GetPayloadFilter returns the environment's filter key, which may be an empty string indicating
-	// default/unfiltered.
-	GetPayloadFilter() config.FilterKey
 
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)

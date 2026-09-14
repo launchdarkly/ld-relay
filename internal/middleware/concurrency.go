@@ -8,9 +8,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type initLimiterCtxKey struct{}

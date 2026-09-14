@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 )
 
@@ -65,7 +65,7 @@ type projEnvKey struct {
 
 type EnvironmentLookup struct {
 	// mapping maps {credential, filter} keys to environment connections.
-	mapping map[sdkauth.ScopedCredential]relayenv.EnvContext
+	mapping map[credential.SDKCredential]relayenv.EnvContext
 	// conns is the set of unique environment connections
 	conns map[relayenv.EnvContext]struct{}
 
@@ -86,7 +86,7 @@ type EnvironmentLookup struct {
 // are thread safe.
 func NewEnvironmentLookup() *EnvironmentLookup {
 	return &EnvironmentLookup{
-		mapping:         make(map[sdkauth.ScopedCredential]relayenv.EnvContext),
+		mapping:         make(map[credential.SDKCredential]relayenv.EnvContext),
 		conns:           make(map[relayenv.EnvContext]struct{}),
 		envIDIndex:      make(map[config.EnvironmentID][]relayenv.EnvContext),
 		configNameIndex: make(map[string][]relayenv.EnvContext),
@@ -103,7 +103,7 @@ func (e *EnvironmentLookup) InsertEnvironment(env relayenv.EnvContext) {
 
 	for _, cred := range env.GetCredentials() {
 		if cred.Defined() {
-			e.mapParams(sdkauth.NewScoped(env.GetPayloadFilter(), cred), env)
+			e.mapParams(cred, env)
 		}
 	}
 
@@ -116,7 +116,7 @@ func (e *EnvironmentLookup) InsertEnvironment(env relayenv.EnvContext) {
 // MapRequestParams creates a mapping from connection parameters to an environment connection. It can be used
 // if a new credential/filter is introduced which wasn't present when the environment was originally
 // inserted using InsertEnvironment.
-func (e *EnvironmentLookup) MapRequestParams(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
+func (e *EnvironmentLookup) MapRequestParams(params credential.SDKCredential, env relayenv.EnvContext) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -125,7 +125,7 @@ func (e *EnvironmentLookup) MapRequestParams(params sdkauth.ScopedCredential, en
 }
 
 // UnmapRequestParams removes a mapping from connection parameters to an environment.
-func (e *EnvironmentLookup) UnmapRequestParams(params sdkauth.ScopedCredential) {
+func (e *EnvironmentLookup) UnmapRequestParams(params credential.SDKCredential) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -134,7 +134,7 @@ func (e *EnvironmentLookup) UnmapRequestParams(params sdkauth.ScopedCredential) 
 
 // Lookup searches for a mapping from connection parameters to a suitable environment connection.
 // If a connection is found, returns true; otherwise, returns false and the first value is undefined.
-func (e *EnvironmentLookup) Lookup(params sdkauth.ScopedCredential) (relayenv.EnvContext, bool) {
+func (e *EnvironmentLookup) Lookup(params credential.SDKCredential) (relayenv.EnvContext, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -149,23 +149,15 @@ func (e *EnvironmentLookup) Lookup(params sdkauth.ScopedCredential) (relayenv.En
 //
 // Lookup precedence: envID → projKey/envKey (contains "/") → configuredName
 //
-// The filterKey parameter specifies which filter variant to return. Use an empty string for the
-// unfiltered (base) environment.
-//
 // If a matching environment is found, returns true; otherwise, returns false.
-func (e *EnvironmentLookup) LookupByIdentifier(identifier string, filterKey config.FilterKey) (relayenv.EnvContext, bool) {
+func (e *EnvironmentLookup) LookupByIdentifier(identifier string) (relayenv.EnvContext, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	// Try environment ID first (most specific)
 	if envID := config.EnvironmentID(identifier); envID != "" {
-		// Note: A single envID can have multiple EnvContext instances when payload filters are configured.
-		// Each filter variant (base + filter1, filter2, etc.) is a separate EnvContext with the same envID.
-		// We use findEnvWithFilter to select the specific variant matching the requested filterKey.
-		if envs, ok := e.envIDIndex[envID]; ok {
-			if env := findEnvWithFilter(envs, filterKey); env != nil {
-				return env, true
-			}
+		if env, ok := firstEnv(e.envIDIndex[envID]); ok {
+			return env, true
 		}
 	}
 
@@ -174,18 +166,14 @@ func (e *EnvironmentLookup) LookupByIdentifier(identifier string, filterKey conf
 		projKey := identifier[:idx]
 		envKey := identifier[idx+1:]
 		key := projEnvKey{projKey: projKey, envKey: envKey}
-		if envs, ok := e.projEnvKeyIndex[key]; ok {
-			if env := findEnvWithFilter(envs, filterKey); env != nil {
-				return env, true
-			}
+		if env, ok := firstEnv(e.projEnvKeyIndex[key]); ok {
+			return env, true
 		}
 	}
 
 	// Try configured name last (fallback)
-	if envs, ok := e.configNameIndex[identifier]; ok {
-		if env := findEnvWithFilter(envs, filterKey); env != nil {
-			return env, true
-		}
+	if env, ok := firstEnv(e.configNameIndex[identifier]); ok {
+		return env, true
 	}
 
 	return nil, false
@@ -194,7 +182,7 @@ func (e *EnvironmentLookup) LookupByIdentifier(identifier string, filterKey conf
 // DeleteEnvironment searches for an environment identified by the client request params, deletes it, and then
 // removes all other credential mappings.
 // If an environment was deleted, returns true; otherwise, returns false and the first value is undefined.
-func (e *EnvironmentLookup) DeleteEnvironment(params sdkauth.ScopedCredential) (relayenv.EnvContext, bool) {
+func (e *EnvironmentLookup) DeleteEnvironment(params credential.SDKCredential) (relayenv.EnvContext, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -221,15 +209,15 @@ func (e *EnvironmentLookup) Environments() (envs []relayenv.EnvContext) {
 	return
 }
 
-func (e *EnvironmentLookup) mapParams(key sdkauth.ScopedCredential, env relayenv.EnvContext) {
+func (e *EnvironmentLookup) mapParams(key credential.SDKCredential, env relayenv.EnvContext) {
 	e.mapping[key] = env
 }
 
-func (e *EnvironmentLookup) unmapParams(key sdkauth.ScopedCredential) {
+func (e *EnvironmentLookup) unmapParams(key credential.SDKCredential) {
 	delete(e.mapping, key)
 }
 
-func (e *EnvironmentLookup) lookup(key sdkauth.ScopedCredential) (relayenv.EnvContext, bool) {
+func (e *EnvironmentLookup) lookup(key credential.SDKCredential) (relayenv.EnvContext, bool) {
 	env, ok := e.mapping[key]
 	return env, ok
 }
@@ -357,12 +345,13 @@ func (e *EnvironmentLookup) RefreshEnvironmentIndexes(env relayenv.EnvContext) {
 	e.addToIdentifierIndexes(env)
 }
 
-// findEnvWithFilter searches a slice of environments for one matching the specified filter key.
-func findEnvWithFilter(envs []relayenv.EnvContext, filterKey config.FilterKey) relayenv.EnvContext {
-	for _, env := range envs {
-		if env.GetPayloadFilter() == filterKey {
-			return env
-		}
+// firstEnv returns the single environment an identifier maps to. The indexes hold a slice because
+// payload filters used to give one identifier several environments, one per filter variant. Nothing
+// creates those now, so each slice holds at most one entry; the indexes collapse to single values in
+// a follow-up change.
+func firstEnv(envs []relayenv.EnvContext) (relayenv.EnvContext, bool) {
+	if len(envs) == 0 {
+		return nil, false
 	}
-	return nil
+	return envs[0], true
 }

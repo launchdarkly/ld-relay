@@ -8,12 +8,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -99,7 +98,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client1.AwaitClose(t, 10000*time.Second)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.SDKKey()))
+		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.SDKKey())
 		assert.Nil(t, noEnv)
 	})
 }
@@ -198,7 +197,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		newCredentials := credentialsAsSet(env.GetCredentials()...)
-		foundEnvWithOldKey, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
+		foundEnvWithOldKey, _ := p.relay.getEnvironment(oldKey)
 		assert.Equal(t, env, foundEnvWithOldKey)
 
 		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Duration(briefExpiryMillis+100)*time.Millisecond, "timed out waiting for client with old key to close") {
@@ -206,7 +205,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		}
 
 		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
-		noEnv, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
+		noEnv, _ := p.relay.getEnvironment(oldKey)
 		assert.Nil(t, noEnv)
 	})
 }
@@ -225,7 +224,7 @@ func TestAutoConfigUpdateEnvironmentMobileKey(t *testing.T) {
 		p.shouldNotCreateClient(time.Millisecond * 50)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.mobKey))
+		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.mobKey)
 		assert.Nil(t, noEnv)
 	})
 }

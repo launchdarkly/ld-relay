@@ -8,8 +8,8 @@ import (
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
@@ -53,7 +53,7 @@ func (s fdv2StreamEndpointTestParams) runBasicStreamTests(
 
 	withStartedRelay(t, configWithoutTimeLimit, func(p relayTestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
-			env, err := p.relay.getEnvironment(sdkauth.New(s.credential))
+			env, err := p.relay.getEnvironment(s.credential)
 			require.NotNil(t, env)
 			require.Nil(t, err)
 
@@ -80,7 +80,7 @@ func (s fdv2StreamEndpointTestParams) runBasicStreamTests(
 
 				assert.Equal(t, expectedCount, actualCount, "expected to receive one event but got %d", actualCount)
 
-				p.relay.removeEnvironment(sdkauth.New(s.credential))
+				p.relay.removeEnvironment(s.credential)
 
 				// The WithStreamRequest helper adds a nil value at the end of the stream
 				endOfStreamMarker := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for stream to be closed")

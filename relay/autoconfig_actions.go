@@ -4,7 +4,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 )
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
@@ -32,7 +31,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 }
 
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
-	env, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.EnvID))
+	env, err := a.r.getEnvironment(params.EnvID)
 	if err != nil {
 		a.r.logger.Warn("got auto-configuration update for unknown environment, will add", "env", params.Identifiers.GetDisplayName())
 		return
@@ -58,7 +57,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
-	removed := a.r.removeEnvironment(sdkauth.NewScoped(filter, id))
+	removed := a.r.removeEnvironment(id)
 	if !removed {
 		a.r.logger.Warn("got auto-configuration delete message for unknown environment, ignoring", "envID", id)
 	}

@@ -3,9 +3,10 @@ package autoconfigcache
 import (
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
 func TestEncryptDecryptRoundtrip(t *testing.T) {

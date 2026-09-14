@@ -20,7 +20,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,7 +63,7 @@ func manyFlags(n int) []ldmodel.FeatureFlag {
 func serveStream(t *testing.T, limiter *concurrency.Limiter, maxHold time.Duration, flags []ldmodel.FeatureFlag, fdv1 bool, wrapListener func(net.Listener) net.Listener) (*httptest.Server, EnvStreamProvider) {
 	t.Helper()
 	sp := NewStreamProvider(basictypes.ServerSideStream, 0, 0, WithInitLimiter(limiter, maxHold)).(*serverSideStreamProvider)
-	cred := sdkauth.New(testSDKKey)
+	cred := testSDKKey
 	store := makeMockStore(flags, nil)
 	var esp EnvStreamProvider
 	var h http.HandlerFunc
@@ -99,7 +98,7 @@ func TestSocketHalfClosedClientDrainEndsWithTheSlot(t *testing.T) {
 		// A generous cap: within this test's window, only the watcher's cut (not the
 		// per-chunk deadline, ~5s minimum) can end the drain quickly.
 		WithInitLimiter(limiter, 30*time.Second)).(*serverSideStreamProvider)
-	cred := sdkauth.New(testSDKKey)
+	cred := testSDKKey
 	store := makeMockStore(manyFlags(400), nil)
 	esp := sp.RegisterV2(cred, store, slog.Default())
 	require.NotNil(t, esp)

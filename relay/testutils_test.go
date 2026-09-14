@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -31,7 +29,7 @@ func (h relayTestHelper) awaitEnvironmentFor(envID c.EnvironmentID, duration tim
 	var e relayenv.EnvContext
 	var err error
 	require.Eventually(h.t, func() bool {
-		e, err = h.relay.getEnvironment(sdkauth.New(envID))
+		e, err = h.relay.getEnvironment(envID)
 		return err == nil
 	}, duration, time.Millisecond*5)
 	return e
@@ -44,7 +42,7 @@ func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvCon
 func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {
 	h.t.Helper()
 	require.Eventually(h.t, func() bool {
-		_, err := h.relay.getEnvironment(sdkauth.New(envID))
+		_, err := h.relay.getEnvironment(envID)
 		return err != nil
 	}, timeout, time.Millisecond*5)
 }
@@ -52,17 +50,17 @@ func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout
 func (h relayTestHelper) assertEnvLookup(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
 	h.t.Helper()
 
-	foundEnv, err := h.relay.getEnvironment(sdkauth.New(expected.EnvID))
+	foundEnv, err := h.relay.getEnvironment(expected.EnvID)
 	if assert.NoError(h.t, err) {
 		assert.Equal(h.t, env, foundEnv)
 	}
 
-	foundEnv, err = h.relay.getEnvironment(sdkauth.New(expected.MobileKey))
+	foundEnv, err = h.relay.getEnvironment(expected.MobileKey)
 	if assert.NoError(h.t, err) {
 		assert.Equal(h.t, env, foundEnv)
 	}
 
-	foundEnv, err = h.relay.getEnvironment(sdkauth.New(expected.SDKKey))
+	foundEnv, err = h.relay.getEnvironment(expected.SDKKey)
 	if assert.NoError(h.t, err) {
 		assert.Equal(h.t, env, foundEnv)
 	}

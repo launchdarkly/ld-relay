@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
