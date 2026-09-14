@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -55,23 +54,14 @@ func buildPreRoutedRequestWithAuth(key credential.SDKCredential) *http.Request {
 	return buildPreRoutedRequest("GET", nil, headers, nil, nil)
 }
 
-func buildPreRoutedRequestWithFilter(key credential.SDKCredential, filter config.FilterKey) *http.Request {
-	req := buildPreRoutedRequestWithAuth(key)
-	req.URL.RawQuery = url.Values{
-		"filter": []string{string(filter)},
-	}.Encode()
-	return req
-}
-
 type testEnvironments struct {
 	envs      map[sdkauth.ScopedCredential]relayenv.EnvContext
 	notInited bool
 }
 
 var (
-	errNotReady              = errors.New("not ready")
-	errUnrecognized          = errors.New("unrecognized environment")
-	errPayloadFilterNotFound = errors.New("unrecognized payload filter")
+	errNotReady     = errors.New("not ready")
+	errUnrecognized = errors.New("unrecognized environment")
 )
 
 func (t testEnvironments) GetEnvironment(c sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
@@ -81,18 +71,11 @@ func (t testEnvironments) GetEnvironment(c sdkauth.ScopedCredential) (relayenv.E
 	if e, ok := t.envs[c]; ok {
 		return e, nil
 	}
-	if _, ok := t.envs[c.Unscope()]; ok {
-		return nil, errPayloadFilterNotFound
-	}
 	return nil, errUnrecognized
 }
 
 func (t testEnvironments) IsNotReady(err error) bool {
 	return err == errNotReady
-}
-
-func (t testEnvironments) IsPayloadFilterNotFound(err error) bool {
-	return err == errPayloadFilterNotFound
 }
 
 func (t testEnvironments) GetAllEnvironments() []relayenv.EnvContext {
@@ -204,22 +187,6 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 			assert.Equal(t, env1, <-envCh)
 		})
 
-		t.Run("filtered environment", func(t *testing.T) {
-			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.NewScoped("microservice-1", st.EnvMain.Config.SDKKey):   env1,
-					sdkauth.NewScoped("microservice-1", st.EnvMobile.Config.SDKKey): env2,
-				},
-			}
-			selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
-			envCh := make(chan relayenv.EnvContext, 1)
-
-			req := buildPreRoutedRequestWithFilter(st.EnvMain.Config.SDKKey, "microservice-1")
-			resp, _ := st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
-
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
-			assert.Equal(t, env1, <-envCh)
-		})
 	})
 
 	t.Run("finds by mobile key", func(t *testing.T) {
@@ -241,53 +208,6 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 			assert.Equal(t, env2, <-envCh)
 		})
 
-		t.Run("filtered environment", func(t *testing.T) {
-			envs := testEnvironments{
-				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-					sdkauth.NewScoped("microservice-1", st.EnvMain.Config.SDKKey):      env1,
-					sdkauth.NewScoped("microservice-1", st.EnvMobile.Config.SDKKey):    env2,
-					sdkauth.NewScoped("microservice-1", st.EnvMobile.Config.MobileKey): env2,
-				},
-			}
-			selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
-			envCh := make(chan relayenv.EnvContext, 1)
-
-			req := buildPreRoutedRequestWithFilter(st.EnvMobile.Config.MobileKey, "microservice-1")
-			resp, _ := st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
-
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
-			assert.Equal(t, env2, <-envCh)
-		})
-	})
-
-	t.Run("finds by combination of SDK key and filter key", func(t *testing.T) {
-		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.EnvMain.Config.SDKKey):                         env1,
-				sdkauth.NewScoped("microservice-1", st.EnvMain.Config.SDKKey): env2,
-				sdkauth.NewScoped("microservice-2", st.EnvMain.Config.SDKKey): env1,
-			},
-		}
-		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
-		envCh := make(chan relayenv.EnvContext, 1)
-
-		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
-		resp, _ := st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.Equal(t, env1, <-envCh)
-
-		req = buildPreRoutedRequestWithFilter(st.EnvMain.Config.SDKKey, "microservice-1")
-		resp, _ = st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.Equal(t, env2, <-envCh)
-
-		req = buildPreRoutedRequestWithFilter(st.EnvMain.Config.SDKKey, "microservice-2")
-		resp, _ = st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.Equal(t, env1, <-envCh)
 	})
 
 	t.Run("finds by environment ID in URL", func(t *testing.T) {
@@ -319,20 +239,6 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
-	})
-
-	t.Run("returns 404 if key is correct but filter is unrecognized", func(t *testing.T) {
-		envs := testEnvironments{
-			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
-				sdkauth.New(st.EnvMain.Config.SDKKey): env1,
-			},
-		}
-		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
-
-		req := buildPreRoutedRequestWithFilter(st.EnvMain.Config.SDKKey, "nonexistent-filter")
-		resp, _ := st.DoRequest(req, selector(nullHandler()))
-
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("rejects unknown mobile key", func(t *testing.T) {

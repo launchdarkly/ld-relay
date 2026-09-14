@@ -65,10 +65,6 @@ func (r *Relay) makeRouter() *mux.Router {
 	// http.server.active_requests without environment or platform attributes.
 	statusMetrics := middleware.UnscopedActiveRequests(r.metricsManager, metrics.EndpointTypeStatus)
 	router.Handle("/status", statusMetrics(statusHandler(r))).Methods("GET")
-	// Register more specific routes first (with /filters/ literal)
-	router.Handle("/status/{identifier}/filters/{filterKey}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
-	router.Handle("/status/{projKey}/{envKey}/filters/{filterKey}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
-	// Then register the general routes
 	router.Handle("/status/{projKey}/{envKey}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
 	router.Handle("/status/{identifier}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
 
@@ -284,8 +280,4 @@ func (r relayEnvironmentGetters) IsUnrecognizedEnvironment(err error) bool {
 
 func (r relayEnvironmentGetters) IsNotReady(err error) bool {
 	return IsNotReady(err)
-}
-
-func (r relayEnvironmentGetters) IsPayloadFilterNotFound(err error) bool {
-	return IsPayloadFilterNotFound(err)
 }

@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -363,227 +361,41 @@ func TestEnvironmentDeleteEvent(t *testing.T) {
 	})
 }
 
-func TestFilterPutEvent(t *testing.T) {
-	t.Run("add all new environments and filters to empty state", func(t *testing.T) {
-		event := makeEnvFilterPutEvent(
-			[]envfactory.EnvironmentRep{testEnv1, testEnv2},
-			[]envfactory.FilterRep{testFilter1, testFilter2},
-		)
-		streamManagerTest(t, &event, func(p streamManagerTestParams) {
-			p.startStream()
+func TestFilterEventsAreIgnored(t *testing.T) {
+	// Payload filters are not supported, so filter entities are no longer recognized. LaunchDarkly
+	// still sends them, so each shape must be ignored: no handler call, and no stream restart. The
+	// path dispatch treats them like any other unknown entity.
+	//
+	// "Nothing happened" on its own would also hold for a stream that died, so each case ends by
+	// sending an environment patch and requiring it through. That proves the connection survived
+	// the filter event rather than merely going quiet.
+	for name, event := range map[string]httphelpers.SSEEvent{
+		"patch":           {Event: PatchEvent, Data: `{"path": "/filters/filterid1", "data": {"projKey": "p", "key": "k", "version": 1}}`},
+		"delete":          {Event: DeleteEvent, Data: `{"path": "/filters/filterid1", "version": 2}`},
+		"malformed patch": {Event: PatchEvent, Data: `{"path": "/filters/filterid1", "data": 999}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			streamManagerTest(t, nil, func(p streamManagerTestParams) {
+				p.startStream()
+				<-p.requestsCh
+				p.stream.Enqueue(event)
 
-			msg1 := p.requireMessage()
-			require.NotNil(t, msg1.add)
-			msg2 := p.requireMessage()
-			require.NotNil(t, msg2.add)
-			msg3 := p.requireMessage()
-			require.NotNil(t, msg3.addFilter)
-			msg4 := p.requireMessage()
-			require.NotNil(t, msg4.addFilter)
+				select {
+				case msg := <-p.messageHandler.received:
+					require.Failf(t, "filter event reached the handler", "message: %+v", msg)
+				case <-p.requestsCh:
+					require.Fail(t, "filter event restarted the stream")
+				case <-time.After(time.Millisecond * 200):
+					// Nothing happened, which is expected. The liveness check follows.
+				}
 
-			p.requireReceivedAllMessage()
-
-			assert.ElementsMatch(t,
-				[]envfactory.EnvironmentParams{testEnv1.ToParams(), testEnv2.ToParams()},
-				[]envfactory.EnvironmentParams{*msg1.add, *msg2.add},
-			)
-
-			assert.ElementsMatch(t,
-				[]envfactory.FilterParams{
-					testFilter1.ToTestParams(),
-					testFilter2.ToTestParams(),
-				},
-				[]envfactory.FilterParams{
-					*msg3.addFilter,
-					*msg4.addFilter,
-				},
-			)
-
-			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "received configuration"))
-			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added item"))
-
-			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
-			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
+				p.stream.Enqueue(makePatchEnvEvent(testEnv1))
+				msg := p.requireMessage()
+				require.NotNil(t, msg.add, "stream stopped serving environments after a filter event")
+				assert.Equal(t, testEnv1.ToParams(), *msg.add)
+			})
 		})
-	})
-
-	t.Run("add filter to previous filters", func(t *testing.T) {
-		event := makeFilterPutEvent(testFilter1)
-		streamManagerTest(t, &event, func(p streamManagerTestParams) {
-			p.startStream()
-
-			msg1 := p.requireMessage()
-			require.NotNil(t, msg1.addFilter)
-			assert.Equal(t, testFilter1.ToTestParams(), *msg1.addFilter)
-			p.requireReceivedAllMessage()
-
-			p.stream.Enqueue(makeFilterPutEvent(testFilter1, testFilter2))
-			msg2 := p.requireMessage()
-			require.NotNil(t, msg2.addFilter)
-			assert.Equal(t, testFilter2.ToTestParams(), *msg2.addFilter)
-			p.requireReceivedAllMessage()
-
-			p.requireNoMoreMessages()
-
-			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added item"))
-			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
-			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
-		})
-	})
-
-	t.Run("delete environment from previous environments", func(t *testing.T) {
-		event := makeFilterPutEvent(testFilter1, testFilter2)
-		streamManagerTest(t, &event, func(p streamManagerTestParams) {
-			p.startStream()
-
-			_ = p.requireMessage()
-			_ = p.requireMessage()
-			p.requireReceivedAllMessage()
-
-			p.stream.Enqueue(makeFilterPutEvent(testFilter2))
-			msg := p.requireMessage()
-			require.NotNil(t, msg.deleteFilter)
-			assert.Equal(t, testFilter1.ToTestParams().ID, *msg.deleteFilter)
-			p.requireReceivedAllMessage()
-
-			p.requireNoMoreMessages()
-
-			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "removed item"))
-			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
-			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
-		})
-	})
-}
-
-func TestFilterPatchEvent(t *testing.T) {
-	t.Run("new filter", func(t *testing.T) {
-		streamManagerTest(t, nil, func(p streamManagerTestParams) {
-			p.startStream()
-			p.stream.Enqueue(makePatchFilterEvent(testFilter1))
-
-			msg := p.requireMessage()
-			require.NotNil(t, msg.addFilter)
-			assert.Equal(t, testFilter1.ToTestParams(), *msg.addFilter)
-		})
-	})
-
-	t.Run("out-of-order patch after delete is ignored", func(t *testing.T) {
-		initEvent := makeFilterPutEvent(testFilter1)
-		filter1ID := testFilter1.ToTestParams().ID
-
-		streamManagerTest(t, &initEvent, func(p streamManagerTestParams) {
-			p.startStream()
-
-			_ = p.requireMessage()
-			p.requireReceivedAllMessage()
-
-			event := makeDeleteFilterEvent(filter1ID, testFilter1.Version+1)
-			p.stream.Enqueue(event)
-
-			msg := p.requireMessage()
-			require.NotNil(t, msg.deleteFilter)
-			assert.Equal(t, filter1ID, *msg.deleteFilter)
-
-			staleEvent := makePatchFilterEvent(testFilter1)
-			p.stream.Enqueue(staleEvent)
-
-			p.requireNoMoreMessages()
-
-			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order update"))
-		})
-	})
-
-	t.Run("patch with higher version after delete is a valid add", func(t *testing.T) {
-		streamManagerTest(t, nil, func(p streamManagerTestParams) {
-			p.startStream()
-
-			filter1ID := testFilter1.ToTestParams().ID
-
-			event := makeDeleteFilterEvent(filter1ID, testFilter1.Version)
-			p.stream.Enqueue(event)
-
-			testFilter1Mod := testFilter1
-			testFilter1Mod.Version++
-
-			p.stream.Enqueue(makePatchFilterEvent(testFilter1Mod))
-
-			msg := p.requireMessage()
-			require.NotNil(t, msg.addFilter)
-			assert.Equal(t, testFilter1Mod.ToTestParams(), *msg.addFilter)
-		})
-	})
-}
-
-func TestFilterDeleteEvent(t *testing.T) {
-	filter1ID := testFilter1.ToTestParams().ID
-
-	t.Run("success", func(t *testing.T) {
-		initEvent := makeFilterPutEvent(testFilter1)
-		streamManagerTest(t, &initEvent, func(p streamManagerTestParams) {
-			p.startStream()
-
-			_ = p.requireMessage()
-			p.requireReceivedAllMessage()
-
-			event := makeDeleteFilterEvent(filter1ID, testFilter1.Version+1)
-			p.stream.Enqueue(event)
-
-			msg := p.requireMessage()
-			require.NotNil(t, msg.deleteFilter)
-			assert.Equal(t, filter1ID, *msg.deleteFilter)
-		})
-	})
-
-	t.Run("delete is ignored due to version number", func(t *testing.T) {
-		initEvent := makeFilterPutEvent(testFilter1)
-		streamManagerTest(t, &initEvent, func(p streamManagerTestParams) {
-			p.startStream()
-
-			_ = p.requireMessage()
-			p.requireReceivedAllMessage()
-
-			event := makeDeleteFilterEvent(filter1ID, testFilter1.Version)
-			p.stream.Enqueue(event)
-
-			p.requireNoMoreMessages()
-
-			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order delete"))
-		})
-	})
-
-	t.Run("delete is ignored because it's already deleted", func(t *testing.T) {
-		initEvent := makeFilterPutEvent(testFilter1)
-		streamManagerTest(t, &initEvent, func(p streamManagerTestParams) {
-			p.startStream()
-
-			_ = p.requireMessage()
-			p.requireReceivedAllMessage()
-
-			event := makeDeleteFilterEvent(filter1ID, testFilter1.Version+1)
-			p.stream.Enqueue(event)
-
-			msg := p.requireMessage()
-			require.NotNil(t, msg.deleteFilter)
-			assert.Equal(t, filter1ID, *msg.deleteFilter)
-
-			p.stream.Enqueue(event)
-
-			p.requireNoMoreMessages()
-
-			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order delete"))
-		})
-	})
-
-	t.Run("unknown filter", func(t *testing.T) {
-		streamManagerTest(t, nil, func(p streamManagerTestParams) {
-			p.startStream()
-
-			event := makeDeleteFilterEvent(filter1ID, testFilter1.Version+1)
-			p.stream.Enqueue(event)
-
-			p.requireNoMoreMessages()
-		})
-	})
+	}
 }
 
 func TestReconnectEvent(t *testing.T) {

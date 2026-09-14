@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
@@ -65,116 +67,66 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfFileDataSourceIsSet(t *testing.
 	assert.NotEqual(t, errNoEnvironments, err)
 }
 
-func TestNewRelayDisallowsFiltersWhenNoEnvironmentsSpecified(t *testing.T) {
-	config := c.Config{
-		Filters: map[string]*c.FiltersConfig{
-			"proj": {
-				Keys: configtypes.NewOptStringList([]string{"foo"}),
-			},
-		},
-	}
-	_, err := NewRelay(config, slog.Default(), nil)
-	require.Error(t, err)
-}
-
-func TestNewRelayDisallowsFiltersWhenProjKeyNotSpecified(t *testing.T) {
-	config := c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "proj",
-			},
-			"b": {
-				SDKKey: "234",
-				// missing project key
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"proj": {
-				Keys: configtypes.NewOptStringList([]string{"foo"}),
-			},
-		},
-	}
-	_, err := NewRelay(config, slog.Default(), nil)
-	require.Error(t, err)
-}
-
-func TestNewRelayDisallowsFiltersWithUnmatchedProjects(t *testing.T) {
-	config := c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "proj",
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"notProj": {
-				Keys: configtypes.NewOptStringList([]string{"foo"}),
-			},
-		},
-	}
-	_, err := NewRelay(config, slog.Default(), nil)
-	require.Error(t, err)
-}
-
-func TestMakeFilteredEnvironments_NoFilters(t *testing.T) {
-	cfg := &c.Config{Environment: map[string]*c.EnvConfig{
-		"a": {
-			SDKKey: "123",
-		},
-		"b": {
-			SDKKey: "234",
-		},
+func TestNewRelayDoesNotCreateFilteredEnvironments(t *testing.T) {
+	// Relay used to fan each environment out into one extra environment per configured filter key,
+	// registered as "<env>/<filterKey>". Nothing creates those now, so the environment set holds
+	// exactly what the configuration declares.
+	config := c.Config{Environment: map[string]*c.EnvConfig{
+		"a": {SDKKey: "123", ProjKey: "proj"},
+		"b": {SDKKey: "234", ProjKey: "proj"},
 	}}
-	envs := makeFilteredEnvironments(cfg)
-	for _, id := range []string{"a", "b"} {
-		require.Contains(t, envs, id)
-	}
+	withStartedRelay(t, config, func(p relayTestParams) {
+		assert.Len(t, p.relay.getAllEnvironments(), 2)
+	})
 }
 
-func TestMakeFilteredEnvironments_OneFilter_OneEnvironment(t *testing.T) {
-	cfg := &c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "proj",
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"proj": {Keys: configtypes.NewOptStringList([]string{"foo", "bar"})},
-		},
-	}
-	envs := makeFilteredEnvironments(cfg)
-	for _, id := range []string{"a", "a/foo", "a/bar"} {
-		require.Contains(t, envs, id)
-	}
-}
+func TestStrayFilterQueryParameterIsIgnored(t *testing.T) {
+	// Payload filters are not supported, but an SDK configured with one keeps sending ?filter= on
+	// every request. Those requests must be served the environment's full data. Refusing them would
+	// break a client that was previously being served, since the upstream ignored the filter anyway
+	// and the SDK was already receiving unfiltered flags.
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
 
-func TestMakeFilteredEnvironments_ManyFilters_ManyEnvironments(t *testing.T) {
-	cfg := &c.Config{
-		Environment: map[string]*c.EnvConfig{
-			"a": {
-				SDKKey:  "123",
-				ProjKey: "projA",
-			},
-			"b": {
-				SDKKey:  "123",
-				ProjKey: "projA",
-			},
-			"c": {
-				SDKKey:  "123",
-				ProjKey: "projB",
-			},
-		},
-		Filters: map[string]*c.FiltersConfig{
-			"projA": {Keys: configtypes.NewOptStringList([]string{"foo", "bar"})},
-			"projB": {Keys: configtypes.NewOptStringList([]string{"baz"})},
-		},
+	// Compare the set of objects each response carries, not the raw bytes. serializeBasisV2 walks a
+	// map of data kinds, so Go randomizes the order of flags against segments between calls, and a
+	// byte comparison would be flaky rather than wrong.
+	objectKeys := func(t *testing.T, body []byte) []string {
+		var doc struct {
+			Events []struct {
+				Event string `json:"event"`
+				Data  struct {
+					Kind string `json:"kind"`
+					Key  string `json:"key"`
+				} `json:"data"`
+			} `json:"events"`
+		}
+		require.NoError(t, json.Unmarshal(body, &doc))
+		var keys []string
+		for _, e := range doc.Events {
+			keys = append(keys, fmt.Sprintf("%s/%s/%s", e.Event, e.Data.Kind, e.Data.Key))
+		}
+		return keys
 	}
-	envs := makeFilteredEnvironments(cfg)
-	for _, id := range []string{"a", "b", "c", "a/foo", "a/bar", "b/foo", "b/bar", "c/baz"} {
-		assert.Contains(t, envs, id)
-	}
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		var payloads [][]string
+		for _, url := range []string{
+			"http://localhost/sdk/poll",
+			"http://localhost/sdk/poll?filter=microservice-a",
+		} {
+			r, _ := http.NewRequest("GET", url, nil)
+			r.Header.Set("Authorization", string(st.EnvMain.Config.SDKKey))
+			result, body := st.DoRequest(r, p.relay)
+
+			require.Equal(t, http.StatusOK, result.StatusCode, "request to %s was refused", url)
+			payloads = append(payloads, objectKeys(t, body))
+		}
+		// A 200 alone would not prove the filter was ignored rather than applied to produce a
+		// smaller result, so the two responses must carry the same objects.
+		require.NotEmpty(t, payloads[0])
+		assert.ElementsMatch(t, payloads[0], payloads[1], "filtered request returned different objects")
+	})
 }
 
 func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
