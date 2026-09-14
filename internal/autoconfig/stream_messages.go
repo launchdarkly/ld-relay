@@ -54,8 +54,6 @@ type DeleteMessageData struct {
 type PutContent struct {
 	// Environments is a map of environment representations.
 	Environments map[config.EnvironmentID]envfactory.EnvironmentRep `json:"environments"`
-	// Filters is a map of filter representations.
-	Filters map[config.FilterID]envfactory.FilterRep `json:"filters"`
 	// Persist indicates whether this content should be written to the cache.
 	// Data received from the live stream is persistable; data restored from the cache is not.
 	Persist bool `json:"-"`

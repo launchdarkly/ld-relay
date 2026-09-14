@@ -13,7 +13,6 @@ import (
 
 func TestCacheField(t *testing.T) {
 	assert.Equal(t, "env:abc123", cacheField(autoconfig.CacheKindEnvironment, "abc123"))
-	assert.Equal(t, "filter:f1", cacheField(autoconfig.CacheKindFilter, "f1"))
 }
 
 func TestNoopStore(t *testing.T) {

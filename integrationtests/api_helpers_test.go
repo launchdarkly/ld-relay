@@ -55,51 +55,6 @@ func (a *apiHelper) createProjectsAndEnvironments(numProjects, numEnvironments i
 	return ret, nil
 }
 
-func (a *apiHelper) createProjectsAndEnvironmentsWithFilters(numProjects, numEnvironments, numFilters int) (projsAndEnvs, error) {
-	ret := make(projsAndEnvs)
-	for i := 0; i < numProjects; i++ {
-		proj, envs, err := a.createProject(numEnvironments)
-		if err != nil {
-			_ = a.deleteProjects(ret)
-			return nil, err
-		}
-		filters, err := a.createFilters(proj.key, numFilters)
-		if err != nil {
-			_ = a.deleteProjects(ret)
-			return nil, err
-		}
-		proj.filters = strings.Join(filters, ",")
-		ret[proj] = envs
-	}
-	return ret, nil
-}
-
-func (a *apiHelper) createProjectsAndEnvironmentsWithSpecificFilters(numProjects, numEnvironments int, filters map[string]filterRules) (projsAndEnvs, error) {
-	ret := make(projsAndEnvs)
-	for i := 0; i < numProjects; i++ {
-		proj, envs, err := a.createProject(numEnvironments)
-		if err != nil {
-			_ = a.deleteProjects(ret)
-			return nil, err
-		}
-
-		var createdFilters []string
-		for filterKey, filterRules := range filters {
-			filter, err := a.createSpecificFilter(proj.key, filterKey, filterRules)
-			if err != nil {
-				_ = a.deleteProjects(ret)
-				return nil, err
-			}
-			createdFilters = append(createdFilters, filter)
-		}
-
-		proj.filters = strings.Join(createdFilters, ",")
-
-		ret[proj] = envs
-	}
-	return ret, nil
-}
-
 func (a *apiHelper) deleteProjects(projsAndEnvs projsAndEnvs) error {
 	for p := range projsAndEnvs {
 		if err := a.deleteProject(p); err != nil {
@@ -146,73 +101,6 @@ func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environme
 	}
 	a.logger.Info("created project", "key", projKey)
 	return projectInfo{key: projKey, name: projName}, envInfos, nil
-}
-
-type filterCondition struct {
-	kind     string
-	property string
-	regex    string
-}
-type filterRule struct {
-	action    string
-	condition filterCondition
-}
-
-type filterRules []filterRule
-
-// This exists because the API doesn't have a specific representation struct for the rules.
-// Remove it when it does.
-func (f filterRules) ToOpaqueRep() []map[string]interface{} {
-	var opaqueRules []map[string]interface{}
-	for _, r := range f {
-		rule := map[string]interface{}{
-			"action": r.action,
-			"condition": map[string]string{
-				"kind":     r.condition.kind,
-				"property": r.condition.property,
-				"regex":    r.condition.regex,
-			},
-		}
-		opaqueRules = append(opaqueRules, rule)
-	}
-	return opaqueRules
-}
-
-func (a *apiHelper) createSpecificFilter(projKey string, filterKey string, rules filterRules) (string, error) {
-	filterRep, _, err := a.apiClient.PayloadFiltersApi.PostPayloadFilters(a.apiContext, projKey).PostFilterRep(ldapi.PostFilterRep{
-		Key:         filterKey,
-		Name:        "Relay Integration test filter",
-		Description: "Test filter for Relay Proxy",
-		Rules:       rules.ToOpaqueRep(),
-	}).Execute()
-	if err != nil {
-		return "", a.logResult("postPayloadFilter", err)
-	}
-	a.logger.Info("created filter", "key", filterRep.Key)
-	return filterRep.Key, nil
-}
-
-func (a *apiHelper) createFilters(projKey string, numFilters int) ([]string, error) {
-	var filters []ldapi.PostFilterRep
-	for i := 0; i < numFilters; i++ {
-		filters = append(filters, ldapi.PostFilterRep{
-			Key:         fmt.Sprintf("%s-%s-%v", projKey, "relay-integration-test-filter", i),
-			Name:        fmt.Sprintf("Relay Integration test filter (%s) (%v)", projKey, i),
-			Description: "Test filter for Relay Proxy",
-		})
-	}
-
-	var filterKeys []string
-	for _, filter := range filters {
-		filterRep, _, err := a.apiClient.PayloadFiltersApi.PostPayloadFilters(a.apiContext, projKey).PostFilterRep(filter).Execute()
-		if err != nil {
-			return filterKeys, a.logResult("postPayloadFilter", err)
-		}
-		a.logger.Info("created filter", "key", filterRep.Key)
-		filterKeys = append(filterKeys, filterRep.Key)
-	}
-
-	return filterKeys, nil
 }
 
 func randomApiKey(prefix string) string {
@@ -374,18 +262,6 @@ func (a *apiHelper) createFlags(projsAndEnvs projsAndEnvs) error {
 	for proj, envs := range projsAndEnvs {
 		err := a.createFlag(proj, envs, flagKeyForProj(proj), flagValueForEnv)
 		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (a *apiHelper) createEvenAndOddFlags(projsAndEnvs projsAndEnvs) error {
-	for proj, envs := range projsAndEnvs {
-		if err := a.createFlag(proj, envs, evenFlagKeyForProj(proj), flagValueForEnv); err != nil {
-			return err
-		}
-		if err := a.createFlag(proj, envs, oddFlagKeyForProj(proj), flagValueForEnv); err != nil {
 			return err
 		}
 	}

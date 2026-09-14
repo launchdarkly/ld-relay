@@ -56,7 +56,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	}
 }
 
-func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
+func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
 	removed := a.r.removeEnvironment(id)
 	if !removed {
 		a.r.logger.Warn("got auto-configuration delete message for unknown environment, ignoring", "envID", id)

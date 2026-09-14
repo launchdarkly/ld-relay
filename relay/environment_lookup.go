@@ -71,12 +71,12 @@ type EnvironmentLookup struct {
 
 	// Identifier-based indexes for status endpoint lookups.
 	// Each environment can have multiple filter variants, so values are slices.
-	// envIDIndex maps environment IDs to environments (auto-config mode)
-	envIDIndex map[config.EnvironmentID][]relayenv.EnvContext
-	// configNameIndex maps configured names to environments (manual config mode)
-	configNameIndex map[string][]relayenv.EnvContext
-	// projEnvKeyIndex maps {projKey, envKey} to environments (auto-config mode, human-readable)
-	projEnvKeyIndex map[projEnvKey][]relayenv.EnvContext
+	// envIDIndex maps an environment ID to its environment (auto-config mode)
+	envIDIndex map[config.EnvironmentID]relayenv.EnvContext
+	// configNameIndex maps a configured name to its environment (manual config mode)
+	configNameIndex map[string]relayenv.EnvContext
+	// projEnvKeyIndex maps {projKey, envKey} to its environment (auto-config mode, human-readable)
+	projEnvKeyIndex map[projEnvKey]relayenv.EnvContext
 
 	// mu protects access to all maps
 	mu sync.RWMutex
@@ -88,9 +88,9 @@ func NewEnvironmentLookup() *EnvironmentLookup {
 	return &EnvironmentLookup{
 		mapping:         make(map[credential.SDKCredential]relayenv.EnvContext),
 		conns:           make(map[relayenv.EnvContext]struct{}),
-		envIDIndex:      make(map[config.EnvironmentID][]relayenv.EnvContext),
-		configNameIndex: make(map[string][]relayenv.EnvContext),
-		projEnvKeyIndex: make(map[projEnvKey][]relayenv.EnvContext),
+		envIDIndex:      make(map[config.EnvironmentID]relayenv.EnvContext),
+		configNameIndex: make(map[string]relayenv.EnvContext),
+		projEnvKeyIndex: make(map[projEnvKey]relayenv.EnvContext),
 	}
 }
 
@@ -156,7 +156,7 @@ func (e *EnvironmentLookup) LookupByIdentifier(identifier string) (relayenv.EnvC
 
 	// Try environment ID first (most specific)
 	if envID := config.EnvironmentID(identifier); envID != "" {
-		if env, ok := firstEnv(e.envIDIndex[envID]); ok {
+		if env, ok := e.envIDIndex[envID]; ok {
 			return env, true
 		}
 	}
@@ -166,13 +166,13 @@ func (e *EnvironmentLookup) LookupByIdentifier(identifier string) (relayenv.EnvC
 		projKey := identifier[:idx]
 		envKey := identifier[idx+1:]
 		key := projEnvKey{projKey: projKey, envKey: envKey}
-		if env, ok := firstEnv(e.projEnvKeyIndex[key]); ok {
+		if env, ok := e.projEnvKeyIndex[key]; ok {
 			return env, true
 		}
 	}
 
 	// Try configured name last (fallback)
-	if env, ok := firstEnv(e.configNameIndex[identifier]); ok {
+	if env, ok := e.configNameIndex[identifier]; ok {
 		return env, true
 	}
 
@@ -248,18 +248,18 @@ func (e *EnvironmentLookup) addToIdentifierIndexes(env relayenv.EnvContext) {
 		}
 	}
 	if envID != "" {
-		e.envIDIndex[envID] = append(e.envIDIndex[envID], env)
+		e.envIDIndex[envID] = env
 	}
 
 	// Index by configured name if present (manual config mode)
 	if identifiers.ConfiguredName != "" {
-		e.configNameIndex[identifiers.ConfiguredName] = append(e.configNameIndex[identifiers.ConfiguredName], env)
+		e.configNameIndex[identifiers.ConfiguredName] = env
 	}
 
 	// Index by project+environment keys if both present (auto-config mode)
 	if identifiers.ProjKey != "" && identifiers.EnvKey != "" {
 		key := projEnvKey{projKey: identifiers.ProjKey, envKey: identifiers.EnvKey}
-		e.projEnvKeyIndex[key] = append(e.projEnvKeyIndex[key], env)
+		e.projEnvKeyIndex[key] = env
 	}
 }
 
@@ -277,38 +277,19 @@ func (e *EnvironmentLookup) removeFromIdentifierIndexes(env relayenv.EnvContext)
 		}
 	}
 	if envID != "" {
-		e.envIDIndex[envID] = removeEnvFromSlice(e.envIDIndex[envID], env)
-		if len(e.envIDIndex[envID]) == 0 {
-			delete(e.envIDIndex, envID)
-		}
+		delete(e.envIDIndex, envID)
 	}
 
 	// Remove from configured name index
 	if identifiers.ConfiguredName != "" {
-		e.configNameIndex[identifiers.ConfiguredName] = removeEnvFromSlice(e.configNameIndex[identifiers.ConfiguredName], env)
-		if len(e.configNameIndex[identifiers.ConfiguredName]) == 0 {
-			delete(e.configNameIndex, identifiers.ConfiguredName)
-		}
+		delete(e.configNameIndex, identifiers.ConfiguredName)
 	}
 
 	// Remove from project+environment key index
 	if identifiers.ProjKey != "" && identifiers.EnvKey != "" {
 		key := projEnvKey{projKey: identifiers.ProjKey, envKey: identifiers.EnvKey}
-		e.projEnvKeyIndex[key] = removeEnvFromSlice(e.projEnvKeyIndex[key], env)
-		if len(e.projEnvKeyIndex[key]) == 0 {
-			delete(e.projEnvKeyIndex, key)
-		}
+		delete(e.projEnvKeyIndex, key)
 	}
-}
-
-// removeEnvFromSlice removes an environment from a slice and returns the updated slice.
-func removeEnvFromSlice(slice []relayenv.EnvContext, env relayenv.EnvContext) []relayenv.EnvContext {
-	for i, e := range slice {
-		if e == env {
-			return append(slice[:i], slice[i+1:]...)
-		}
-	}
-	return slice
 }
 
 // RefreshEnvironmentIndexes updates the identifier-based indexes for an environment.
@@ -318,40 +299,26 @@ func (e *EnvironmentLookup) RefreshEnvironmentIndexes(env relayenv.EnvContext) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Remove this environment from all identifier indexes by iterating through them
-	// and removing any entries that reference this specific environment instance
-	for envID, envs := range e.envIDIndex {
-		e.envIDIndex[envID] = removeEnvFromSlice(envs, env)
-		if len(e.envIDIndex[envID]) == 0 {
+	// Remove every entry that points at this environment instance. The identifiers have already
+	// changed, so the old keys cannot be derived from the environment itself any more.
+	for envID, indexed := range e.envIDIndex {
+		if indexed == env {
 			delete(e.envIDIndex, envID)
 		}
 	}
 
-	for name, envs := range e.configNameIndex {
-		e.configNameIndex[name] = removeEnvFromSlice(envs, env)
-		if len(e.configNameIndex[name]) == 0 {
+	for name, indexed := range e.configNameIndex {
+		if indexed == env {
 			delete(e.configNameIndex, name)
 		}
 	}
 
-	for key, envs := range e.projEnvKeyIndex {
-		e.projEnvKeyIndex[key] = removeEnvFromSlice(envs, env)
-		if len(e.projEnvKeyIndex[key]) == 0 {
+	for key, indexed := range e.projEnvKeyIndex {
+		if indexed == env {
 			delete(e.projEnvKeyIndex, key)
 		}
 	}
 
 	// Re-add using current identifiers
 	e.addToIdentifierIndexes(env)
-}
-
-// firstEnv returns the single environment an identifier maps to. The indexes hold a slice because
-// payload filters used to give one identifier several environments, one per filter variant. Nothing
-// creates those now, so each slice holds at most one entry; the indexes collapse to single values in
-// a follow-up change.
-func firstEnv(envs []relayenv.EnvContext) (relayenv.EnvContext, bool) {
-	if len(envs) == 0 {
-		return nil, false
-	}
-	return envs[0], true
 }

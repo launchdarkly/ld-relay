@@ -181,7 +181,7 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 		// Delete any environments that are no longer in the file
 		am.logger.Info("removed environment", "envID", envID, "envName", envData.params.Identifiers.GetDisplayName())
 		delete(am.lastKnownEnvs, envID)
-		am.handler.DeleteEnvironment(envID, envData.params.Identifiers.FilterKey)
+		am.handler.DeleteEnvironment(envID)
 	}
 }
 

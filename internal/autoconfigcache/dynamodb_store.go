@@ -67,7 +67,6 @@ func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, err
 	defer cleanup()
 	content := &autoconfig.PutContent{
 		Environments: make(map[config.EnvironmentID]envfactory.EnvironmentRep),
-		Filters:      make(map[config.FilterID]envfactory.FilterRep),
 	}
 
 	var exclusiveStartKey map[string]types.AttributeValue
@@ -119,13 +118,9 @@ func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, err
 				}
 				content.Environments[envID] = rep
 			case ModelKindFilter:
-				filterID := config.FilterID(strings.TrimPrefix(sortKey, filterItemPrefix))
-				var rep envfactory.FilterRep
-				if err := json.Unmarshal(cached.Data, &rep); err != nil {
-					s.logger.Warn("AutoConfig cache: failed to unmarshal filter", "filterId", filterID, "error", err)
-					continue
-				}
-				content.Filters[filterID] = rep
+				// Payload filters do not exist, so a row left by an earlier version is ignored
+				// without comment. The case is here only to keep such rows out of the unknown-kind
+				// branch below, which would log a warning on every read.
 			default:
 				s.logger.Warn("AutoConfig cache: skipping item with unknown kind", "key", sortKey, "kind", cached.Kind)
 			}
@@ -137,7 +132,7 @@ func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, err
 		exclusiveStartKey = out.LastEvaluatedKey
 	}
 
-	if len(content.Environments) == 0 && len(content.Filters) == 0 {
+	if len(content.Environments) == 0 {
 		return nil, nil
 	}
 	return content, nil
@@ -191,22 +186,6 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		item, err := s.buildItem(sortKey, ModelKindEnvironment, rep)
 		if err != nil {
 			s.logger.Warn("AutoConfig cache: failed to build env item", "envId", id, "error", err)
-			continue
-		}
-		if !s.checkSizeLimit(item, sortKey) {
-			continue
-		}
-		writeRequests = append(writeRequests, types.WriteRequest{
-			PutRequest: &types.PutRequest{Item: item},
-		})
-	}
-
-	for id, rep := range content.Filters {
-		sortKey := filterItemPrefix + string(id)
-		newKeys[sortKey] = true
-		item, err := s.buildItem(sortKey, ModelKindFilter, rep)
-		if err != nil {
-			s.logger.Warn("AutoConfig cache: failed to build filter item", "filterId", id, "error", err)
 			continue
 		}
 		if !s.checkSizeLimit(item, sortKey) {

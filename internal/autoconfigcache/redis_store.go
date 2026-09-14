@@ -67,7 +67,6 @@ func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error)
 
 	content := &autoconfig.PutContent{
 		Environments: make(map[config.EnvironmentID]envfactory.EnvironmentRep),
-		Filters:      make(map[config.FilterID]envfactory.FilterRep),
 	}
 
 	for field, encValue := range fields {
@@ -93,19 +92,15 @@ func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error)
 			}
 			content.Environments[envID] = rep
 		case ModelKindFilter:
-			filterID := config.FilterID(strings.TrimPrefix(field, filterItemPrefix))
-			var rep envfactory.FilterRep
-			if err := json.Unmarshal(item.Data, &rep); err != nil {
-				s.logger.Warn("AutoConfig cache: failed to unmarshal filter", "filterId", filterID, "error", err)
-				continue
-			}
-			content.Filters[filterID] = rep
+			// Payload filters do not exist, so a row left by an earlier version is ignored without
+			// comment. The case is here only to keep such rows out of the unknown-kind branch
+			// below, which would log a warning on every read.
 		default:
 			s.logger.Warn("AutoConfig cache: skipping field with unknown kind", "field", field, "kind", item.Kind)
 		}
 	}
 
-	if len(content.Environments) == 0 && len(content.Filters) == 0 {
+	if len(content.Environments) == 0 {
 		return nil, nil
 	}
 
@@ -132,20 +127,6 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 			continue
 		}
 		fields[envItemPrefix+string(id)] = enc
-	}
-
-	for id, rep := range content.Filters {
-		raw, err := marshalCachedItem(ModelKindFilter, rep)
-		if err != nil {
-			s.logger.Warn("AutoConfig cache: failed to marshal filter", "filterId", id, "error", err)
-			continue
-		}
-		enc, err := encrypt(raw, s.encKey)
-		if err != nil {
-			s.logger.Warn("AutoConfig cache: failed to encrypt filter", "filterId", id, "error", err)
-			continue
-		}
-		fields[filterItemPrefix+string(id)] = enc
 	}
 
 	// Atomic replacement: DEL + HSET in a MULTI/EXEC transaction

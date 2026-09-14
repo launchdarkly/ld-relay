@@ -12,11 +12,15 @@ type ModelKind string
 
 const (
 	ModelKindEnvironment ModelKind = "environment"
-	ModelKindFilter      ModelKind = "filter"
+	// ModelKindFilter is obsolete. Payload filters are not supported, so nothing writes this kind
+	// any more, but a store written by an earlier version still holds rows marked with it. The
+	// constant stays so those rows are recognized and skipped quietly, instead of being reported as
+	// an unknown kind on every read.
+	ModelKindFilter ModelKind = "filter"
 )
 
 // CurrentModelVersion is the version of the serialization format.
-// Increment this when the shape of EnvironmentRep or FilterRep changes.
+// Increment this when the shape of EnvironmentRep changes.
 const CurrentModelVersion = 1
 
 // CachedItem is the versioned envelope stored in the cache. It wraps the actual data
@@ -59,8 +63,6 @@ func modelKindFromCacheKind(kind autoconfig.CacheKind) ModelKind {
 	switch kind {
 	case autoconfig.CacheKindEnvironment:
 		return ModelKindEnvironment
-	case autoconfig.CacheKindFilter:
-		return ModelKindFilter
 	default:
 		return ModelKind(fmt.Sprintf("unknown-%d", kind))
 	}

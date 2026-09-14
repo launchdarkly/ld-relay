@@ -32,17 +32,6 @@ type EnvironmentID string
 // AutoConfigKey is a type tag to indicate when a string is used as an auto-configuration key.
 type AutoConfigKey string
 
-// FilterID represents the unique ID for a filter. It is different from the key, which is scoped to the project
-// level.
-type FilterID string
-
-// FilterKey represents the key that should be used when making requests to LaunchDarkly in order to obtain
-// a filtered environment.
-type FilterKey string
-
-// DefaultFilter represents the lack of a filter, meaning a full LaunchDarkly environment.
-const DefaultFilter = FilterKey("")
-
 func last4Chars(s string) string {
 	if len(s) < 4 { // COVERAGE: doesn't happen in unit tests, also can't happen with real environments
 		return s

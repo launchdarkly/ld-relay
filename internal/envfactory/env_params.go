@@ -45,14 +45,3 @@ type ExpiringSDKKey struct {
 func (e ExpiringSDKKey) Defined() bool {
 	return e.Key.Defined()
 }
-
-func (e EnvironmentParams) WithFilter(key config.FilterKey) EnvironmentParams {
-	e.Identifiers.FilterKey = key
-	return e
-}
-
-type FilterParams struct {
-	ProjKey string
-	ID      config.FilterID
-	Key     config.FilterKey
-}

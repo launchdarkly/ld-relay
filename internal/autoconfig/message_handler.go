@@ -25,10 +25,4 @@ type MessageHandler interface {
 	// DeleteEnvironment is called when an environment should be removed, due to either a "delete"
 	// message, or a "put" that no longer contains that environment.
 	DeleteEnvironment(id config.EnvironmentID)
-
-	// AddFilter is called whenever a new filter should be added, either in a "put" or "patch" message.
-	AddFilter(params envfactory.FilterParams)
-
-	// DeleteFilter is called whenever a filter should be deleted, via a "delete" message.
-	DeleteFilter(id config.FilterID)
 }

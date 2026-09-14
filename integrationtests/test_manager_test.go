@@ -362,61 +362,12 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 	})
 }
 
-func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnvs projsAndEnvs) {
-	userJSON := `{"key":"any-user-key"}`
-
-	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-		switch env.filterKey {
-		case config.DefaultFilter:
-			// Since this is an unfiltered environment, both even and odd flags should return values.
-
-			valuesObject := m.getFlagValues(t, proj, env, userJSON)
-			expectedValue := flagValueForEnv(env)
-			if expectedValue.Equal(valuesObject.GetByKey(evenFlagKeyForProj(proj))) &&
-				expectedValue.Equal(valuesObject.GetByKey(oddFlagKeyForProj(proj))) {
-				m.logger.Info("got expected flag values", "environment", env.key, "filter", "none", "sdkKey", env.sdkKey)
-			} else {
-				m.logger.Error("did not get expected flag values", "environment", env.key, "filter", "none", "sdkKey", env.sdkKey, "response", valuesObject)
-				t.Fail()
-			}
-		case "even-flags":
-			// Since this is filtered by "even-flags", only the even flag key should return a value;
-			// odd should be null.
-			valuesObject := m.getFlagValues(t, proj, env, userJSON)
-			expectedValue := flagValueForEnv(env)
-			if expectedValue.Equal(valuesObject.GetByKey(evenFlagKeyForProj(proj))) && valuesObject.GetByKey(oddFlagKeyForProj(proj)).IsNull() {
-				m.logger.Info("got expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey)
-			} else {
-				m.logger.Error("did not get expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey, "response", valuesObject)
-				t.Fail()
-			}
-		case "odd-flags":
-			// Likewise since this is filtered by "odd-flags", only the odd flag key should return a value;
-			// even should be null.
-			valuesObject := m.getFlagValues(t, proj, env, userJSON)
-			expectedValue := flagValueForEnv(env)
-			if expectedValue.Equal(valuesObject.GetByKey(oddFlagKeyForProj(proj))) && valuesObject.GetByKey(evenFlagKeyForProj(proj)).IsNull() {
-				m.logger.Info("got expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey)
-			} else {
-				m.logger.Error("did not get expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey, "response", valuesObject)
-				t.Fail()
-			}
-		}
-	})
-}
-
 func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
 	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
 
 	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/users/" + userBase64)
 	if err != nil {
 		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
-	}
-
-	if env.filterKey != config.DefaultFilter {
-		u.RawQuery = url.Values{
-			"filter": []string{string(env.filterKey)},
-		}.Encode()
 	}
 
 	req, err := http.NewRequest("GET", u.String(), nil)
@@ -559,14 +510,6 @@ func verifyEnvProperties(t *testing.T, project projectInfo, environment environm
 
 func flagKeyForProj(proj projectInfo) string {
 	return "flag-for-" + proj.key
-}
-
-func evenFlagKeyForProj(proj projectInfo) string {
-	return "flag0-for-" + proj.key
-}
-
-func oddFlagKeyForProj(proj projectInfo) string {
-	return "flag1-for-" + proj.key
 }
 
 func flagValueForEnv(env environmentInfo) ldvalue.Value {

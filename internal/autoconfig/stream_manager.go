@@ -44,7 +44,6 @@ type CacheKind int
 
 const (
 	CacheKindEnvironment CacheKind = iota
-	CacheKindFilter
 )
 
 // Cache provides read/write access to the AutoConfig persistent cache.

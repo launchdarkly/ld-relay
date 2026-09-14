@@ -179,9 +179,6 @@ type EnvIdentifiers struct {
 	// ProjName is the project name (normally a title-cased string like "My Application").
 	ProjName string
 
-	// FilterKey is the environment's payload filter. Empty string indicates no filter.
-	FilterKey config.FilterKey
-
 	// ConfiguredName is a human-readable unique name for this environment, if the user specified one. When
 	// using a local configuration, this is always set; in auto-configuration mode, it is always empty (but
 	// EnvIdentifiers.GetDisplayName() will compute one).
@@ -192,9 +189,6 @@ type EnvIdentifiers struct {
 // configuration, it computes one in the format "ProjName EnvName".
 func (ei EnvIdentifiers) GetDisplayName() string {
 	if ei.ConfiguredName == "" {
-		if ei.FilterKey != "" {
-			return fmt.Sprintf("%s %s (%s)", ei.ProjName, ei.EnvName, ei.FilterKey)
-		}
 		return fmt.Sprintf("%s %s", ei.ProjName, ei.EnvName)
 	}
 	return ei.ConfiguredName

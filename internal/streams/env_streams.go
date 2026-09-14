@@ -96,7 +96,7 @@ func NewEnvStreams(
 	return es
 }
 
-// AddCredential adds an environment keyed off the combination of credential and payload filter,
+// AddCredential adds an environment keyed off the credential,
 // and creates a corresponding EnvStreamProvider.
 func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	if credential == nil {
@@ -117,7 +117,7 @@ func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	}
 }
 
-// RemoveCredential shuts down the EnvStreamProvider, if any, specified by a combination of credential and payload filter key.
+// RemoveCredential shuts down the EnvStreamProvider, if any, specified by the credential.
 func (es *EnvStreams) RemoveCredential(credential credential.SDKCredential) {
 	var retained []streamInfo
 	var removed []EnvStreamProvider

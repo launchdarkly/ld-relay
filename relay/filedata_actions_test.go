@@ -171,7 +171,7 @@ func TestOfflineModeDeleteEnvironment(t *testing.T) {
 		assert.Equal(t, testFileDataEnv2.Params.SDKKey, client2.Key)
 		_ = p.awaitEnvironment(testFileDataEnv2.Params.EnvID)
 
-		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID, testFileDataEnv1.Params.Identifiers.FilterKey)
+		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID)
 		p.shouldNotHaveEnvironment(testFileDataEnv1.Params.EnvID, time.Second)
 	})
 }

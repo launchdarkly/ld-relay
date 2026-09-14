@@ -43,8 +43,7 @@ func NewStore(c config.Config, logger *slog.Logger) (Store, error) {
 }
 
 const (
-	envItemPrefix    = "env:"
-	filterItemPrefix = "filter:"
+	envItemPrefix = "env:"
 )
 
 // cacheField returns the storage key for a cached item based on its kind and ID.
@@ -52,8 +51,6 @@ func cacheField(kind autoconfig.CacheKind, id string) string {
 	switch kind {
 	case autoconfig.CacheKindEnvironment:
 		return envItemPrefix + id
-	case autoconfig.CacheKindFilter:
-		return filterItemPrefix + id
 	default:
 		return id
 	}
