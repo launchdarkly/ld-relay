@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-redis/redis/v8"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"

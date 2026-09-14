@@ -17,8 +17,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/crypto/hkdf"
+
+	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
 const aesKeySize = 32

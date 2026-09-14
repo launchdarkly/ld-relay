@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -29,7 +27,7 @@ type mockStreamProvider struct {
 
 type mockEnvStreamProvider struct {
 	parent         *mockStreamProvider
-	credential     sdkauth.ScopedCredential
+	credential     credential.SDKCredential
 	store          EnvStoreQueries
 	allDataUpdates [][]subsystems.Change
 	itemUpdates    []subsystems.Change
@@ -39,20 +37,20 @@ type mockEnvStreamProvider struct {
 	lock           sync.Mutex
 }
 
-func (p *mockStreamProvider) HandlerV1(credential sdkauth.ScopedCredential) http.HandlerFunc {
+func (p *mockStreamProvider) HandlerV1(credential credential.SDKCredential) http.HandlerFunc {
 	return nil
 }
 
-func (p *mockStreamProvider) HandlerV2(credential sdkauth.ScopedCredential) http.HandlerFunc {
+func (p *mockStreamProvider) HandlerV2(credential credential.SDKCredential) http.HandlerFunc {
 	return nil
 }
 
 func (p *mockStreamProvider) RegisterV1(
-	credential sdkauth.ScopedCredential,
+	credential credential.SDKCredential,
 	store EnvStoreQueries,
 	_ *slog.Logger,
 ) EnvStreamProvider {
-	if reflect.TypeOf(credential.SDKCredential) != reflect.TypeOf(p.credentialOfDesiredType) {
+	if reflect.TypeOf(credential) != reflect.TypeOf(p.credentialOfDesiredType) {
 		return nil
 	}
 	esp := &mockEnvStreamProvider{parent: p, credential: credential, store: store}
@@ -61,11 +59,11 @@ func (p *mockStreamProvider) RegisterV1(
 }
 
 func (p *mockStreamProvider) RegisterV2(
-	credential sdkauth.ScopedCredential,
+	credential credential.SDKCredential,
 	store EnvStoreQueries,
 	_ *slog.Logger,
 ) EnvStreamProvider {
-	if reflect.TypeOf(credential.SDKCredential) != reflect.TypeOf(p.credentialOfDesiredType) {
+	if reflect.TypeOf(credential) != reflect.TypeOf(p.credentialOfDesiredType) {
 		return nil
 	}
 	esp := &mockEnvStreamProvider{parent: p, credential: credential, store: store}
@@ -109,7 +107,7 @@ func TestAddCredential(t *testing.T) {
 	sp2 := &mockStreamProvider{credentialOfDesiredType: config.MobileKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp1, sp2}, store, 0, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp1, sp2}, store, 0, slog.Default())
 	defer es.Close()
 
 	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key1")
@@ -126,26 +124,26 @@ func TestAddCredential(t *testing.T) {
 
 	require.Len(t, sp1.createdStreamsV1, 2)
 	esp1, esp2 := sp1.createdStreamsV1[0], sp1.createdStreamsV1[1]
-	assert.Equal(t, sdkKey1, esp1.credential.SDKCredential)
-	assert.Equal(t, sdkKey2, esp2.credential.SDKCredential)
+	assert.Equal(t, sdkKey1, esp1.credential)
+	assert.Equal(t, sdkKey2, esp2.credential)
 	assert.Equal(t, store, esp1.store)
 	assert.Equal(t, store, esp2.store)
 
 	require.Len(t, sp1.createdStreamsV2, 2)
 	esp1V2, esp2V2 := sp1.createdStreamsV2[0], sp1.createdStreamsV2[1]
-	assert.Equal(t, sdkKey1, esp1V2.credential.SDKCredential)
-	assert.Equal(t, sdkKey2, esp2V2.credential.SDKCredential)
+	assert.Equal(t, sdkKey1, esp1V2.credential)
+	assert.Equal(t, sdkKey2, esp2V2.credential)
 	assert.Equal(t, store, esp1V2.store)
 	assert.Equal(t, store, esp2V2.store)
 
 	require.Len(t, sp2.createdStreamsV1, 1)
 	esp3 := sp2.createdStreamsV1[0]
-	assert.Equal(t, mobileKey, esp3.credential.SDKCredential)
+	assert.Equal(t, mobileKey, esp3.credential)
 	assert.Equal(t, store, esp3.store)
 
 	require.Len(t, sp2.createdStreamsV2, 1)
 	esp3V2 := sp2.createdStreamsV2[0]
-	assert.Equal(t, mobileKey, esp3V2.credential.SDKCredential)
+	assert.Equal(t, mobileKey, esp3V2.credential)
 	assert.Equal(t, store, esp3V2.store)
 }
 
@@ -153,7 +151,7 @@ func TestRemoveCredential(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
 	defer es.Close()
 
 	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2")
@@ -162,15 +160,15 @@ func TestRemoveCredential(t *testing.T) {
 
 	require.Len(t, sp.createdStreamsV1, 2)
 	esp1, esp2 := sp.createdStreamsV1[0], sp.createdStreamsV1[1]
-	assert.Equal(t, sdkKey1, esp1.credential.SDKCredential)
-	assert.Equal(t, sdkKey2, esp2.credential.SDKCredential)
+	assert.Equal(t, sdkKey1, esp1.credential)
+	assert.Equal(t, sdkKey2, esp2.credential)
 	assert.False(t, esp1.closed)
 	assert.False(t, esp2.closed)
 
 	require.Len(t, sp.createdStreamsV2, 2)
 	esp1V2, esp2V2 := sp.createdStreamsV2[0], sp.createdStreamsV2[1]
-	assert.Equal(t, sdkKey1, esp1V2.credential.SDKCredential)
-	assert.Equal(t, sdkKey2, esp2V2.credential.SDKCredential)
+	assert.Equal(t, sdkKey1, esp1V2.credential)
+	assert.Equal(t, sdkKey2, esp2V2.credential)
 	assert.False(t, esp1V2.closed)
 	assert.False(t, esp2V2.closed)
 
@@ -183,7 +181,7 @@ func TestCloseEnvStreamsClosesAll(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
 
 	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
 	es.AddCredential(sdkKey1)
@@ -217,7 +215,7 @@ func TestSetBasisGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
 	defer es.Close()
 
 	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
@@ -247,7 +245,7 @@ func TestApplyDeltaGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
 	defer es.Close()
 
 	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
@@ -291,7 +289,7 @@ func TestInvalidateClientSideStateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
 	defer es.Close()
 
 	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
@@ -322,7 +320,7 @@ func TestHeartbeatsGoToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, slog.Default())
 	defer es.Close()
 
 	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2")
@@ -356,7 +354,7 @@ func TestHeartbeatsAreStopped(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
 	store := makeMockStore(nil, nil)
-	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, config.DefaultFilter, slog.Default())
+	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, slog.Default())
 
 	es.AddCredential(config.SDKKey("sdk-key1"))
 

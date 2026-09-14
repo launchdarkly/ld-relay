@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
-	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/launchdarkly/ld-relay/v9/config"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -38,26 +39,26 @@ type serverSideFlagsOnlyEnvStreamRepository struct {
 	flightGroup singleflight.Group
 }
 
-func (s *serverSideFlagsOnlyStreamProvider) HandlerV1(params sdkauth.ScopedCredential) http.HandlerFunc {
-	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+func (s *serverSideFlagsOnlyStreamProvider) HandlerV1(params credential.SDKCredential) http.HandlerFunc {
+	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
 	return s.fdv1Server.Handler(params.String())
 }
 
-func (s *serverSideFlagsOnlyStreamProvider) HandlerV2(params sdkauth.ScopedCredential) http.HandlerFunc {
-	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+func (s *serverSideFlagsOnlyStreamProvider) HandlerV2(params credential.SDKCredential) http.HandlerFunc {
+	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
 	return s.fdv2Server.Handler(params.String())
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(
-	params sdkauth.ScopedCredential,
+	params credential.SDKCredential,
 	store EnvStoreQueries,
 	logger *slog.Logger,
 ) EnvStreamProvider {
-	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
 	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, logger: logger}
@@ -67,11 +68,11 @@ func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) RegisterV2(
-	params sdkauth.ScopedCredential,
+	params credential.SDKCredential,
 	store EnvStoreQueries,
 	logger *slog.Logger,
 ) EnvStreamProvider {
-	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
 	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, logger: logger}

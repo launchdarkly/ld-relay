@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
@@ -22,7 +21,7 @@ import (
 // TestPingStreamJitterDelaysPings verifies that when jitter is configured,
 // ping events are delayed by a random duration between [jitterTime/2, jitterTime].
 func TestPingStreamJitterDelaysPings(t *testing.T) {
-	validCredential := sdkauth.New(testMobileKey)
+	validCredential := testMobileKey
 	jitterTime := 200 * time.Millisecond
 
 	sp := NewStreamProvider(basictypes.MobilePingStream, 0, jitterTime)
@@ -77,7 +76,7 @@ func TestPingStreamJitterDelaysPings(t *testing.T) {
 // TestPingStreamJitterCoalescesMultiplePings verifies that multiple ping events
 // received during the jitter delay period are coalesced into a single ping.
 func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
-	validCredential := sdkauth.New(testMobileKey)
+	validCredential := testMobileKey
 	jitterTime := 200 * time.Millisecond
 
 	sp := NewStreamProvider(basictypes.MobilePingStream, 0, jitterTime)
@@ -162,7 +161,7 @@ func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
 // TestPingStreamNoJitterSendsPingsImmediately verifies that when jitter is 0,
 // ping events are sent immediately without delay.
 func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
-	validCredential := sdkauth.New(testMobileKey)
+	validCredential := testMobileKey
 
 	sp := NewStreamProvider(basictypes.MobilePingStream, 0, 0)
 	require.NotNil(t, sp)
@@ -210,7 +209,7 @@ func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
 // TestPingStreamNoJitterSendsMultiplePings verifies that when jitter is 0,
 // multiple updates result in multiple ping events.
 func TestPingStreamNoJitterSendsMultiplePings(t *testing.T) {
-	validCredential := sdkauth.New(testMobileKey)
+	validCredential := testMobileKey
 
 	sp := NewStreamProvider(basictypes.MobilePingStream, 0, 0)
 	require.NotNil(t, sp)
@@ -273,7 +272,7 @@ func TestPingStreamNoJitterSendsMultiplePings(t *testing.T) {
 
 // TestJSClientPingStreamJitter verifies that jitter works for JS client ping streams.
 func TestJSClientPingStreamJitter(t *testing.T) {
-	validCredential := sdkauth.New(testEnvID)
+	validCredential := testEnvID
 	jitterTime := 200 * time.Millisecond
 
 	sp := NewStreamProvider(basictypes.JSClientPingStream, 0, jitterTime)
@@ -332,7 +331,7 @@ func TestJSClientPingStreamJitter(t *testing.T) {
 // TestServerSideStreamNoJitter verifies that server-side streams don't use jitter
 // and continue to send all flag data immediately.
 func TestServerSideStreamNoJitter(t *testing.T) {
-	validCredential := sdkauth.New(testSDKKey)
+	validCredential := testSDKKey
 
 	// Server-side streams are created with jitter=0 regardless of config
 	sp := NewStreamProvider(basictypes.ServerSideStream, 0, 100*time.Millisecond)
@@ -383,7 +382,7 @@ func TestServerSideStreamNoJitter(t *testing.T) {
 // TestPingStreamJitterSubsequentUpdatesAfterDelay verifies that after a jittered
 // ping is sent, subsequent updates trigger a new jittered delay.
 func TestPingStreamJitterSubsequentUpdatesAfterDelay(t *testing.T) {
-	validCredential := sdkauth.New(testMobileKey)
+	validCredential := testMobileKey
 	jitterTime := 150 * time.Millisecond
 
 	sp := NewStreamProvider(basictypes.MobilePingStream, 0, jitterTime)

@@ -6,10 +6,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
@@ -270,7 +269,7 @@ type relayEnvironmentGetters struct {
 	*Relay
 }
 
-func (r relayEnvironmentGetters) GetEnvironment(credential sdkauth.ScopedCredential) (env relayenv.EnvContext, err error) {
+func (r relayEnvironmentGetters) GetEnvironment(credential credential.SDKCredential) (env relayenv.EnvContext, err error) {
 	return r.getEnvironment(credential)
 }
 

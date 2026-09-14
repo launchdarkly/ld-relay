@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 )
 
 func TestMarshalUnmarshalRoundtrip(t *testing.T) {

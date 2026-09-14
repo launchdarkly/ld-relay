@@ -5,9 +5,10 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 )
 
 type testItem string

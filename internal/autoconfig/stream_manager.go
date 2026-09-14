@@ -16,6 +16,7 @@ import (
 
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"

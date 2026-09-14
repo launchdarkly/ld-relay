@@ -16,6 +16,7 @@ import (
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
 	"github.com/stretchr/testify/require"

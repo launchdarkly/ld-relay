@@ -3,8 +3,6 @@ package relay
 import (
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -59,7 +57,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
-	env, _ := a.r.getEnvironment(sdkauth.NewScoped(ae.Params.Identifiers.FilterKey, ae.Params.EnvID))
+	env, _ := a.r.getEnvironment(ae.Params.EnvID)
 	if env == nil { // COVERAGE: this should never happen and can't be covered in unit tests
 		a.r.logger.Error("unexpected error in file data processing: environment not found when updating", "envID", ae.Params.EnvID)
 		return
@@ -101,6 +99,6 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 }
 
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
-	a.r.removeEnvironment(sdkauth.NewScoped(filter, id))
+	a.r.removeEnvironment(id)
 	delete(a.envSynchronizers, id)
 }

@@ -5,9 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/config"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -49,11 +46,10 @@ type EnvStreams struct {
 	lock            sync.RWMutex
 	closeCh         chan struct{}
 	heartbeatsDone  chan struct{} // used in testing only
-	filterKey       config.FilterKey
 }
 
 type streamInfo struct {
-	credential        sdkauth.ScopedCredential
+	credential        credential.SDKCredential
 	envStreamProvider EnvStreamProvider
 }
 
@@ -69,7 +65,6 @@ func NewEnvStreams(
 	streamProviders []StreamProvider,
 	storeQueries EnvStoreQueries,
 	heartbeatInterval time.Duration,
-	filterKey config.FilterKey,
 	logger *slog.Logger,
 ) *EnvStreams {
 	es := &EnvStreams{
@@ -77,7 +72,6 @@ func NewEnvStreams(
 		storeQueries:    storeQueries,
 		logger:          logger,
 		closeCh:         make(chan struct{}),
-		filterKey:       filterKey,
 	}
 
 	if heartbeatInterval > 0 {
@@ -108,7 +102,7 @@ func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	if credential == nil {
 		return
 	}
-	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
+	scopedCred := credential
 	for _, sp := range es.streamProviders {
 		if esp := sp.RegisterV1(scopedCred, es.storeQueries, es.logger); esp != nil {
 			es.lock.Lock()
@@ -128,7 +122,7 @@ func (es *EnvStreams) RemoveCredential(credential credential.SDKCredential) {
 	var retained []streamInfo
 	var removed []EnvStreamProvider
 
-	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
+	scopedCred := credential
 
 	es.lock.Lock()
 	for _, s := range es.activeStreams {

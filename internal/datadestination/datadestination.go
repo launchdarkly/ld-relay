@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 )
 

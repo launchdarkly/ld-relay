@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
@@ -69,7 +67,7 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+			envMain, err := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
 
 			require.NotNil(t, envMain)
 			require.Nil(t, err)
@@ -111,7 +109,7 @@ func TestEndpointsStatus(t *testing.T) {
 
 		t.Run("an HTTP failure reports its status code", func(t *testing.T) {
 			withStartedRelay(t, config, func(p relayTestParams) {
-				envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+				envMain, err := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
 				require.NoError(t, err)
 				envMain.GetClient().(*testclient.FakeLDClient).SetDataSourceStatus(
 					interfaces.DataSourceStatus{
@@ -136,7 +134,7 @@ func TestEndpointsStatus(t *testing.T) {
 		// had one. A probe asserting on its absence depends on the omitempty tag surviving.
 		t.Run("a network failure omits the status code", func(t *testing.T) {
 			withStartedRelay(t, config, func(p relayTestParams) {
-				envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+				envMain, err := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
 				require.NoError(t, err)
 				envMain.GetClient().(*testclient.FakeLDClient).SetDataSourceStatus(
 					interfaces.DataSourceStatus{
@@ -166,7 +164,7 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+			envMain, err := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
 			require.Nil(t, err)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)

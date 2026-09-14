@@ -9,10 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -30,27 +29,27 @@ type StreamProvider interface {
 	// It can return nil if it does not support this type of credential.
 	//
 	// This handler will service requests using the old FDv1 protocol.
-	HandlerV1(credential sdkauth.ScopedCredential) http.HandlerFunc
+	HandlerV1(credential credential.SDKCredential) http.HandlerFunc
 
 	// HandlerV2 returns an HTTP request handler for the given scoped SDK credential.
 	// It can return nil if it does not support this type of credential.
 	//
 	// This handler will service requests using the new FDv2 protocol.
-	HandlerV2(credential sdkauth.ScopedCredential) http.HandlerFunc
+	HandlerV2(credential credential.SDKCredential) http.HandlerFunc
 
 	// RegisterV1 tells the StreamProvider about an environment that it should support, and returns an
 	// implementation of EnvStreamProvider for pushing updates related to that environment. It can
 	// return nil if it does not support this type of credential.
 	//
 	// This method is used for the old FDv1 protocol.
-	RegisterV1(credential sdkauth.ScopedCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
+	RegisterV1(credential credential.SDKCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
 
 	// RegisterV2 tells the StreamProvider about an environment that it should support, and returns an
 	// implementation of EnvStreamProvider for pushing updates related to that environment. It can
 	// return nil if it does not support this type of credential.
 	//
 	// This method is used for the old FDv2 protocol.
-	RegisterV2(credential sdkauth.ScopedCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
+	RegisterV2(credential credential.SDKCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
 
 	// Close tells the StreamProvider to release all of its resources and close all connections.
 	Close()

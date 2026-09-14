@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/bigsegments"
@@ -67,10 +68,10 @@ func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.C
 
 type mockConnectionMapper struct{}
 
-func (m mockConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext) {
+func (m mockConnectionMapper) AddConnectionMapping(scopedCredential credential.SDKCredential, envContext EnvContext) {
 }
 
-func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
+func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential credential.SDKCredential) {
 }
 
 func TestConstructorBasicProperties(t *testing.T) {

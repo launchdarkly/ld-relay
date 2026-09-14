@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 )

@@ -11,8 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/projmanager"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -344,7 +343,7 @@ func IsUnrecognizedEnvironment(err error) bool {
 // getEnvironment returns the environment object corresponding to the given credential, or nil
 // if not found. The credential can be an SDK key, a mobile key, or an environment ID. The second
 // return value is normally nil, but is present if Relay does not yet have a valid configuration.
-func (r *Relay) getEnvironment(req sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
+func (r *Relay) getEnvironment(req credential.SDKCredential) (relayenv.EnvContext, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -377,7 +376,7 @@ func (r *Relay) getAllEnvironments() []relayenv.EnvContext {
 //
 // Returns an error if Relay is not fully configured, if the environment is not found, or if the
 // filter is not found for an otherwise valid environment.
-func (r *Relay) getEnvironmentByIdentifier(identifier string, filterKey config.FilterKey) (relayenv.EnvContext, error) {
+func (r *Relay) getEnvironmentByIdentifier(identifier string) (relayenv.EnvContext, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -385,7 +384,7 @@ func (r *Relay) getEnvironmentByIdentifier(identifier string, filterKey config.F
 		return nil, errRelayNotReady
 	}
 
-	env, found := r.envsByCredential.LookupByIdentifier(identifier, filterKey)
+	env, found := r.envsByCredential.LookupByIdentifier(identifier)
 	if found {
 		return env, nil
 	}
@@ -473,7 +472,7 @@ func (r *Relay) addEnvironment(
 // removeEnvironment shuts down and removes an existing environment. All network connections, metrics
 // resources, and (if applicable) database connections, are immediately closed for this environment.
 // Subsequent requests using credentials for this environment will be rejected.
-func (r *Relay) removeEnvironment(params sdkauth.ScopedCredential) bool {
+func (r *Relay) removeEnvironment(params credential.SDKCredential) bool {
 	env, found := r.envsByCredential.DeleteEnvironment(params)
 
 	if !found {
@@ -501,7 +500,7 @@ func (r *Relay) setFullyConfigured(fullyConfigured bool) {
 // credential is now enabled for this EnvContext. This should be done only *after* calling
 // EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
 // credential immediately after this, it will work.
-func (r *Relay) AddConnectionMapping(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
+func (r *Relay) AddConnectionMapping(params credential.SDKCredential, env relayenv.EnvContext) {
 	r.envsByCredential.MapRequestParams(params, env)
 }
 
@@ -509,7 +508,7 @@ func (r *Relay) AddConnectionMapping(params sdkauth.ScopedCredential, env relaye
 // credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
 // because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
 // reconnect using the same credential we want it to be rejected.
-func (r *Relay) RemoveConnectionMapping(params sdkauth.ScopedCredential) {
+func (r *Relay) RemoveConnectionMapping(params credential.SDKCredential) {
 	r.envsByCredential.UnmapRequestParams(params)
 }
 

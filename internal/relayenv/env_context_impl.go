@@ -11,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/datadestination"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
@@ -62,8 +61,8 @@ func errInitMetrics(err error) error {
 }
 
 type ConnectionMapper interface {
-	AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext)
-	RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential)
+	AddConnectionMapping(scopedCredential credential.SDKCredential, envContext EnvContext)
+	RemoveConnectionMapping(scopedCredential credential.SDKCredential)
 }
 
 // EnvContextImplParams contains the constructor parameters for NewEnvContextImpl. These have their
@@ -117,7 +116,6 @@ type envContextImpl struct {
 	ttl                       time.Duration
 	initErr                   error
 	creationTime              time.Time
-	filterKey                 config.FilterKey
 	keyRotator                *credential.Rotator
 	stopMonitoringCredentials chan struct{}
 	doneMonitoringCredentials chan struct{}
@@ -252,7 +250,6 @@ func NewEnvContext(
 		params.StreamProviders,
 		envContextStoreQueries{envContext},
 		allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
-		envContext.filterKey,
 		envLogger,
 	)
 	envContext.envStreams = envStreams
@@ -270,11 +267,11 @@ func NewEnvContext(
 		handlersV1 := make(map[credential.SDKCredential]http.Handler)
 		handlersV2 := make(map[credential.SDKCredential]http.Handler)
 		for _, c := range allCreds {
-			hV1 := sp.HandlerV1(sdkauth.NewScoped(envContext.filterKey, c))
+			hV1 := sp.HandlerV1(c)
 			if hV1 != nil {
 				handlersV1[c] = hV1
 			}
-			hV2 := sp.HandlerV2(sdkauth.NewScoped(envContext.filterKey, c))
+			hV2 := sp.HandlerV2(c)
 			if hV2 != nil {
 				handlersV2[c] = hV2
 			}
@@ -453,12 +450,12 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	defer c.mu.Unlock()
 	c.envStreams.AddCredential(newCredential)
 	for streamProvider, handlers := range c.handlersV1 {
-		if h := streamProvider.HandlerV1(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
+		if h := streamProvider.HandlerV1(newCredential); h != nil {
 			handlers[newCredential] = h
 		}
 	}
 	for streamProvider, handlers := range c.handlersV2 {
-		if h := streamProvider.HandlerV2(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
+		if h := streamProvider.HandlerV2(newCredential); h != nil {
 			handlers[newCredential] = h
 		}
 	}
@@ -489,13 +486,13 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 		}
 	}
 
-	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
+	c.connectionMapper.AddConnectionMapping(newCredential, c)
 }
 
 func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
+	c.connectionMapper.RemoveConnectionMapping(oldCredential)
 	c.envStreams.RemoveCredential(oldCredential)
 	for _, handlers := range c.handlersV1 {
 		delete(handlers, oldCredential)
@@ -558,10 +555,6 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	if readyCh != nil {
 		readyCh <- c
 	}
-}
-
-func (c *envContextImpl) GetPayloadFilter() config.FilterKey {
-	return c.filterKey
 }
 
 func (c *envContextImpl) GetIdentifiers() EnvIdentifiers {
@@ -703,13 +696,6 @@ func (c *envContextImpl) SetTTL(newTTL time.Duration) {
 	defer c.mu.Unlock()
 
 	c.ttl = newTTL
-}
-
-func (c *envContextImpl) GetFilter() config.FilterKey {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.filterKey
 }
 
 func (c *envContextImpl) GetInitError() error {

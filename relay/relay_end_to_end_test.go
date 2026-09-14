@@ -13,6 +13,7 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
+
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"

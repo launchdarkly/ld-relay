@@ -15,8 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
@@ -35,9 +33,9 @@ import (
 )
 
 func TestStreamProviderServerSide(t *testing.T) {
-	validCredential := sdkauth.New(testSDKKey)
-	invalidCredential1 := sdkauth.New(testMobileKey)
-	invalidCredential2 := sdkauth.New(testEnvID)
+	validCredential := testSDKKey
+	invalidCredential1 := testMobileKey
+	invalidCredential2 := testEnvID
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
 		sp := NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0)
