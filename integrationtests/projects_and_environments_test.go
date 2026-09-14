@@ -3,15 +3,12 @@
 package integrationtests
 
 import (
-	"strings"
-
 	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
 type projectInfo struct {
-	key     string
-	name    string
-	filters string
+	key  string
+	name string
 }
 
 type environmentInfo struct {
@@ -23,9 +20,6 @@ type environmentInfo struct {
 	mobileKey      config.MobileKey
 	prefix         string
 	projKey        string
-
-	// this is a synthetic field, set only when this environment is a filtered environment.
-	filterKey config.FilterKey
 }
 
 type projsAndEnvs map[projectInfo][]environmentInfo
@@ -43,16 +37,6 @@ func (pe projsAndEnvs) enumerateEnvs(fn func(projectInfo, environmentInfo)) {
 	for proj, envs := range pe {
 		for _, env := range envs {
 			fn(proj, env)
-		}
-		if proj.filters == "" {
-			continue
-		}
-		for _, filter := range strings.Split(proj.filters, ",") {
-			for _, env := range envs {
-				filteredEnv := env
-				filteredEnv.filterKey = config.FilterKey(filter)
-				fn(proj, filteredEnv)
-			}
 		}
 	}
 }

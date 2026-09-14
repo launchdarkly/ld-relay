@@ -86,31 +86,3 @@ func (e *ProjectRouter) DeleteEnvironment(id config.EnvironmentID) {
 func (e *ProjectRouter) ReceivedAllEnvironments() {
 	e.actions.ReceivedAllEnvironments()
 }
-
-// AddFilter routes the given FilterRep to the relevant ProjectManager based on its project key, or instantiates
-// a new ProjectManager if one doesn't already exist.
-func (e *ProjectRouter) AddFilter(params envfactory.FilterParams) {
-	proj := params.ProjKey
-	manager, ok := e.managers[proj]
-	if !ok {
-		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.logger)
-		manager = e.managers[proj]
-	}
-	manager.AddFilter(params)
-}
-
-// DeleteFilter dispatches a deletion command for the given filter ID to all ProjectManagers. It is
-// assumed that filter IDs are unique, and therefore only one manager will service the request.
-func (e *ProjectRouter) DeleteFilter(id config.FilterID) {
-	deleteCount := 0
-	for _, manager := range e.managers {
-		if manager.DeleteFilter(id) {
-			deleteCount++
-		}
-	}
-	if deleteCount == 0 {
-		e.logger.Error("precondition violation: received delete request for filter, but it is not under management", "filterID", id)
-	} else if deleteCount > 1 {
-		e.logger.Error("precondition violation: received delete request for filter, which was associated with more than one project", "filterID", id)
-	}
-}

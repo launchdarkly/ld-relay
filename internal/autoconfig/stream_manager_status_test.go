@@ -401,8 +401,6 @@ func (h *blockingMessageHandler) AddEnvironment(envfactory.EnvironmentParams)   
 func (h *blockingMessageHandler) UpdateEnvironment(envfactory.EnvironmentParams) { h.maybeBlock() }
 func (h *blockingMessageHandler) DeleteEnvironment(config.EnvironmentID)         { h.maybeBlock() }
 func (h *blockingMessageHandler) ReceivedAllEnvironments()                       {}
-func (h *blockingMessageHandler) AddFilter(envfactory.FilterParams)              {}
-func (h *blockingMessageHandler) DeleteFilter(config.FilterID)                   {}
 
 // newStreamManagerForHandlers builds a StreamManager against an arbitrary message handler, which the
 // shared harness does not allow.

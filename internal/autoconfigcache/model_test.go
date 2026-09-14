@@ -29,6 +29,19 @@ func TestMarshalUnmarshalRoundtrip(t *testing.T) {
 	assert.Equal(t, "test-env", data.Name)
 }
 
+func TestUnmarshalAcceptsObsoleteFilterKind(t *testing.T) {
+	// A store written by a version that supported payload filters still holds rows marked as the
+	// filter kind. Reading one must not fail: the envelope has to accept it so the read paths in
+	// redisStore and dynamoDBStore can recognize the kind and skip it. If the envelope rejected it
+	// instead, the first read after an upgrade would error rather than skip.
+	raw, err := marshalCachedItem(ModelKindFilter, map[string]string{"key": "microservice-a"})
+	require.NoError(t, err)
+
+	item, err := unmarshalCachedItem(raw)
+	require.NoError(t, err, "a persisted filter row must still unmarshal")
+	assert.Equal(t, ModelKindFilter, item.Kind)
+}
+
 func TestUnmarshalRejectsUnknownVersion(t *testing.T) {
 	raw, _ := json.Marshal(CachedItem{
 		Kind:         ModelKindEnvironment,
@@ -49,5 +62,4 @@ func TestUnmarshalRejectsInvalidJSON(t *testing.T) {
 
 func TestModelKindFromCacheKind(t *testing.T) {
 	assert.Equal(t, ModelKindEnvironment, modelKindFromCacheKind(autoconfig.CacheKindEnvironment))
-	assert.Equal(t, ModelKindFilter, modelKindFromCacheKind(autoconfig.CacheKindFilter))
 }

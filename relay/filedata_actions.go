@@ -98,7 +98,7 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 	// error logging goes here
 }
 
-func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
+func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
 	a.r.removeEnvironment(id)
 	delete(a.envSynchronizers, id)
 }

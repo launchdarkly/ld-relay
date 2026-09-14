@@ -61,16 +61,6 @@ var (
 		SDKKey:   envfactory.SDKKeyRep{Value: config.SDKKey("sdkkey2")},
 		Version:  20,
 	}
-	testFilter1 = envfactory.FilterRep{
-		ProjKey:   "projkey1",
-		FilterKey: "filterkey1",
-		Version:   10,
-	}
-	testFilter2 = envfactory.FilterRep{
-		ProjKey:   "projkey2",
-		FilterKey: "filterkey1",
-		Version:   20,
-	}
 	emptyPutMessage = httphelpers.SSEEvent{Event: PutEvent, Data: `{"path": "/", "data": {"environments": {}}}`}
 )
 
@@ -93,42 +83,6 @@ func makeEnvPutEvent(envs ...envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	}
 }
 
-func filterID(rep envfactory.FilterRep) config.FilterID {
-	return config.FilterID(fmt.Sprintf("%s.%s", rep.ProjKey, rep.FilterKey))
-}
-
-func makeEnvFilterPutEvent(envs []envfactory.EnvironmentRep, filters []envfactory.FilterRep) httphelpers.SSEEvent {
-	envMap := make(map[config.EnvironmentID]envfactory.EnvironmentRep)
-	filterMap := make(map[config.FilterID]envfactory.FilterRep)
-	for _, e := range envs {
-		envMap[e.EnvID] = e
-	}
-	for _, f := range filters {
-		filterMap[filterID(f)] = f
-	}
-	return httphelpers.SSEEvent{
-		Event: PutEvent,
-		Data: toJSON(map[string]interface{}{
-			"path": "/",
-			"data": map[string]interface{}{"environments": envMap, "filters": filterMap},
-		}),
-	}
-}
-
-func makeFilterPutEvent(filters ...envfactory.FilterRep) httphelpers.SSEEvent {
-	filterMap := make(map[config.FilterID]envfactory.FilterRep)
-	for _, f := range filters {
-		filterMap[filterID(f)] = f
-	}
-	return httphelpers.SSEEvent{
-		Event: PutEvent,
-		Data: toJSON(map[string]interface{}{
-			"path": "/",
-			"data": map[string]interface{}{"filters": filterMap},
-		}),
-	}
-}
-
 func makePatchEnvEvent(env envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
 		Event: PatchEvent,
@@ -139,31 +93,11 @@ func makePatchEnvEvent(env envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	}
 }
 
-func makePatchFilterEvent(f envfactory.FilterRep) httphelpers.SSEEvent {
-	return httphelpers.SSEEvent{
-		Event: PatchEvent,
-		Data: toJSON(map[string]interface{}{
-			"path": "/filters/" + fmt.Sprintf("%s.%s", f.ProjKey, f.FilterKey),
-			"data": f,
-		}),
-	}
-}
-
 func makeDeleteEnvEvent(envID config.EnvironmentID, version int) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
 		Event: DeleteEvent,
 		Data: toJSON(map[string]interface{}{
 			"path":    "/environments/" + string(envID),
-			"version": version,
-		}),
-	}
-}
-
-func makeDeleteFilterEvent(filterID config.FilterID, version int) httphelpers.SSEEvent {
-	return httphelpers.SSEEvent{
-		Event: DeleteEvent,
-		Data: toJSON(map[string]interface{}{
-			"path":    "/filters/" + string(filterID),
 			"version": version,
 		}),
 	}
@@ -179,12 +113,10 @@ type streamManagerTestParams struct {
 }
 
 type testMessage struct {
-	add          *envfactory.EnvironmentParams
-	addFilter    *envfactory.FilterParams
-	update       *envfactory.EnvironmentParams
-	delete       *config.EnvironmentID
-	deleteFilter *config.FilterID
-	receivedAll  bool
+	add         *envfactory.EnvironmentParams
+	update      *envfactory.EnvironmentParams
+	delete      *config.EnvironmentID
+	receivedAll bool
 }
 
 func (m testMessage) String() string {
@@ -314,12 +246,4 @@ func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {
 
 func (h *testMessageHandler) ReceivedAllEnvironments() {
 	h.received <- testMessage{receivedAll: true}
-}
-
-func (h *testMessageHandler) AddFilter(params envfactory.FilterParams) {
-	h.received <- testMessage{addFilter: &params}
-}
-
-func (h *testMessageHandler) DeleteFilter(id config.FilterID) {
-	h.received <- testMessage{deleteFilter: &id}
 }

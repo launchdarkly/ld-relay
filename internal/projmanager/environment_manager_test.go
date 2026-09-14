@@ -3,7 +3,6 @@ package projmanager
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -13,8 +12,7 @@ import (
 )
 
 type deleteParams struct {
-	id     config.EnvironmentID
-	filter config.FilterKey
+	id config.EnvironmentID
 }
 
 // Convenience function to use when comparing a list of environments with deletions recorded by a spy,
@@ -25,21 +23,15 @@ type deleteParams struct {
 //	require.ElementsMatch(t, spy.deleted, makeDeletions(envs))
 func makeDeletions(envs []envfactory.EnvironmentParams) (params []deleteParams) {
 	for _, e := range envs {
-		params = append(params, deleteParams{e.EnvID, e.Identifiers.FilterKey})
+		params = append(params, deleteParams{e.EnvID})
 	}
 	return
 }
 
-type expiredParams struct {
-	id     config.EnvironmentID
-	filter config.FilterKey
-	key    config.SDKKey
-}
 type spyHandler struct {
 	added   []envfactory.EnvironmentParams
 	updated []envfactory.EnvironmentParams
 	deleted []deleteParams
-	expired []expiredParams
 }
 
 func newHandlerSpy() *spyHandler {
@@ -47,7 +39,6 @@ func newHandlerSpy() *spyHandler {
 		added:   make([]envfactory.EnvironmentParams, 0),
 		updated: make([]envfactory.EnvironmentParams, 0),
 		deleted: make([]deleteParams, 0),
-		expired: make([]expiredParams, 0),
 	}
 }
 
@@ -59,12 +50,8 @@ func (n *spyHandler) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	n.updated = append(n.updated, params)
 }
 
-func (n *spyHandler) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
-	n.deleted = append(n.deleted, deleteParams{id, filter})
-}
-
-func (n *spyHandler) KeyExpired(id config.EnvironmentID, filter config.FilterKey, key config.SDKKey) {
-	n.expired = append(n.expired, expiredParams{id, filter, key})
+func (n *spyHandler) DeleteEnvironment(id config.EnvironmentID) {
+	n.deleted = append(n.deleted, deleteParams{id})
 }
 
 func TestEnvManager_NewManagerIsEmpty(t *testing.T) {
@@ -72,124 +59,7 @@ func TestEnvManager_NewManagerIsEmpty(t *testing.T) {
 
 	m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
-	require.Len(t, m.Filters(), 0, "new manager should not be managing any filters")
 	require.Len(t, m.Environments(), 0, "new manager should not be managing any environments")
-}
-
-func TestEnvManager_AddFilters(t *testing.T) {
-	t.Run("adding filters is reflected in state", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
-
-		keys := []config.FilterKey{"a", "b"}
-
-		for _, f := range keys {
-			m.AddFilter(makeFilter(string(f), "proj"))
-		}
-
-		out := m.Filters()
-		require.Len(t, out, len(keys), "all filters should be added")
-		require.ElementsMatchf(t, out, keys, "filters in should equal filters out")
-	})
-
-	t.Run("no duplicates are allowed", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
-
-		for i := 0; i < 10; i++ {
-			m.AddFilter(makeFilter("a", "proj"))
-		}
-
-		filters := m.Filters()
-		require.Len(t, filters, 1, "single filter should be added")
-		require.ElementsMatchf(t, filters, []config.FilterKey{"a"}, "filter should match")
-	})
-
-	t.Run("adds a new environment for each existing environment", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		for i := 0; i < 10; i++ {
-			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog)
-
-			envs := makeEnvs(i, []string{"foo"})
-
-			filter := makeFilter("filter", "foo")
-			var expectedEnvs []envfactory.EnvironmentParams
-			for _, e := range envs {
-				expectedEnvs = append(expectedEnvs, e, e.WithFilter(filter.Key))
-				m.AddEnvironment(e)
-			}
-
-			m.AddFilter(filter)
-
-			require.ElementsMatch(t, spy.added, expectedEnvs)
-		}
-	})
-}
-
-func TestEnvManager_DeleteFilters(t *testing.T) {
-	t.Run("after adding and removing same filters, state reflects no filters", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
-
-		in := []string{"a", "b"}
-		for _, f := range in {
-			m.AddFilter(makeFilter(f, "proj"))
-		}
-
-		out := m.Filters()
-		require.Len(t, out, len(in))
-
-		for _, f := range in {
-			m.DeleteFilter(makeFilter(f, "proj").ID)
-		}
-
-		out = m.Filters()
-		require.Len(t, out, 0, "no filters should be managed")
-	})
-
-	t.Run("deleting filters deletes filtered environments", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		for i := 0; i < 10; i++ {
-			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog)
-			filters := makeFilters(i, []string{"foo"})
-			for _, f := range filters {
-				m.AddFilter(f)
-			}
-			env := makeEnv("env", "foo")
-			m.AddEnvironment(env)
-
-			for _, f := range filters {
-				m.DeleteFilter(f.ID)
-			}
-
-			var expDeletions []deleteParams
-			for _, f := range filters {
-				expDeletions = append(expDeletions, deleteParams{
-					id:     env.EnvID,
-					filter: f.Key,
-				})
-			}
-			require.ElementsMatch(t, spy.deleted, expDeletions)
-		}
-	})
-
-	t.Run("delete unknown filter has no effect", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		spy := newHandlerSpy()
-		m := NewEnvironmentManager("foo", spy, mockLog)
-		m.AddEnvironment(makeEnv("proj", "foo"))
-		m.AddFilter(makeFilter("known", "foo"))
-		m.DeleteFilter("unknown")
-		require.Len(t, spy.deleted, 0)
-	})
 }
 
 func TestEnvironmentManager_AddEnvironment(t *testing.T) {
@@ -296,19 +166,14 @@ func TestEnvironmentManager_DeleteEnvironment(t *testing.T) {
 }
 
 func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
-	t.Run("updating should not modify environment or filter state", func(t *testing.T) {
+	t.Run("updating should not modify environment state", func(t *testing.T) {
 		mockLog, _ := logtest.NewMockLogger()
 
 		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		envs := makeEnvs(2, []string{"foo"})
-		filters := makeFilters(2, []string{"foo"})
-
 		for _, e := range envs {
 			m.AddEnvironment(e)
-		}
-		for _, f := range filters {
-			m.AddFilter(f)
 		}
 
 		for i := 0; i < 3; i++ {
@@ -317,36 +182,7 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 			}
 		}
 
-		require.Len(t, m.Environments(), len(envs)*(len(filters)+1), "same amount of environments should exist")
-		require.Len(t, m.Filters(), len(filters), "same amount of filters should exist")
-	})
-
-	t.Run("n filters dispatches to n+1 environments", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		for i := 0; i < 10; i++ {
-			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog)
-
-			env := makeEnv("env1", "foo")
-
-			m.AddEnvironment(env)
-
-			filters := makeFilters(i, []string{"foo"})
-			expectedEnvs := []envfactory.EnvironmentParams{env}
-
-			for _, filter := range filters {
-				expectedEnvs = append(expectedEnvs, env.WithFilter(filter.Key))
-			}
-
-			for _, filter := range filters {
-				m.AddFilter(filter)
-			}
-
-			m.UpdateEnvironment(env)
-
-			require.ElementsMatch(t, spy.updated, expectedEnvs)
-		}
+		require.Len(t, m.Environments(), len(envs), "same amount of environments should exist")
 	})
 
 	t.Run("update unknown environment has no effect", func(t *testing.T) {
@@ -359,58 +195,6 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 		require.Len(t, spy.updated, 0)
 	})
 
-	t.Run("filters added after an update use the updated environment", func(t *testing.T) {
-		mockLog, _ := logtest.NewMockLogger()
-
-		spy := newHandlerSpy()
-		m := NewEnvironmentManager("foo", spy, mockLog)
-
-		env := makeEnv("env1", "foo")
-		env.SDKKey = config.SDKKey("old-sdk-key")
-		env.MobileKey = config.MobileKey("old-mobile-key")
-		m.AddEnvironment(env)
-
-		rotated := env
-		rotated.SDKKey = config.SDKKey("new-sdk-key")
-		rotated.MobileKey = config.MobileKey("new-mobile-key")
-		rotated.SecureMode = true
-		rotated.TTL = time.Minute
-		m.UpdateEnvironment(rotated)
-
-		filter := makeFilter("filter1", "foo")
-		m.AddFilter(filter)
-
-		require.Equal(t, []envfactory.EnvironmentParams{env, rotated.WithFilter(filter.Key)}, spy.added)
-	})
-}
-
-func TestEnvironmentManager_SimpleFilterCombination(t *testing.T) {
-	mockLog, _ := logtest.NewMockLogger()
-
-	m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
-
-	envs := []envfactory.EnvironmentParams{
-		{
-			EnvID: config.EnvironmentID("a"),
-		},
-		{
-			EnvID: config.EnvironmentID("b"),
-		},
-	}
-
-	filters := []string{"foo", "bar"}
-
-	for _, e := range envs {
-		m.AddEnvironment(e)
-	}
-
-	for _, f := range filters {
-		m.AddFilter(makeFilter(f, "proj"))
-	}
-
-	out := m.Environments()
-	require.Len(t, out, len(envs)*(len(filters)+1), "there should be len(envs) * (len(filters)+1) environments")
-	require.ElementsMatchf(t, out, []config.EnvironmentID{"a", "b", "a/foo", "a/bar", "b/foo", "b/bar"}, "default and filtered environments should be created")
 }
 
 type command struct {
@@ -432,8 +216,6 @@ type commandType string
 const (
 	addEnvironments    = commandType("add environments")
 	deleteEnvironments = commandType("delete environments")
-	addFilters         = commandType("add filters")
-	deleteFilters      = commandType("delete filters")
 )
 
 type scenario struct {
@@ -446,7 +228,7 @@ func TestEnvironmentManager_TableDriven(t *testing.T) {
 
 	scenarios := []scenario{
 		{
-			name: "adding and removing environments without filters",
+			name: "adding and removing environments",
 			commands: []command{
 				{
 					op:           addEnvironments,
@@ -465,79 +247,6 @@ func TestEnvironmentManager_TableDriven(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "adding and removing filters with single environment",
-			commands: []command{
-				{
-					op:           addEnvironments,
-					value:        "a",
-					expectedEnvs: []config.EnvironmentID{"a"},
-				},
-				{
-					op:           addFilters,
-					value:        "foo,bar,baz",
-					expectedEnvs: []config.EnvironmentID{"a", "a/foo", "a/bar", "a/baz"},
-				},
-				{
-					op:           deleteFilters,
-					value:        "bar",
-					expectedEnvs: []config.EnvironmentID{"a", "a/foo", "a/baz"},
-				},
-				{
-					op:           addFilters,
-					value:        "quz",
-					expectedEnvs: []config.EnvironmentID{"a", "a/foo", "a/baz", "a/quz"},
-				},
-			},
-		},
-		{
-			name: "adding and removing environments with a single filter",
-			commands: []command{
-				{
-					op:           addEnvironments,
-					value:        "a",
-					expectedEnvs: []config.EnvironmentID{"a"},
-				},
-				{
-					op:           addFilters,
-					value:        "foo",
-					expectedEnvs: []config.EnvironmentID{"a", "a/foo"},
-				},
-				{
-					op:           addEnvironments,
-					value:        "b,c",
-					expectedEnvs: []config.EnvironmentID{"a", "b", "c", "a/foo", "b/foo", "c/foo"},
-				},
-				{
-					op:           deleteEnvironments,
-					value:        "b",
-					expectedEnvs: []config.EnvironmentID{"a", "c", "a/foo", "c/foo"},
-				},
-			},
-		},
-		{
-			name: "adding an environment after adding filters",
-			commands: []command{
-				{
-					op:           addFilters,
-					value:        "foo,bar,baz",
-					expectedEnvs: []config.EnvironmentID{},
-				},
-				{
-					op:           addEnvironments,
-					value:        "a",
-					expectedEnvs: []config.EnvironmentID{"a", "a/foo", "a/bar", "a/baz"},
-				},
-			},
-		},
-	}
-
-	makeFilter := func(key string) envfactory.FilterParams {
-		return envfactory.FilterParams{
-			ProjKey: "proj",
-			ID:      config.FilterID("proj." + key),
-			Key:     config.FilterKey(key),
-		}
 	}
 
 	for _, scenario := range scenarios {
@@ -554,14 +263,6 @@ func TestEnvironmentManager_TableDriven(t *testing.T) {
 				case deleteEnvironments:
 					for _, env := range vals {
 						m.DeleteEnvironment(config.EnvironmentID(env))
-					}
-				case addFilters:
-					for _, filter := range vals {
-						m.AddFilter(makeFilter(filter))
-					}
-				case deleteFilters:
-					for _, filter := range vals {
-						m.DeleteFilter(makeFilter(filter).ID)
 					}
 				}
 				require.ElementsMatch(t, m.Environments(), cmd.expectedEnvs)

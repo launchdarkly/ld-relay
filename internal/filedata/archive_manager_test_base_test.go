@@ -31,7 +31,6 @@ type archiveManagerTestParams struct {
 
 type deleteMessage struct {
 	config.EnvironmentID
-	config.FilterKey
 }
 type testMessage struct {
 	id     config.EnvironmentID
@@ -108,8 +107,8 @@ func (h *testMessageHandler) EnvironmentFailed(id config.EnvironmentID, err erro
 	h.received <- testMessage{id: id, failed: &envFailedMessage{id, err}}
 }
 
-func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
-	h.received <- testMessage{id: id, delete: &deleteMessage{id, filter}}
+func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {
+	h.received <- testMessage{id: id, delete: &deleteMessage{id}}
 }
 
 func sortMessages(messages []testMessage) []testMessage {
