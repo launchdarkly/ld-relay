@@ -9,10 +9,25 @@ import (
 //
 // This is exported for use in integration test code.
 type StatusRep struct {
-	Environments  map[string]EnvironmentStatusRep `json:"environments"`
-	Status        string                          `json:"status"`
-	Version       string                          `json:"version"`
-	ClientVersion string                          `json:"clientVersion"`
+	Environments     map[string]EnvironmentStatusRep `json:"environments"`
+	AutoConfigStatus *AutoConfigStatusRep            `json:"autoConfigStatus,omitempty"`
+	Status           string                          `json:"status"`
+	Version          string                          `json:"version"`
+	ClientVersion    string                          `json:"clientVersion"`
+}
+
+// AutoConfigStatusRep is the status of the auto-configuration stream. It is present only when
+// Relay runs in automatic configuration mode.
+//
+// It uses the same types as the per-environment connectionStatus, so the two report the same
+// states and error kinds. A state other than VALID means Relay is no longer learning about
+// environment changes, even though the environments it already knows about keep serving flags.
+//
+// This is exported for use in integration test code.
+type AutoConfigStatusRep struct {
+	State      interfaces.DataSourceState `json:"state"`
+	StateSince ldtime.UnixMillisecondTime `json:"stateSince"`
+	LastError  *ConnectionErrorRep        `json:"lastError,omitempty"`
 }
 
 // KeyStatus is the JSON representation of one accepted SDK or mobile key in the status endpoint's
@@ -76,7 +91,10 @@ type ConnectionStatusRep struct {
 // This is exported for use in integration test code.
 type ConnectionErrorRep struct {
 	Kind interfaces.DataSourceErrorKind `json:"kind"`
-	Time ldtime.UnixMillisecondTime     `json:"time"`
+	// StatusCode is the HTTP status that caused the error. It is absent for an error that did not
+	// come from an HTTP response, such as a network failure.
+	StatusCode int                        `json:"statusCode,omitempty"`
+	Time       ldtime.UnixMillisecondTime `json:"time"`
 }
 
 // DataStoreStatusRep is the data store status representation returned by the status endpoint.
