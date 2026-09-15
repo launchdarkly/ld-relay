@@ -12,7 +12,7 @@ on:
 
 jobs:
   go-versions:
-    uses: ./.github/workflows/go-versions.yml
+    uses: launchdarkly/gh-actions/.github/workflows/sdk-go-version-matrix.yml@main
 
   integration-test:
     needs: go-versions
