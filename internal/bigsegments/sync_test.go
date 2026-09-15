@@ -1,10 +1,12 @@
 package bigsegments
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -804,4 +806,48 @@ func TestSyncBacksOffExponentiallyAcrossStreamEnds(t *testing.T) {
 			}, retryDelays(t, mockLog)[:3], "consecutive stream ends must double and clamp")
 		})
 	})
+}
+
+func TestSyncStaysOnNormalDelaysAfterCertificateFailure(t *testing.T) {
+	// A certificate failure is a transport failure, and no transport failure is unexpected, so
+	// it keeps the short delays. Waiting minutes would not help: it either resolves without the
+	// synchronizer's involvement or it resolves the moment an operator fixes the certificate,
+	// and a long ceiling would then hold stale data well past the fix.
+	//
+	// This replaces the unit test that covered the certificate classification directly, which
+	// went away with ClassifyTransportError.
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	var requests int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(200)
+	})
+	// A server whose certificate is signed by an unknown authority: the client rejects it
+	// before any response is read, which is the same class a skewed clock produces.
+	pollServer := httptest.NewTLSServer(handler)
+	defer pollServer.Close()
+	streamServer := httptest.NewTLSServer(handler)
+	defer streamServer.Close()
+
+	storeMock := newBigSegmentStoreMock()
+	defer storeMock.Close()
+
+	segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+		pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+	segmentSync.retryStrategy = fastRetryStrategy()
+	defer segmentSync.Close()
+	segmentSync.Start()
+
+	// It keeps retrying on the short delays, so several attempts land quickly.
+	require.Eventually(t, func() bool {
+		return hasLogMessage(mockLog, ldlog.Warn, "Synchronization failed")
+	}, time.Second, 10*time.Millisecond, "expected the certificate failure to be recorded")
+
+	assert.False(t, hasLogMessage(mockLog, ldlog.Info, "engaging extended backoff"),
+		"a certificate failure is a transport failure, so it must stay on the normal delays")
+	assert.False(t, hasLogMessage(mockLog, ldlog.Error, "Synchronization failed"),
+		"a transport failure logs at warn, not error")
 }

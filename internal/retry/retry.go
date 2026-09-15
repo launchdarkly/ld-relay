@@ -12,12 +12,14 @@
 // ceiling and retries far more slowly. An invalid credential is the motivating example: the
 // component keeps trying, because an operator can make the credential valid again without
 // the component knowing, but it must not hammer the service in the meantime.
+//
+// Only an HTTP status can be unexpected. Every transport-level failure, including a
+// certificate validation failure, is treated as normal: it either resolves without the
+// component's involvement, as a network problem does, or it resolves the moment an operator
+// fixes it, and in neither case does waiting minutes help.
 package retry
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"math"
 	"math/rand"
 	"time"
@@ -48,34 +50,6 @@ func ClassifyHTTPStatus(statusCode int) FailureClass {
 		default:
 			return Unexpected
 		}
-	}
-	return Normal
-}
-
-// ClassifyTransportError returns the class for a transport-level failure.
-//
-// A TLS or certificate failure comes from a misconfiguration, such as an expired
-// certificate or an untrusted issuer, so it does not correct itself without operator
-// action. Every other network failure is transient.
-func ClassifyTransportError(err error) FailureClass {
-	if err == nil {
-		return Normal
-	}
-	var certErr *tls.CertificateVerificationError
-	if errors.As(err, &certErr) {
-		return Unexpected
-	}
-	var unknownAuthorityErr x509.UnknownAuthorityError
-	if errors.As(err, &unknownAuthorityErr) {
-		return Unexpected
-	}
-	var hostnameErr x509.HostnameError
-	if errors.As(err, &hostnameErr) {
-		return Unexpected
-	}
-	var invalidErr x509.CertificateInvalidError
-	if errors.As(err, &invalidErr) {
-		return Unexpected
 	}
 	return Normal
 }
