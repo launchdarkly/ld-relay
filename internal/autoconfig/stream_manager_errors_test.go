@@ -1,8 +1,11 @@
 package autoconfig
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -336,29 +340,169 @@ func TestReconnectAfterNetworkError(t *testing.T) {
 	errorShouldCauseReconnect(t, httphelpers.BrokenConnectionHandler(), "Unexpected error")
 }
 
-func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
+func TestRecoversAfterUnrecoverableHTTPError(t *testing.T) {
+	// A rejected key no longer stops the stream. An operator can make the key valid again
+	// without Relay knowing, so the stream keeps trying and recovers on its own, which
+	// previously took a process restart.
 	for _, status := range []int{401, 403} {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
 			initialEvent := makeEnvPutEvent(testEnv1)
 			streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
 			defer stream.Close()
-			errorProducingHandler := httphelpers.HandlerWithStatus(status)
 			handler := httphelpers.SequentialHandler(
-				errorProducingHandler, // first request will get this
-				streamHandler,         // request after reconnect will get this
+				httphelpers.HandlerWithStatus(status), // first request is rejected
+				streamHandler,                         // the retry succeeds
 			)
 			streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+				// Shorten the extended delay so the retry happens within the test.
+				p.streamManager.extendedRetryDelay = time.Millisecond
+				// Recovery is only observable while Relay is still running. With no cached
+				// configuration Relay would otherwise report failure as soon as it learned the
+				// cache was empty, since it has nothing to serve; the cached case is covered by
+				// TestKeepsRunningWhenUnauthorizedButCacheHasConfiguration.
+				p.streamManager.ignoreConnectionErrors = true
+
 				p.startStream()
-				<-p.requestsCh // first request
-				select {
-				case <-p.requestsCh: // got expected stream restart
-					require.Fail(t, "got unexpected stream restart")
-				case <-p.messageHandler.received:
-					require.Fail(t, "got unexpected event")
-				case <-time.After(time.Millisecond * 200):
-					p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "Invalid auto-configuration key")
-				}
+
+				<-p.requestsCh // the rejected request
+				<-p.requestsCh // the retry
+
+				p.requireMessage() // the environment from the recovered stream
+				p.requireReceivedAllMessage()
+
+				p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "will keep retrying")
+				p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "engaging extended backoff")
 			})
 		})
 	}
+}
+
+func TestGivesUpWhenUnauthorizedAndNothingIsCached(t *testing.T) {
+	// With no configuration from any source, Relay can serve nothing, so it reports the
+	// failure after a grace period and lets the process exit. That surfaces a bad key to
+	// whatever supervises Relay rather than leaving a process that answers every request
+	// with an error.
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = time.Millisecond
+
+		readyCh := p.streamManager.Start()
+		// The cache read reports "nothing cached" by closing its channel, so Relay knows it
+		// cannot serve as soon as the key is rejected. It does not wait out initTimeout.
+		err := helpers.RequireValue(p.t, readyCh, time.Second, "timed out waiting for the failure report")
+		require.Error(p.t, err)
+
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "no cached configuration is available")
+	})
+}
+
+func TestKeepsRunningWhenUnauthorizedButCacheHasConfiguration(t *testing.T) {
+	// The opposite case: cached configuration means Relay can serve, so it stays up past the
+	// grace period and keeps trying the key rather than exiting.
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	cache := &recordingCache{}
+	require.NoError(t, cache.SetAll(context.Background(), PutContent{
+		Environments: map[config.EnvironmentID]envfactory.EnvironmentRep{testEnv1.EnvID: testEnv1},
+	}))
+
+	streamManagerTestWithStreamHandler(t, handler, stream, cache, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = time.Millisecond
+
+		readyCh := p.streamManager.Start()
+
+		// The cached environment reaches the handler, which is what makes Relay serviceable.
+		p.requireMessage()
+		p.requireReceivedAllMessage()
+
+		// Well past initTimeout, nothing has been reported, so Relay is still running.
+		if !helpers.AssertNoMoreValues(t, readyCh, 1500*time.Millisecond,
+			"Relay reported a failure even though the cache supplied a configuration") {
+			t.FailNow()
+		}
+		p.mockLog.AssertMessageMatch(t, false, ldlog.Error, "no cached configuration is available")
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "loaded from persistent cache")
+	})
+}
+
+func TestIgnoreConnectionErrorsKeepsRunningWithNoConfiguration(t *testing.T) {
+	// ignoreConnectionErrors is documented as "go on trying to connect in the background while
+	// still allowing clients to connect to the Relay Proxy". With it set, a rejected key does
+	// not report a failure even though Relay has nothing to serve.
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = time.Millisecond
+		p.streamManager.initTimeout = 50 * time.Millisecond
+		p.streamManager.ignoreConnectionErrors = true
+
+		readyCh := p.streamManager.Start()
+
+		if !helpers.AssertNoMoreValues(t, readyCh, 500*time.Millisecond,
+			"Relay reported a failure even though ignoreConnectionErrors is set") {
+			t.FailNow()
+		}
+		p.mockLog.AssertMessageMatch(t, false, ldlog.Error, "no cached configuration is available")
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "will keep retrying")
+	})
+}
+
+// firstRetryDelay returns the delay from eventsource's first "retrying in N secs" line, which
+// it logs through the loggers Relay supplies.
+func firstRetryDelay(mockLog *ldlogtest.MockLog) (time.Duration, bool) {
+	for _, line := range mockLog.GetOutput(ldlog.Info) {
+		_, after, found := strings.Cut(line, "retrying in ")
+		if !found {
+			continue
+		}
+		secs, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(after), " secs"), 64)
+		if err != nil {
+			continue
+		}
+		return time.Duration(secs * float64(time.Second)), true
+	}
+	return 0, false
+}
+
+func TestUnauthorizedEngagesTheExtendedDelays(t *testing.T) {
+	// Keeping the stream alive is only half the point. It must also retry slowly, so that a
+	// fleet of Relay Proxy instances does not hammer a service that is rejecting every
+	// request. Without this, removing the profile activation leaves every other test green.
+	//
+	// eventsource computes the delay after applying the profile the error handler returns, and
+	// logs it, so the first line already reflects the extended delays. The delay is never
+	// waited out: the test reads the log line and returns.
+	const extendedDelay = 10 * time.Minute
+
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = extendedDelay
+		// Keep Relay alive, so it does not report the failure and abandon the stream before
+		// the log line appears.
+		p.streamManager.ignoreConnectionErrors = true
+
+		p.streamManager.Start()
+
+		var delay time.Duration
+		require.Eventually(t, func() bool {
+			d, ok := firstRetryDelay(p.mockLog)
+			delay = d
+			return ok
+		}, time.Second, 5*time.Millisecond, "expected eventsource to log a retry delay")
+
+		// Jitter removes up to half the delay, so the floor is half the base. The normal
+		// ceiling is 30s, so any delay above it can only have come from the extended profile.
+		assert.GreaterOrEqual(t, delay, extendedDelay/2, "the delay must come from the extended profile")
+		assert.LessOrEqual(t, delay, extendedDelay)
+	})
 }

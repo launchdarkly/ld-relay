@@ -215,17 +215,26 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			rpacProtocolVersion,
 			loggers,
 			autoConfigCache,
+			c.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
+			c.Main.IgnoreConnectionErrors,
 		)
 
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {
 			err := <-autoConfigResult
 			if err != nil {
-				// This channel only emits a non-nil error if it's an unrecoverable error, in which case
-				// Relay should quit. The ExitOnError option doesn't affect this, because a failure of
-				// auto-config is more serious than any environment-specific failure; Relay can't possibly
-				// do anything useful without a configuration. The StreamManager has already logged the
-				// error by this point, so we just need to quit.
+				// This channel emits a non-nil error only when Relay has no configuration and no
+				// longer expects to get one, in which case Relay should quit. Relay cannot do
+				// anything useful without a configuration, so the ExitOnError option does not
+				// affect this; a failure of auto-config is more serious than any
+				// environment-specific failure.
+				//
+				// A rejected auto-configuration key reaches this point only when Relay has
+				// nothing to serve: the stream never delivered a configuration and the
+				// persistent cache is reachable and empty. With a cached configuration Relay
+				// stays running, serves from it, and keeps retrying the key. Any failure other
+				// than a rejected key also leaves Relay running. The StreamManager has already
+				// logged the reason by this point.
 				os.Exit(1)
 			}
 		}()

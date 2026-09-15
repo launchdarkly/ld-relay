@@ -308,6 +308,8 @@ func streamManagerTestWithStreamHandler(
 			rpacProtocolVersion,
 			mockLog.Loggers,
 			cache,
+			time.Second, // initTimeout: bounds the wait for the cache read
+			false,       // ignoreConnectionErrors
 		)
 		defer p.streamManager.Close()
 

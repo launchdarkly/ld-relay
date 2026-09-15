@@ -19,6 +19,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/retry"
 )
 
 const (
@@ -29,6 +30,14 @@ const (
 	streamRetryResetInterval = 60 * time.Second
 	streamJitterRatio        = 0.5
 	defaultStreamRetryDelay  = 1 * time.Second
+
+	// Delays for a failure that is unlikely to correct itself soon, such as a rejected
+	// auto-configuration key. The stream keeps retrying on these instead of giving up,
+	// because an operator can make the key valid again without Relay knowing. The ceiling
+	// bounds how much load a fleet of Relay Proxy instances puts on a service that is
+	// rejecting every request.
+	streamExtendedRetryDelay    = 5 * time.Minute
+	streamExtendedMaxRetryDelay = 1 * time.Hour
 )
 
 var (
@@ -78,14 +87,28 @@ type StreamManager struct {
 	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
-	loggers           ldlog.Loggers
-	halt              chan struct{}
-	done              chan struct{} // closed when the subscribe goroutine exits
-	closeOnce         sync.Once
+	// extendedRetryDelay is the base delay used once the service has rejected the key.
+	extendedRetryDelay time.Duration
+	// initTimeout bounds how long Relay waits for a configuration once the service has
+	// rejected the key. It is the initTimeout configuration option.
+	initTimeout time.Duration
+	// ignoreConnectionErrors keeps Relay running with no configuration rather than reporting
+	// a failure. It is the ignoreConnectionErrors configuration option.
+	ignoreConnectionErrors bool
+	loggers                ldlog.Loggers
+	halt                   chan struct{}
+	done                   chan struct{} // closed when the subscribe goroutine exits
+	closeOnce              sync.Once
+
+	// streamCtx bounds the lifetime of the SSE connection, including any backoff wait between
+	// attempts. Cancelling it is the only way to interrupt that wait: eventsource's retry loop
+	// selects on the request's context and the delay timer, and nothing else.
+	streamCtx    context.Context
+	streamCancel context.CancelFunc
 
 	// cacheCh receives the result of the async cache read started by Start().
 	// It is consumed by consumeStream and nilled out after use.
-	cacheCh     <-chan *PutContent
+	cacheCh     <-chan cacheReadResult
 	cacheCancel context.CancelFunc
 
 	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
@@ -111,6 +134,8 @@ func NewStreamManager(
 	protocolVersion int,
 	loggers ldlog.Loggers,
 	cache Cache,
+	initTimeout time.Duration,
+	ignoreConnectionErrors bool,
 ) *StreamManager {
 	loggers.SetPrefix("AutoConfiguration")
 	if protocolVersion > 1 {
@@ -118,16 +143,24 @@ func NewStreamManager(
 			protocolVersionParam: []string{strconv.Itoa(protocolVersion)},
 		}.Encode()
 	}
+	streamCtx, streamCancel := context.WithCancel(context.Background())
 	s := &StreamManager{
 		key:               key,
+		streamCtx:         streamCtx,
+		streamCancel:      streamCancel,
 		uri:               streamURI,
 		handler:           handler,
 		cache:             cache,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
-		loggers:           loggers,
-		halt:              make(chan struct{}),
+		// The extended delay has no configuration key. Its value bounds the load a fleet of
+		// Relay Proxy instances puts on a service that is rejecting its key.
+		extendedRetryDelay:     streamExtendedRetryDelay,
+		initTimeout:            initTimeout,
+		ignoreConnectionErrors: ignoreConnectionErrors,
+		loggers:                loggers,
+		halt:                   make(chan struct{}),
 		status: StreamStatus{
 			State:      interfaces.DataSourceStateInitializing,
 			StateSince: time.Now(),
@@ -150,6 +183,17 @@ func NewStreamManager(
 	return s
 }
 
+// cacheReadTimeout is how long the cache read may take before Relay treats the cache as
+// unavailable. It is the initTimeout configuration option, with non-positive values replaced by
+// the default: zero means "do not block" for the SDK client elsewhere in Relay, and applying
+// that reading here would discard a usable cached configuration before the store could answer.
+func (s *StreamManager) cacheReadTimeout() time.Duration {
+	if s.initTimeout <= 0 {
+		return config.DefaultInitTimeout
+	}
+	return s.initTimeout
+}
+
 // Start causes the StreamManager to start trying to connect to the auto-config stream. The returned channel
 // receives nil for a successful connection, or an error if it has permanently failed.
 //
@@ -158,19 +202,30 @@ func NewStreamManager(
 // the cache read is cancelled and its result discarded.
 func (s *StreamManager) Start() <-chan error {
 	// Start the cache read concurrently with the stream connection.
-	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	cacheCh := make(chan *PutContent, 1)
+	//
+	// The read is bounded by initTimeout. Neither cache store sets a deadline of its own, so
+	// without this a wedged store would leave Relay unable to decide whether it has anything
+	// to serve. Bounding it here rather than in the wait loop means the loop has one less
+	// thing to race, and the timeout produces the same closed channel as an empty cache.
+	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), s.cacheReadTimeout())
+	cacheCh := make(chan cacheReadResult, 1)
 	go func() {
 		defer close(cacheCh)
 		content, err := s.cache.GetAll(cacheCtx)
 		if err != nil {
-			if cacheCtx.Err() == nil {
-				s.loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
+			switch {
+			case errors.Is(err, context.DeadlineExceeded):
+				s.loggers.Warnf(logMsgCacheReadTimeout, s.cacheReadTimeout())
+			case cacheCtx.Err() == nil:
+				s.loggers.Warnf(logMsgCacheReadFailed, err)
+			default:
+				return // cancelled because Relay no longer needs the result
 			}
+			cacheCh <- cacheReadResult{unavailable: true}
 			return
 		}
 		if content != nil {
-			cacheCh <- content
+			cacheCh <- cacheReadResult{content: content}
 		}
 	}()
 	s.cacheCh = cacheCh
@@ -191,12 +246,24 @@ func (s *StreamManager) Start() <-chan error {
 func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
+		// halt is only observed when the next attempt fails, so on its own it cannot end a
+		// backoff wait that is already pending. Cancelling the stream context does.
+		s.streamCancel()
 		s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{})
 	})
 	if s.done != nil {
 		<-s.done
 	}
 	_ = s.cache.Close()
+}
+
+// cacheReadResult carries the outcome of the startup cache read. A closed channel with no
+// value means the cache is reachable and empty. A value with unavailable set means the read
+// failed or timed out, which is not the same thing: the store may well hold a usable
+// configuration, so Relay must not conclude from it that there is nothing to serve.
+type cacheReadResult struct {
+	content     *PutContent
+	unavailable bool
 }
 
 type streamResult struct {
@@ -218,44 +285,26 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	var readyOnce sync.Once
 	signalReady := func(err error) { readyOnce.Do(func() { readyCh <- err }) }
 
-	errorHandler := func(err error) es.StreamErrorHandlerResult {
-		// If Close() has been called, stop retrying so the SSE goroutine can exit.
-		select {
-		case <-s.halt:
-			return es.StreamErrorHandlerResult{CloseNow: true}
-		default:
-		}
-
-		if se, ok := err.(es.SubscriptionError); ok {
-			errorInfo := interfaces.DataSourceErrorInfo{
-				Kind:       interfaces.DataSourceErrorKindErrorResponse,
-				StatusCode: se.Code,
-				Time:       time.Now(),
-			}
-			if se.Code == 401 || se.Code == 403 {
-				s.loggers.Error(logMsgBadKey)
-				s.updateStatus(interfaces.DataSourceStateOff, errorInfo)
-				signalReady(errors.New("invalid auto-configuration key"))
-				return es.StreamErrorHandlerResult{CloseNow: true}
-			}
-			s.loggers.Warnf(logMsgStreamHTTPError, se.Code)
-			s.updateStatus(interfaces.DataSourceStateInterrupted, errorInfo)
-			return es.StreamErrorHandlerResult{CloseNow: false}
-		}
-
-		s.loggers.Warnf(logMsgStreamOtherError, err)
-		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
-			Kind:    interfaces.DataSourceErrorKindNetworkError,
-			Message: err.Error(),
-			Time:    time.Now(),
-		})
-		return es.StreamErrorHandlerResult{CloseNow: false}
+	retryDelay := s.initialRetryDelay
+	if retryDelay <= 0 {
+		retryDelay = defaultStreamRetryDelay // COVERAGE: never happens in unit tests
 	}
 
-	retry := s.initialRetryDelay
-	if retry <= 0 {
-		retry = defaultStreamRetryDelay // COVERAGE: never happens in unit tests
-	}
+	normalProfile := es.NewRetryProfile(
+		es.RetryProfileBaseDelay(retryDelay),
+		es.RetryProfileMaxDelay(streamMaxRetryDelay),
+		es.RetryProfileJitter(streamJitterRatio),
+	)
+	extendedProfile := es.NewRetryProfile(
+		es.RetryProfileBaseDelay(s.extendedRetryDelay),
+		es.RetryProfileMaxDelay(streamExtendedMaxRetryDelay),
+		es.RetryProfileJitter(streamJitterRatio),
+	)
+
+	// keyRejectedCh tells the wait loop below that the service rejected the credential. The
+	// send never blocks, and one notification is enough.
+	keyRejectedCh := make(chan struct{}, 1)
+	errorHandler := s.newStreamErrorHandler(keyRejectedCh, extendedProfile)
 
 	rpacEndpoint, err := url.JoinPath(s.uri.String(), autoConfigStreamPath)
 	if err != nil {
@@ -264,7 +313,7 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		return
 	}
 
-	req, _ := http.NewRequest("GET", rpacEndpoint, nil)
+	req, _ := http.NewRequestWithContext(s.streamCtx, "GET", rpacEndpoint, nil)
 	req.Header.Set("Authorization", string(s.key))
 	s.loggers.Infof(logMsgStreamConnecting, rpacEndpoint)
 
@@ -279,13 +328,12 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		stream, err := es.SubscribeWithRequestAndOptions(req,
 			es.StreamOptionHTTPClient(client),
 			es.StreamOptionReadTimeout(streamReadTimeout),
-			es.StreamOptionInitialRetry(retry),
-			es.StreamOptionUseBackoff(streamMaxRetryDelay),
-			es.StreamOptionUseJitter(streamJitterRatio),
+			es.StreamOptionDefaultRetryProfile(normalProfile),
+			es.StreamOptionRegisterRetryProfile(extendedProfile),
 			es.StreamOptionRetryResetInterval(streamRetryResetInterval),
 			es.StreamOptionErrorHandler(errorHandler),
 			es.StreamOptionCanRetryFirstConnection(-1),
-			es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
+			es.StreamOptionLogger(streamLogger{dest: s.loggers.ForLevel(ldlog.Info)}),
 		)
 		streamCh <- streamResult{stream, err}
 	}()
@@ -293,18 +341,63 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	// Race the cache read against the stream connection. If the cache returns before
 	// the stream's first PUT, its data is applied so Relay can serve immediately.
 	// The cache is only cancelled when a PUT arrives with authoritative data.
+	// Relay cannot serve a request until it knows its environments. Only the cache can supply
+	// them before the stream connects, so these three facts decide whether waiting is still
+	// worthwhile.
+	haveConfiguration := false // the cache supplied a configuration
+	cacheEmpty := false        // the cache is reachable and holds nothing
+	keyRejected := false       // the service rejected the credential
+
+	// shouldGiveUp reports whether Relay has established that it cannot serve. That needs a
+	// rejected credential and a cache that is reachable and empty. A cache Relay could not
+	// read is deliberately not enough: the store may hold a usable configuration, and exiting
+	// on a failover or a DNS blip would throw it away. Any other failure leaves Relay waiting
+	// and retrying, which is what it did before this change.
+	shouldGiveUp := func() bool {
+		return keyRejected && cacheEmpty && !haveConfiguration && !s.ignoreConnectionErrors
+	}
+
+	giveUp := func() {
+		s.loggers.Error(logMsgNoConfigGaveUp)
+		signalReady(errors.New("invalid auto-configuration key"))
+		// Stop the connection attempt as well. Without this the abandoned goroutine keeps
+		// presenting a credential the service has already rejected, for as long as the
+		// extended delays run.
+		s.streamCancel()
+		s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{})
+		s.abandonStreamGoroutine(streamCh)
+	}
+
 	var stream *es.Stream
 	for stream == nil {
 		select {
-		case content, ok := <-s.cacheCh:
-			if ok && content != nil {
-				s.applyCachedContent(content)
+		case result, ok := <-s.cacheCh:
+			switch {
+			case result.content != nil && len(result.content.Environments) > 0:
+				s.applyCachedContent(result.content)
+				haveConfiguration = true
+			case !ok || !result.unavailable:
+				// Reachable but with nothing Relay can serve. An entry holding only filters
+				// counts as nothing: without environments there is no credential to accept and
+				// no flag data to answer with.
+				cacheEmpty = true
 			}
 			if s.cacheCancel != nil {
 				s.cacheCancel()
 				s.cacheCancel = nil
 			}
 			s.cacheCh = nil
+			if shouldGiveUp() {
+				giveUp()
+				return
+			}
+
+		case <-keyRejectedCh:
+			keyRejected = true
+			if shouldGiveUp() {
+				giveUp()
+				return
+			}
 
 		case result := <-streamCh:
 			if result.err != nil {
@@ -320,14 +413,7 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 				s.cacheCancel = nil
 				s.cacheCh = nil
 			}
-			// The SSE goroutine may still be running. Drain its result in the
-			// background: if it produced a stream, close it so nothing leaks.
-			go func() {
-				result := <-streamCh
-				if result.stream != nil {
-					result.stream.Close()
-				}
-			}()
+			s.abandonStreamGoroutine(streamCh)
 			return
 		}
 	}
@@ -349,9 +435,11 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 
 	for {
 		select {
-		case content, ok := <-s.cacheCh:
-			if ok && content != nil {
-				s.applyCachedContent(content)
+		case result, ok := <-s.cacheCh:
+			// The stream is already connected here, so a late cache result is only useful if
+			// it carries data; an unreadable cache changes nothing.
+			if ok && result.content != nil {
+				s.applyCachedContent(result.content)
 			}
 			if s.cacheCancel != nil {
 				s.cacheCancel()
@@ -549,6 +637,100 @@ func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.
 	}
 }
 
+// newStreamErrorHandler builds the SSE error handler for one subscribe cycle.
+//
+// No response and no transport failure stops the stream. A rejected key can become valid
+// again without Relay knowing, so a failure that is unlikely to correct itself soon moves the
+// stream to the longer delays and it keeps trying. The handler reports such a failure on
+// authFailureCh, because only the caller can decide whether Relay is able to serve meanwhile.
+func (s *StreamManager) newStreamErrorHandler(
+	keyRejectedCh chan<- struct{},
+	extendedProfile *es.RetryProfile,
+) func(error) es.StreamErrorHandlerResult {
+	// loggedExtended keeps the notice about the longer delays to once per subscribe cycle.
+	// The library returns to the normal delays itself once the connection has been healthy
+	// for streamRetryResetInterval, and does not report that, so re-logging would mislead.
+	loggedExtended := false
+
+	return func(err error) es.StreamErrorHandlerResult {
+		// If Close() has been called, stop retrying so the SSE goroutine can exit.
+		select {
+		case <-s.halt:
+			return es.StreamErrorHandlerResult{CloseNow: true}
+		default:
+		}
+
+		class, keyRejected := s.classifyAndLogStreamError(err)
+
+		// Interrupted rather than Off even for a rejected credential: the stream keeps
+		// retrying, so it is not finished. Off is left for Close and for giving up.
+		s.updateStatus(interfaces.DataSourceStateInterrupted, streamErrorInfo(err))
+
+		result := es.StreamErrorHandlerResult{CloseNow: false}
+		if class == retry.Unexpected {
+			if !loggedExtended {
+				s.loggers.Info(logMsgExtendedBackoff)
+				loggedExtended = true
+			}
+			result.ActivateProfile = extendedProfile
+		}
+
+		// Only a rejected credential can make Relay stop. Every other failure, however slowly
+		// it retries, leaves Relay running: a 404 from a misconfigured stream URI or a
+		// certificate problem is not a reason to take a whole fleet down.
+		if keyRejected {
+			select {
+			case keyRejectedCh <- struct{}{}:
+			default:
+			}
+		}
+		return result
+	}
+}
+
+// classifyAndLogStreamError sorts a stream failure into a retry class, logs it, and reports
+// whether the service rejected the credential.
+//
+// The two results answer different questions. The class decides how long to wait before the
+// next attempt. Only a rejected credential decides whether Relay can ever succeed, so only it
+// can lead to Relay stopping.
+//
+// A failure that is unlikely to correct itself soon is worth an error, because it nearly
+// always means a real configuration problem, even though the stream recovers on its own once
+// that problem is fixed.
+func (s *StreamManager) classifyAndLogStreamError(err error) (class retry.FailureClass, keyRejected bool) {
+	var se es.SubscriptionError
+	if !errors.As(err, &se) {
+		// No transport-level failure is unexpected, so these keep the short delays.
+		s.loggers.Warnf(logMsgStreamOtherError, err)
+		return retry.Normal, false
+	}
+
+	class = retry.ClassifyHTTPStatus(se.Code)
+	keyRejected = se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden
+	switch {
+	case keyRejected:
+		s.loggers.Error(logMsgBadKeyWillRetry)
+	case class == retry.Unexpected:
+		s.loggers.Errorf(logMsgStreamHTTPError, se.Code)
+	default:
+		s.loggers.Warnf(logMsgStreamHTTPError, se.Code)
+	}
+	return class, keyRejected
+}
+
+// abandonStreamGoroutine leaves the SSE connection attempt behind. That goroutine may still
+// be retrying, so its result is drained in the background and any stream it produced is
+// closed, which keeps the connection and its goroutines from leaking.
+func (s *StreamManager) abandonStreamGoroutine(streamCh <-chan streamResult) {
+	go func() {
+		result := <-streamCh
+		if result.stream != nil {
+			result.stream.Close()
+		}
+	}()
+}
+
 func (s *StreamManager) applyCachedContent(content *PutContent) {
 	s.handlePut(PutContent{
 		Environments: content.Environments,
@@ -662,6 +844,25 @@ func obfuscateEventData(data string) string {
 	data = sdkKeyJSONRegex.ReplaceAllString(data, `"value":"...$1"`)
 	data = mobKeyJSONRegex.ReplaceAllString(data, `"mobKey":"...$1"`)
 	return data
+}
+
+// streamErrorInfo describes a stream failure in the shape the SDK data source status uses, so
+// the status resource reports both the same way. An HTTP failure carries its status code; a
+// transport failure has none to carry.
+func streamErrorInfo(err error) interfaces.DataSourceErrorInfo {
+	var se es.SubscriptionError
+	if errors.As(err, &se) {
+		return interfaces.DataSourceErrorInfo{
+			Kind:       interfaces.DataSourceErrorKindErrorResponse,
+			StatusCode: se.Code,
+			Time:       time.Now(),
+		}
+	}
+	return interfaces.DataSourceErrorInfo{
+		Kind:    interfaces.DataSourceErrorKindNetworkError,
+		Message: err.Error(),
+		Time:    time.Now(),
+	}
 }
 
 // StreamStatus is the state of the auto-configuration stream connection. It uses the same types
