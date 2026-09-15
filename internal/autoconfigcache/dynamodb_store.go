@@ -177,9 +177,11 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		exclusiveStartKey = out.LastEvaluatedKey
 	}
 
-	// Step 2: Build write requests for new items.
+	// Step 2: Build write requests for new items. dropped counts anything that cannot be
+	// written, so SetAll can tell the caller the snapshot is incomplete.
 	var writeRequests []types.WriteRequest
 	newKeys := make(map[string]bool)
+	dropped := 0
 
 	for id, rep := range content.Environments {
 		if id != rep.EnvID {
@@ -190,9 +192,11 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		item, err := s.buildItem(sortKey, ModelKindEnvironment, rep)
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache: failed to build env item %q: %v", id, err)
+			dropped++
 			continue
 		}
 		if !s.checkSizeLimit(item, sortKey) {
+			dropped++
 			continue
 		}
 		writeRequests = append(writeRequests, types.WriteRequest{
@@ -206,9 +210,11 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		item, err := s.buildItem(sortKey, ModelKindFilter, rep)
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache: failed to build filter item %q: %v", id, err)
+			dropped++
 			continue
 		}
 		if !s.checkSizeLimit(item, sortKey) {
+			dropped++
 			continue
 		}
 		writeRequests = append(writeRequests, types.WriteRequest{
@@ -230,9 +236,15 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		}
 	}
 
-	// Step 4: Batch write in chunks of 25. Individual batch failures are logged
-	// but do not abort — partial cache data is better than none for resilience.
-	s.batchWrite(ctx, writeRequests)
+	// Step 4: Batch write in chunks of 25. A failed chunk does not abort the rest, because a
+	// partially written cache is worth more than none, but it is reported: a caller told the
+	// write succeeded would later read an incomplete snapshot and treat it as the whole
+	// configuration.
+	dropped += s.batchWrite(ctx, writeRequests)
+	if dropped > 0 {
+		return fmt.Errorf("AutoConfig cache: %d of %d items could not be written, "+
+			"so the cached configuration is incomplete", dropped, len(writeRequests)+dropped)
+	}
 	return nil
 }
 
@@ -270,7 +282,11 @@ func (s *dynamoDBStore) checkSizeLimit(item map[string]types.AttributeValue, sor
 	return false
 }
 
-func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRequest) {
+// batchWrite writes in chunks of 25 and returns how many items it could not write. It keeps
+// going after a failed chunk, because a partially written cache is still worth more than none,
+// but the caller has to know the snapshot is incomplete rather than be told it succeeded.
+func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRequest) int {
+	dropped := 0
 	for i := 0; i < len(requests); i += dynamoDBMaxBatchSize {
 		end := i + dynamoDBMaxBatchSize
 		if end > len(requests) {
@@ -281,6 +297,7 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 		})
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache DynamoDB batch write failed (continuing): %v", err)
+			dropped += end - i
 			continue
 		}
 		unprocessed := 0
@@ -289,8 +306,10 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 		}
 		if unprocessed > 0 {
 			s.loggers.Warnf("AutoConfig cache DynamoDB: %d items were unprocessed and dropped", unprocessed)
+			dropped += unprocessed
 		}
 	}
+	return dropped
 }
 
 func (s *dynamoDBStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
