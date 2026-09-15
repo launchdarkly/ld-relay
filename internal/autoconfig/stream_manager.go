@@ -364,6 +364,7 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		// presenting a credential the service has already rejected, for as long as the
 		// extended delays run.
 		s.streamCancel()
+		s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{})
 		s.abandonStreamGoroutine(streamCh)
 	}
 
@@ -661,6 +662,10 @@ func (s *StreamManager) newStreamErrorHandler(
 
 		class, keyRejected := s.classifyAndLogStreamError(err)
 
+		// Interrupted rather than Off even for a rejected credential: the stream keeps
+		// retrying, so it is not finished. Off is left for Close and for giving up.
+		s.updateStatus(interfaces.DataSourceStateInterrupted, streamErrorInfo(err))
+
 		result := es.StreamErrorHandlerResult{CloseNow: false}
 		if class == retry.Unexpected {
 			if !loggedExtended {
@@ -839,6 +844,25 @@ func obfuscateEventData(data string) string {
 	data = sdkKeyJSONRegex.ReplaceAllString(data, `"value":"...$1"`)
 	data = mobKeyJSONRegex.ReplaceAllString(data, `"mobKey":"...$1"`)
 	return data
+}
+
+// streamErrorInfo describes a stream failure in the shape the SDK data source status uses, so
+// the status resource reports both the same way. An HTTP failure carries its status code; a
+// transport failure has none to carry.
+func streamErrorInfo(err error) interfaces.DataSourceErrorInfo {
+	var se es.SubscriptionError
+	if errors.As(err, &se) {
+		return interfaces.DataSourceErrorInfo{
+			Kind:       interfaces.DataSourceErrorKindErrorResponse,
+			StatusCode: se.Code,
+			Time:       time.Now(),
+		}
+	}
+	return interfaces.DataSourceErrorInfo{
+		Kind:    interfaces.DataSourceErrorKindNetworkError,
+		Message: err.Error(),
+		Time:    time.Now(),
+	}
 }
 
 // StreamStatus is the state of the auto-configuration stream connection. It uses the same types

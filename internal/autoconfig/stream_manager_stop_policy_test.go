@@ -10,8 +10,10 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -95,4 +97,33 @@ func TestCertificateFailureDoesNotStopRelay(t *testing.T) {
 	// the moment an operator fixes the certificate.
 	mockLog.AssertMessageMatch(t, false, ldlog.Info, "engaging extended backoff")
 	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Unexpected error on auto-configuration stream")
+}
+
+// The status delta this change introduces: a rejected credential is no longer terminal, because
+// the stream keeps retrying. On the branch this is stacked on, the same rejection reports OFF.
+//
+// OFF now means only that the stream is finished: Close was called, or Relay gave up because it
+// had nothing to serve.
+func TestRejectedKeyIsNotTerminalInTheStatus(t *testing.T) {
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = time.Millisecond
+		// Without this Relay would give up, which is terminal for a different reason.
+		p.streamManager.ignoreConnectionErrors = true
+		p.streamManager.Start()
+
+		require.Eventually(t, func() bool {
+			return p.streamManager.Status().LastError.StatusCode == 401
+		}, 2*time.Second, 10*time.Millisecond, "expected the rejection to be recorded")
+
+		st := p.streamManager.Status()
+		assert.NotEqual(t, interfaces.DataSourceStateOff, st.State,
+			"the stream is still retrying, so it is not finished")
+		// It never connected, so an interruption keeps the initializing state.
+		assert.Equal(t, interfaces.DataSourceStateInitializing, st.State)
+		assert.Equal(t, interfaces.DataSourceErrorKindErrorResponse, st.LastError.Kind)
+	})
 }
