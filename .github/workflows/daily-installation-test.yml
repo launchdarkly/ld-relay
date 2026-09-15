@@ -5,7 +5,7 @@ on:
 
 jobs:
   go-versions:
-    uses: ./.github/workflows/go-versions.yml
+    uses: launchdarkly/gh-actions/.github/workflows/sdk-go-version-matrix.yml@main
 
   install-relay:
     name: ${{ format('Installation Test (Go {0}, Relay {1})', matrix.go-version, matrix.relay-major) }}
