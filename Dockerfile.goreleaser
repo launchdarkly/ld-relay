@@ -1,4 +1,4 @@
-# This is a Dockerfile used for release (published to dockerhub by goreleaser)
+# This is a Dockerfile used for release (published to dockerhub)
 
 FROM alpine:3.24.1
 # See "Runtime platform versions" in CONTRIBUTING.md
