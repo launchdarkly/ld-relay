@@ -60,9 +60,13 @@ What happens to SDK requests in the meantime depends on whether the Relay Proxy 
 
 * If you configure a [persistent store](./persistent-storage.md) and it holds configuration data from a previous run, the Relay Proxy loads that data and serves those environments while it keeps retrying. It logs `AutoConfig loaded from persistent cache`.
 
-* If the Relay Proxy has no configuration from any source, it cannot serve any request, because it does not know what its environments are. It shuts down, so that whatever supervises the process reports the problem. This happens as soon as the Relay Proxy has both been rejected and finished reading the persistent store, which is usually immediate. If the store does not answer, the Relay Proxy waits no longer than [`initTimeout`](./configuration.md#file-section-main) before shutting down.
+* If the Relay Proxy has no configuration from any source, it cannot serve any request, because it does not know what its environments are. It shuts down, so that whatever supervises the process reports the problem. This happens on the first rejection, as soon as the Relay Proxy knows the persistent store holds nothing for it.
 
   To keep the Relay Proxy running and retrying in this case instead, set [`ignoreConnectionErrors`](./configuration.md#file-section-main) to `true`. Note that until the key becomes valid, the Relay Proxy still answers every request with a `503` error, because it has no environments to serve.
+
+  A store the Relay Proxy cannot read is not the same as an empty store. If the read fails or does not finish within [`initTimeout`](./configuration.md#file-section-main), the Relay Proxy keeps running and retrying rather than shutting down, because the store may hold a configuration it could serve.
+
+Only a `401` or `403` causes this. Any other failure to reach LaunchDarkly, including a `404`, a `5xx`, a network error, or a certificate problem, leaves the Relay Proxy running and retrying as it did before, on the schedule described above.
 
 Earlier versions of the Relay Proxy shut down immediately when LaunchDarkly rejected the auto-configuration key, even when a persistent store held usable configuration data.
 

@@ -8,6 +8,8 @@ const (
 	logMsgBadKey           = "Invalid auto-configuration key; cannot get environments"
 	logMsgBadKeyWillRetry  = "Invalid auto-configuration key; will keep retrying in case it becomes valid"
 	logMsgExtendedBackoff  = "Classified failure as UNEXPECTED; engaging extended backoff."
+	logMsgCacheReadFailed  = "AutoConfig cache read failed (will rely on stream): %v"
+	logMsgCacheReadTimeout = "AutoConfig cache read did not finish within %s (will rely on stream)"
 	logMsgNoConfigGaveUp   = "Cannot get environments and no cached configuration is available; " +
 		"Relay cannot serve requests. Set ignoreConnectionErrors to keep Relay running and retrying"
 	logMsgDeliberateReconnect = "Will restart auto-configuration stream to get new data due to a policy change"

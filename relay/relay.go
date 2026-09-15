@@ -229,11 +229,12 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 				// affect this; a failure of auto-config is more serious than any
 				// environment-specific failure.
 				//
-				// A rejected auto-configuration key no longer reaches this point on its own. The
-				// StreamManager keeps retrying, and reports a failure here only after a grace
-				// period during which no configuration arrived from either the stream or the
-				// persistent cache. With a cached configuration Relay stays running and serves
-				// from it. The StreamManager has already logged the reason by this point.
+				// A rejected auto-configuration key reaches this point only when Relay has
+				// nothing to serve: the stream never delivered a configuration and the
+				// persistent cache is reachable and empty. With a cached configuration Relay
+				// stays running, serves from it, and keeps retrying the key. Any failure other
+				// than a rejected key also leaves Relay running. The StreamManager has already
+				// logged the reason by this point.
 				os.Exit(1)
 			}
 		}()
