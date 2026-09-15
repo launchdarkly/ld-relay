@@ -15,6 +15,7 @@ import (
 
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -89,6 +90,14 @@ type StreamManager struct {
 
 	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
 	filterReceiver *MessageReceiver[envfactory.FilterRep]
+
+	// statusLock guards status and failures. The eventsource error handler, the stream-consuming
+	// goroutine, and the HTTP handler that serves the status resource all touch them.
+	statusLock sync.Mutex
+	status     StreamStatus
+	// failures counts the failures recorded so far, so a caller that started work at one point
+	// can tell whether the connection has failed since.
+	failures uint64
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
@@ -119,6 +128,10 @@ func NewStreamManager(
 		initialRetryDelay: initialRetryDelay,
 		loggers:           loggers,
 		halt:              make(chan struct{}),
+		status: StreamStatus{
+			State:      interfaces.DataSourceStateInitializing,
+			StateSince: time.Now(),
+		},
 	}
 
 	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
@@ -178,6 +191,7 @@ func (s *StreamManager) Start() <-chan error {
 func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
+		s.updateStatus(interfaces.DataSourceStateOff, interfaces.DataSourceErrorInfo{})
 	})
 	if s.done != nil {
 		<-s.done
@@ -213,16 +227,28 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		}
 
 		if se, ok := err.(es.SubscriptionError); ok {
+			errorInfo := interfaces.DataSourceErrorInfo{
+				Kind:       interfaces.DataSourceErrorKindErrorResponse,
+				StatusCode: se.Code,
+				Time:       time.Now(),
+			}
 			if se.Code == 401 || se.Code == 403 {
 				s.loggers.Error(logMsgBadKey)
+				s.updateStatus(interfaces.DataSourceStateOff, errorInfo)
 				signalReady(errors.New("invalid auto-configuration key"))
 				return es.StreamErrorHandlerResult{CloseNow: true}
 			}
 			s.loggers.Warnf(logMsgStreamHTTPError, se.Code)
+			s.updateStatus(interfaces.DataSourceStateInterrupted, errorInfo)
 			return es.StreamErrorHandlerResult{CloseNow: false}
 		}
 
 		s.loggers.Warnf(logMsgStreamOtherError, err)
+		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
+			Kind:    interfaces.DataSourceErrorKindNetworkError,
+			Message: err.Error(),
+			Time:    time.Now(),
+		})
 		return es.StreamErrorHandlerResult{CloseNow: false}
 	}
 
@@ -343,9 +369,16 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				return
 			}
 
+			// Read the failure count before dispatching. Handling an event creates
+			// environments, starts SDK clients and writes the cache, and the connection can die
+			// while that runs; markValid then declines to report a connection that is already
+			// gone as working.
+			generation := s.failureGeneration()
 			if s.handleStreamEvent(event) {
 				stream.Restart()
+				break
 			}
+			s.markValid(generation)
 		case <-s.halt:
 			if s.cacheCancel != nil {
 				s.cacheCancel()
@@ -629,4 +662,83 @@ func obfuscateEventData(data string) string {
 	data = sdkKeyJSONRegex.ReplaceAllString(data, `"value":"...$1"`)
 	data = mobKeyJSONRegex.ReplaceAllString(data, `"mobKey":"...$1"`)
 	return data
+}
+
+// StreamStatus is the state of the auto-configuration stream connection. It uses the same types
+// as the SDK data source status, so that the two report the same states and error kinds.
+type StreamStatus struct {
+	// State is the current connection state.
+	State interfaces.DataSourceState
+	// StateSince is the time when State last changed.
+	StateSince time.Time
+	// LastError describes the most recent failure. Its Kind is empty if there has been none. It
+	// is retained after a recovery, so a caller can still see what went wrong.
+	LastError interfaces.DataSourceErrorInfo
+}
+
+// Status returns the current stream status. Safe to call from any goroutine.
+func (s *StreamManager) Status() StreamStatus {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	return s.status
+}
+
+func (s *StreamManager) updateStatus(state interfaces.DataSourceState, errorInfo interfaces.DataSourceErrorInfo) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	s.setStatus(state, errorInfo)
+}
+
+// failureGeneration returns the number of failures recorded so far. Pass it to markValid to
+// record success only if nothing has failed in the meantime.
+func (s *StreamManager) failureGeneration() uint64 {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	return s.failures
+}
+
+// markValid records that the connection works, unless a failure was recorded since the caller
+// read generation.
+func (s *StreamManager) markValid(generation uint64) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	if s.failures != generation {
+		return
+	}
+	s.setStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{})
+}
+
+// setStatus applies a state change. The caller must hold statusLock.
+//
+// An interruption while the stream is still initializing keeps the initializing state, the same
+// as the SDK data source status does: a first connection that has never succeeded must not report
+// that it was once working. The error is still recorded, so the caller sees why.
+func (s *StreamManager) setStatus(state interfaces.DataSourceState, errorInfo interfaces.DataSourceErrorInfo) {
+	if state == "" {
+		return
+	}
+
+	if s.status.State == interfaces.DataSourceStateOff {
+		// OFF is terminal: Close was called, or the key was rejected and the stream will not be
+		// retried. An event already in flight must not report it as working.
+		return
+	}
+
+	if errorInfo.Kind != "" {
+		s.failures++
+	}
+
+	if state == interfaces.DataSourceStateInterrupted &&
+		s.status.State == interfaces.DataSourceStateInitializing {
+		state = interfaces.DataSourceStateInitializing
+	}
+
+	if state != s.status.State {
+		s.status.State = state
+		s.status.StateSince = time.Now()
+	}
+	if errorInfo.Kind != "" {
+		s.status.LastError = errorInfo
+	}
 }
