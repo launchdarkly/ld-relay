@@ -12,15 +12,20 @@ import (
 
 // A working stream reports VALID with no error, and only once an event has actually been
 // handled: connecting is not by itself evidence that the stream works.
+//
+// The stream starts with no events queued, so the state after connecting can be read without
+// racing an event dispatch. Handing the harness an initial event instead would deliver it
+// immediately, and the assertion below would depend on winning a race against the supervisor
+// goroutine.
 func TestStatusIsValidOnceAnEventIsHandled(t *testing.T) {
-	initialEvent := makeEnvPutEvent(testEnv1)
-	streamManagerTest(t, &initialEvent, func(p streamManagerTestParams) {
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
 		<-p.requestsCh
 
 		assert.Equal(t, interfaces.DataSourceStateInitializing, p.streamManager.Status().State,
 			"connecting alone must not report the stream as working")
 
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1))
 		p.requireMessage()
 		p.requireReceivedAllMessage()
 
