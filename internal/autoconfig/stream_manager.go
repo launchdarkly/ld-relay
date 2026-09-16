@@ -285,7 +285,7 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 			es.StreamOptionRetryResetInterval(streamRetryResetInterval),
 			es.StreamOptionErrorHandler(errorHandler),
 			es.StreamOptionCanRetryFirstConnection(-1),
-			es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
+			es.StreamOptionLogger(streamLogger{dest: s.loggers.ForLevel(ldlog.Info)}),
 		)
 		streamCh <- streamResult{stream, err}
 	}()
