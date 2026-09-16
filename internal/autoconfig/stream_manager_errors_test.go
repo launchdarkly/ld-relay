@@ -1,6 +1,7 @@
 package autoconfig
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -336,29 +337,84 @@ func TestReconnectAfterNetworkError(t *testing.T) {
 	errorShouldCauseReconnect(t, httphelpers.BrokenConnectionHandler(), "Unexpected error")
 }
 
-func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
+func TestRecoversAfterUnrecoverableHTTPError(t *testing.T) {
+	// A rejected key no longer stops the stream. An operator can make the key valid again
+	// without Relay knowing, so the stream keeps trying and recovers on its own, which
+	// previously took a process restart.
 	for _, status := range []int{401, 403} {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
 			initialEvent := makeEnvPutEvent(testEnv1)
 			streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
 			defer stream.Close()
-			errorProducingHandler := httphelpers.HandlerWithStatus(status)
 			handler := httphelpers.SequentialHandler(
-				errorProducingHandler, // first request will get this
-				streamHandler,         // request after reconnect will get this
+				httphelpers.HandlerWithStatus(status), // first request is rejected
+				streamHandler,                         // the retry succeeds
 			)
 			streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+				// Shorten the extended delay so the retry happens within the test.
+				p.streamManager.extendedRetryDelay = time.Millisecond
 				p.startStream()
-				<-p.requestsCh // first request
-				select {
-				case <-p.requestsCh: // got expected stream restart
-					require.Fail(t, "got unexpected stream restart")
-				case <-p.messageHandler.received:
-					require.Fail(t, "got unexpected event")
-				case <-time.After(time.Millisecond * 200):
-					p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "Invalid auto-configuration key")
-				}
+
+				<-p.requestsCh // the rejected request
+				<-p.requestsCh // the retry
+
+				p.requireMessage() // the environment from the recovered stream
+				p.requireReceivedAllMessage()
+
+				p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "will keep retrying")
+				p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "engaging extended backoff")
 			})
 		})
 	}
+}
+
+func TestServesTheCachedConfigurationWhileTheKeyIsRejected(t *testing.T) {
+	// A rejected key leaves Relay running, so a cached configuration is worth having: Relay
+	// serves those environments while it keeps trying the key. Before this change the process
+	// exited and threw the cache away.
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	cache := &recordingCache{}
+	require.NoError(t, cache.SetAll(context.Background(), PutContent{
+		Environments: map[config.EnvironmentID]envfactory.EnvironmentRep{testEnv1.EnvID: testEnv1},
+	}))
+
+	streamManagerTestWithStreamHandler(t, handler, stream, cache, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = time.Millisecond
+
+		readyCh := p.streamManager.Start()
+
+		// The cached environment reaches the handler, which is what makes Relay serviceable.
+		p.requireMessage()
+		p.requireReceivedAllMessage()
+
+		if !helpers.AssertNoMoreValues(t, readyCh, time.Second, "Relay reported a failure") {
+			t.FailNow()
+		}
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "loaded from persistent cache")
+	})
+}
+
+func TestKeepsRunningWithNoConfigurationAtAll(t *testing.T) {
+	// The case that used to exit the process. With a rejected key and nothing cached, Relay has
+	// nothing to serve, and it still keeps running and retrying rather than reporting a failure.
+	// It answers 503 until the key becomes valid, which is what it already did for every other
+	// failure to reach LaunchDarkly.
+	handler := httphelpers.HandlerWithStatus(401)
+	_, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = time.Millisecond
+
+		readyCh := p.streamManager.Start()
+
+		if !helpers.AssertNoMoreValues(t, readyCh, 500*time.Millisecond,
+			"Relay reported a failure on a rejected key") {
+			t.FailNow()
+		}
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "will keep retrying")
+	})
 }
