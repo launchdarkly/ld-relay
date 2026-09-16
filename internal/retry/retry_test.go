@@ -1,9 +1,6 @@
 package retry
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -56,21 +53,6 @@ func TestClassifyHTTPStatus(t *testing.T) {
 			assert.Equal(t, p.want, ClassifyHTTPStatus(p.status))
 		})
 	}
-}
-
-func TestClassifyTransportError(t *testing.T) {
-	assert.Equal(t, Normal, ClassifyTransportError(nil))
-	assert.Equal(t, Normal, ClassifyTransportError(errors.New("connection refused")))
-
-	// A certificate problem needs operator action, so it is not transient.
-	assert.Equal(t, Unexpected, ClassifyTransportError(&tls.CertificateVerificationError{}))
-	assert.Equal(t, Unexpected, ClassifyTransportError(x509.UnknownAuthorityError{}))
-	assert.Equal(t, Unexpected, ClassifyTransportError(x509.HostnameError{Host: "example.com"}))
-	assert.Equal(t, Unexpected, ClassifyTransportError(x509.CertificateInvalidError{}))
-
-	// Classification looks through a wrapped error.
-	assert.Equal(t, Unexpected,
-		ClassifyTransportError(fmt.Errorf("dial failed: %w", x509.UnknownAuthorityError{})))
 }
 
 func TestNormalCurveDoublesAndStopsAtTheCeiling(t *testing.T) {

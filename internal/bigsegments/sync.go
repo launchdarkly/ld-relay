@@ -245,12 +245,12 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 // valid again without Relay knowing, so the synchronizer keeps trying on the extended
 // delays instead.
 func (s *defaultBigSegmentSynchronizer) recordFailure(err error) {
-	var class retry.FailureClass
+	// No transport-level failure is unexpected, so only an HTTP status can move the
+	// synchronizer to the longer delays.
+	class := retry.Normal
 	var statusError *httpStatusError
 	if errors.As(err, &statusError) {
 		class = retry.ClassifyHTTPStatus(statusError.statusCode)
-	} else {
-		class = retry.ClassifyTransportError(err)
 	}
 
 	// An unexpected failure nearly always means a real configuration problem, so it is worth
