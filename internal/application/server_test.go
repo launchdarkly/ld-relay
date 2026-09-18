@@ -201,16 +201,10 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 	assert.True(t, handler.HasMessage(slog.LevelInfo, "received SIGTERM signal"))
 	assert.True(t, handler.HasMessage(slog.LevelInfo, "server gracefully stopped"))
 
-	// Verify no errors were sent to error channel
-	select {
-	case err, ok := <-errCh:
-		if ok {
-			t.Fatalf("Unexpected error from server: %v", err)
-		}
-		// Channel was closed, which is expected
-	default:
-		t.Fatal("Error channel was not closed")
-	}
+	// errCh closes only after the shutdown finishes, so wait for it instead of sampling it once.
+	// No value may arrive with the close: one would mean the serve loop failed for some reason
+	// other than the shutdown.
+	helpers.AssertChannelClosed(t, errCh, time.Second, "error channel was not closed after shutdown")
 }
 
 func TestStartHTTPServerWithRelayHandler(t *testing.T) {
@@ -268,14 +262,8 @@ func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 	assert.True(t, handler.HasMessage(slog.LevelInfo, "Shutting down Relay Proxy"))
 	assert.True(t, handler.HasMessage(slog.LevelInfo, "server gracefully stopped"))
 
-	// Verify no errors were sent to error channel
-	select {
-	case err, ok := <-errCh:
-		if ok {
-			t.Fatalf("Unexpected error from server: %v", err)
-		}
-		// Channel was closed, which is expected
-	default:
-		t.Fatal("Error channel was not closed")
-	}
+	// errCh closes only after the shutdown finishes, so wait for it instead of sampling it once.
+	// No value may arrive with the close: one would mean the serve loop failed for some reason
+	// other than the shutdown.
+	helpers.AssertChannelClosed(t, errCh, time.Second, "error channel was not closed after shutdown")
 }
