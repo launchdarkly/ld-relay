@@ -13,8 +13,8 @@ import (
 // that configures Relay's endpoint routing, so that if we accidentally change the routing, the tests
 // will fail, rather than succeed based on incorrect paths.
 
-// SimpleUserJSON is a basic user.
-const SimpleUserJSON = `{"key":"userkey"}`
+// SimpleUserJSON is a basic single-kind context.
+const SimpleUserJSON = `{"key":"userkey","kind":"user"}`
 
 // ToBase64 is a shortcut for base64 encoding.
 func ToBase64(s string) string {
