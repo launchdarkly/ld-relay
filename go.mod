@@ -23,7 +23,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
-	github.com/launchdarkly/eventsource v1.14.0
+	github.com/launchdarkly/eventsource v1.14.1-0.20260918205847-60cdf9a1a4fa
 	github.com/launchdarkly/go-configtypes v1.2.2
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.2
 	github.com/launchdarkly/go-sdk-common/v3 v3.5.1
