@@ -99,6 +99,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
 		makeValidConfigOTLPUnlimitedCardinality(),
+		makeValidConfigOTLPNoEnvironmentStatus(),
 		makeValidConfigProxy(),
 	}
 }
@@ -769,21 +770,47 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.OpenTelemetry = OpenTelemetryConfig{
-			Enabled:                 true,
-			Protocol:                "grpc",
-			MetricsCardinalityLimit: ct.NewOptInt(20000),
+			Enabled:                  true,
+			Protocol:                 "grpc",
+			MetricsCardinalityLimit:  ct.NewOptInt(20000),
+			EnvironmentStatusMetrics: true,
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":                       "1",
-		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
-		"OTEL_METRICS_CARDINALITY_LIMIT": "20000",
+		"USE_OTLP":                        "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":     "grpc",
+		"OTEL_METRICS_CARDINALITY_LIMIT":  "20000",
+		"OTEL_ENVIRONMENT_STATUS_METRICS": "1",
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
 Protocol = grpc
 MetricsCardinalityLimit = 20000
+EnvironmentStatusMetrics = true
+`
+	return c
+}
+
+// makeValidConfigOTLPNoEnvironmentStatus asserts that an explicit "off" is read as off rather than
+// as an unrecognized value that turns the setting on. The expected config is the default one,
+// because off is the default.
+func makeValidConfigOTLPNoEnvironmentStatus() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - per-environment status metrics explicitly disabled"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:                  true,
+			EnvironmentStatusMetrics: false,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":                        "1",
+		"OTEL_ENVIRONMENT_STATUS_METRICS": "0",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+EnvironmentStatusMetrics = false
 `
 	return c
 }
