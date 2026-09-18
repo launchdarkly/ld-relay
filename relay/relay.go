@@ -266,6 +266,15 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		}
 	}
 
+	// The status instruments read the Relay itself, so they are registered once everything they
+	// read has been assigned: the environments, the auto-config stream, and the file data source.
+	// Registering here also gives the collection goroutine a happens-before edge to those
+	// assignments, which is what lets the snapshot read autoConfigStream without a lock.
+	if err := metricsManager.RegisterStatusObservers(
+		r.statusSnapshot, c.OpenTelemetry.EnvironmentStatusMetrics); err != nil {
+		logger.Warn("failed to register the status instruments", "error", err)
+	}
+
 	r.Handler = r.makeRouter()
 	thingsToCleanUp.Clear() // we succeeded, don't close anything
 	return r, nil

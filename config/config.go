@@ -351,8 +351,19 @@ type HTTPConfig struct {
 // environment variable for the cardinality limit, and the Go SDK's own OTEL_GO_X_CARDINALITY_LIMIT sits
 // in its experimental namespace, so Relay owns this setting. When it is undefined, Relay applies no
 // option and the SDK's default (or OTEL_GO_X_CARDINALITY_LIMIT, if the operator set it) stands.
+//
+// EnvironmentStatusMetrics is Relay's own for the same reason: it selects how much of the status
+// document is reported, which no OpenTelemetry variable describes.
+//
+// EnvironmentStatusMetrics is off by default, because its cardinality follows the number of
+// environments Relay serves rather than the traffic it receives. In automatic configuration mode
+// that number is every environment in the account, and the OpenTelemetry cardinality cap discards
+// series silently once it is reached. The relay-level status metrics, whose cardinality is fixed,
+// are reported whenever Enabled is true; this setting only adds which environment each of them
+// counted.
 type OpenTelemetryConfig struct {
-	Enabled                 bool      `conf:"USE_OTLP"`
-	Protocol                string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
-	MetricsCardinalityLimit ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
+	Enabled                  bool      `conf:"USE_OTLP"`
+	Protocol                 string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	MetricsCardinalityLimit  ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
+	EnvironmentStatusMetrics bool      `conf:"OTEL_ENVIRONMENT_STATUS_METRICS"`
 }

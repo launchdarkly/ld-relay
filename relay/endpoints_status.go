@@ -16,13 +16,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 )
 
-const (
-	statusEnvConnected    = "connected"
-	statusEnvDisconnected = "disconnected"
-	statusRelayHealthy    = "healthy"
-	statusRelayDegraded   = "degraded"
-)
-
 func statusHandler(relay *Relay) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -32,33 +25,17 @@ func statusHandler(relay *Relay) http.Handler {
 			ClientVersion: ld.Version,
 		}
 
-		relay.lock.Lock()
-		fullyConfigured := relay.fullyConfigured
-		relay.lock.Unlock()
-
-		healthy := fullyConfigured
-		for _, clientCtx := range relay.getAllEnvironments() {
-			status, envHealthy := relay.buildEnvironmentStatus(clientCtx)
-			if !envHealthy {
-				healthy = false
-			}
-
-			identifiers := clientCtx.GetIdentifiers()
-			statusKey := identifiers.GetDisplayName()
-			if relay.envLogNameMode == relayenv.LogNameIsEnvID {
-				// If we're identifying environments by environment ID in the log (which we do if there's any
-				// chance that the environment name could change) then we should also identify them that way here.
-				statusKey = status.EnvID
-			}
-			resp.Environments[statusKey] = status
+		envs, healthy := relay.collectEnvironmentStatuses()
+		for _, env := range envs {
+			resp.Environments[env.key] = env.rep
 		}
 
 		resp.AutoConfigStatus = relay.buildAutoConfigStatus()
 
 		if healthy {
-			resp.Status = statusRelayHealthy
+			resp.Status = api.StatusHealthy
 		} else {
-			resp.Status = statusRelayDegraded
+			resp.Status = api.StatusDegraded
 		}
 
 		data, _ := json.Marshal(resp)
@@ -144,6 +121,48 @@ func singleEnvironmentStatusHandler(relay *Relay) http.Handler {
 	})
 }
 
+// environmentStatus is one environment's status document, with both of the names its consumers
+// need. The status endpoint keys the document by key, which is the environment ID whenever the
+// configured name could change. The metrics report name, which is the same display name that the
+// request metrics carry, so that status series and traffic series can be joined.
+type environmentStatus struct {
+	key  string
+	name string
+	rep  api.EnvironmentStatusRep
+}
+
+// collectEnvironmentStatuses builds the status of every environment Relay serves, and rolls their
+// health up into one verdict for the Relay as a whole. The verdict is healthy only if Relay knows
+// its full set of environments and every one of them is healthy.
+//
+// An environment can be unhealthy while its own status still reads connected: stale big segments
+// count against the Relay when bigSegmentsStaleAsDegraded is set.
+func (r *Relay) collectEnvironmentStatuses() ([]environmentStatus, bool) {
+	r.lock.Lock()
+	fullyConfigured := r.fullyConfigured
+	r.lock.Unlock()
+
+	healthy := fullyConfigured
+	allEnvs := r.getAllEnvironments()
+	envs := make([]environmentStatus, 0, len(allEnvs))
+	for _, clientCtx := range allEnvs {
+		rep, envHealthy := r.buildEnvironmentStatus(clientCtx)
+		if !envHealthy {
+			healthy = false
+		}
+
+		name := clientCtx.GetIdentifiers().GetDisplayName()
+		key := name
+		if r.envLogNameMode == relayenv.LogNameIsEnvID {
+			// If we're identifying environments by environment ID in the log (which we do if there's any
+			// chance that the environment name could change) then we should also identify them that way here.
+			key = rep.EnvID
+		}
+		envs = append(envs, environmentStatus{key: key, name: name, rep: rep})
+	}
+	return envs, healthy
+}
+
 // buildAutoConfigStatus constructs the auto-configuration stream status, or nil if Relay is not in
 // automatic configuration mode. A non-VALID state means Relay is no longer learning about
 // environment changes, even though the environments it already knows about keep serving flags.
@@ -170,6 +189,9 @@ func (r *Relay) buildAutoConfigStatus() *api.AutoConfigStatusRep {
 
 // buildEnvironmentStatus constructs an EnvironmentStatusRep for a single environment.
 // Returns the status and a boolean indicating whether the environment is healthy.
+//
+// Note that this reads the environment's big segment store, which is the only I/O the status
+// gathering performs.
 func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.EnvironmentStatusRep, bool) {
 	identifiers := clientCtx.GetIdentifiers()
 
@@ -200,10 +222,10 @@ func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.Envir
 	healthy := true
 	client := clientCtx.GetClient()
 	if client == nil {
-		status.Status = statusEnvDisconnected
+		status.Status = api.EnvStatusDisconnected
 		status.ConnectionStatus.State = interfaces.DataSourceStateInitializing
 		status.ConnectionStatus.StateSince = ldtime.UnixMillisFromTime(clientCtx.GetCreationTime())
-		status.DataStoreStatus.State = "INITIALIZING"
+		status.DataStoreStatus.State = api.DataStoreStateInitializing
 		healthy = false
 	} else {
 		connected := client.Initialized()
@@ -227,16 +249,16 @@ func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.Envir
 		}
 
 		storeStatus := client.GetDataStoreStatus()
-		status.DataStoreStatus.State = "VALID"
+		status.DataStoreStatus.State = api.DataStoreStateValid
 		status.DataStoreStatus.StateSince = ldtime.UnixMillisFromTime(storeStatus.LastUpdated)
 		if !storeStatus.Available {
-			status.DataStoreStatus.State = "INTERRUPTED"
+			status.DataStoreStatus.State = api.DataStoreStateInterrupted
 		}
 
 		if connected {
-			status.Status = statusEnvConnected
+			status.Status = api.EnvStatusConnected
 		} else {
-			status.Status = statusEnvDisconnected
+			status.Status = api.EnvStatusDisconnected
 			healthy = false
 		}
 	}
