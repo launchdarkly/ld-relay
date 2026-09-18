@@ -353,3 +353,9 @@ func TestStreamProviderServerSideReplayDoesNotParkWhenNobodyReads(t *testing.T) 
 	require.Eventually(t, func() bool { return len(out) == 1 }, time.Second, 10*time.Millisecond,
 		"Replay goroutine never completed its send; it is parked on an unbuffered channel")
 }
+
+func TestWithMaxWriteTimeSetsServerWriteTimeout(t *testing.T) {
+	sp := NewStreamProvider(basictypes.ServerSideStream, time.Hour, 0, WithMaxWriteTime(45*time.Second))
+	defer sp.Close()
+	assert.Equal(t, 45*time.Second, sp.(*serverSideStreamProvider).server.WriteTimeout)
+}

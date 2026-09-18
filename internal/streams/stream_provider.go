@@ -46,45 +46,59 @@ type EnvStreamProvider interface {
 	Close()
 }
 
+// StreamProviderOption is an optional setting for NewStreamProvider.
+type StreamProviderOption func(*eventsource.Server)
+
+// WithMaxWriteTime bounds each individual write to a stream client. A client that has stopped
+// reading is disconnected once a write exceeds this duration instead of holding the connection open.
+func WithMaxWriteTime(d time.Duration) StreamProviderOption {
+	return func(s *eventsource.Server) { s.WriteTimeout = d }
+}
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration) StreamProvider {
+func NewStreamProvider(
+	kind basictypes.StreamKind,
+	maxConnTime, pingStreamJitterTime time.Duration,
+	opts ...StreamProviderOption,
+) StreamProvider {
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
-			server: newSSEServer(maxConnTime),
+			server: newSSEServer(maxConnTime, opts),
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime, opts),
 			isJSClient: false,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime, opts),
 			isJSClient: true,
 		}
 	default:
 		return &serverSideStreamProvider{
-			server: newSSEServer(maxConnTime),
+			server: newSSEServer(maxConnTime, opts),
 		}
 	}
 }
 
-func newSSEServer(maxConnTime time.Duration) *eventsource.Server {
-	s := eventsource.NewServer()
-	s.Gzip = false
-	s.AllowCORS = true
-	s.ReplayAll = true
-	s.MaxConnTime = maxConnTime
-	return s
+func newSSEServer(maxConnTime time.Duration, opts []StreamProviderOption) *eventsource.Server {
+	return configureSSEServer(eventsource.NewServer(), maxConnTime, opts)
 }
 
-func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration) *eventsource.Server {
-	s := eventsource.NewServerWithJitter(jitter)
+func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration, opts []StreamProviderOption) *eventsource.Server {
+	return configureSSEServer(eventsource.NewServerWithJitter(jitter), maxConnTime, opts)
+}
+
+func configureSSEServer(s *eventsource.Server, maxConnTime time.Duration, opts []StreamProviderOption) *eventsource.Server {
 	s.Gzip = false
 	s.AllowCORS = true
 	s.ReplayAll = true
 	s.MaxConnTime = maxConnTime
+	for _, opt := range opts {
+		opt(s)
+	}
 	return s
 }
 
