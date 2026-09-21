@@ -32,8 +32,7 @@ const RedactedPlaceholder = "xxxxx"
 // RedactURL replaces the credential-bearing components of a URL string - the userinfo section, the
 // query, and the fragment - with RedactedPlaceholder, while preserving the scheme, host, port and
 // path so the result is still useful for diagnostics. Each component is replaced only when it is
-// actually present. A URL that cannot be parsed is replaced entirely, since we cannot tell which
-// parts of it are sensitive.
+// actually present.
 //
 // The path is deliberately preserved, so the result is not safe for a URL that embeds a credential
 // in a path segment.
@@ -43,7 +42,7 @@ func RedactURL(inputURL string) string {
 	}
 	parsed, err := url.Parse(inputURL)
 	if err != nil || parsed == nil {
-		return RedactedPlaceholder
+		return redactUnparseable(inputURL)
 	}
 	redacted := *parsed
 	// url.Parse reports a non-nil but empty Userinfo for "scheme://@host", which is not a credential.
@@ -64,6 +63,25 @@ func RedactURL(inputURL string) string {
 		redacted.Fragment = RedactedPlaceholder
 	}
 	return redacted.String()
+}
+
+// redactUnparseable handles a value url.Parse rejects.
+//
+// A bare "host:port" whose host is numeric or bracketed is one of these: url.Parse refuses
+// "127.0.0.1:8500" and "[::1]:8500" because the first path segment cannot contain a colon. Consul's
+// address is exactly that shape, and its default is 127.0.0.1:8500, so replacing the whole value
+// would throw away an address that holds no credential at all.
+//
+// The three characters below introduce the only components RedactURL redacts: "@" ends a userinfo
+// section, "?" begins a query, and "#" begins a fragment. A value containing none of them is a
+// scheme, host, port and path, all of which RedactURL preserves when it can parse them, so
+// preserving them here is the same decision rather than a weaker one. Anything else is replaced
+// entirely, because without a parse we cannot tell which part of it is sensitive.
+func redactUnparseable(inputURL string) string {
+	if strings.ContainsAny(inputURL, "@?#") {
+		return RedactedPlaceholder
+	}
+	return inputURL
 }
 
 func DecompressGzipData(data []byte) ([]byte, error) {
