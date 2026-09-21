@@ -55,6 +55,25 @@ Each JSON log entry contains:
 - `level`: Log level (DEBUG, INFO, WARN, or ERROR)
 - `message`: The log message content
 
+## OTLP log export
+
+When OTLP is enabled with `USE_OTLP=true`, the Relay Proxy exports log records over OTLP in addition
+to writing them to the console, using the same endpoint and protocol as metrics and traces. To learn
+about configuration, read [Configuration](./configuration.md#file-section-opentelemetry).
+
+Console output is never affected by this: log records always go to stdout and stderr, and the export
+is an additional copy for a collector.
+
+To leave metrics and traces exporting but turn log export off, set `OTEL_LOGS_EXPORTER=none`.
+
+Two situations call for that:
+
+* **The collector does not accept OTLP logs.** Some collectors accept traces and metrics out of the
+  box but have log ingestion disabled by default, in which case every export attempt fails. The
+  Datadog Agent behaves this way; to learn more, read [Metrics](./metrics.md#datadog).
+* **Something already collects the console output.** On a host or container deployment where an agent
+  tails stdout or the systemd journal, exporting over OTLP as well delivers every record twice.
+
 ## Debug logging
 
 Enabling the Debug log level for global messages causes the Relay Proxy to log every HTTP request that it receives.

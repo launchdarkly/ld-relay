@@ -99,6 +99,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
 		makeValidConfigOTLPUnlimitedCardinality(),
+		makeValidConfigOTLPSignalsDisabled(),
 		makeValidConfigProxy(),
 	}
 }
@@ -772,18 +773,53 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 			Enabled:                 true,
 			Protocol:                "grpc",
 			MetricsCardinalityLimit: ct.NewOptInt(20000),
+			LogsExporter:            "otlp",
+			TracesExporter:          "otlp",
+			MetricsExporter:         "otlp",
 		}
 	}
 	c.envVars = map[string]string{
 		"USE_OTLP":                       "1",
 		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
 		"OTEL_METRICS_CARDINALITY_LIMIT": "20000",
+		"OTEL_LOGS_EXPORTER":             "otlp",
+		"OTEL_TRACES_EXPORTER":           "otlp",
+		"OTEL_METRICS_EXPORTER":          "otlp",
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
 Protocol = grpc
 MetricsCardinalityLimit = 20000
+LogsExporter = otlp
+TracesExporter = otlp
+MetricsExporter = otlp
+`
+	return c
+}
+
+func makeValidConfigOTLPSignalsDisabled() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - per-signal exporters disabled"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:         true,
+			LogsExporter:    "none",
+			TracesExporter:  "none",
+			MetricsExporter: "none",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":              "1",
+		"OTEL_LOGS_EXPORTER":    "none",
+		"OTEL_TRACES_EXPORTER":  "none",
+		"OTEL_METRICS_EXPORTER": "none",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+LogsExporter = none
+TracesExporter = none
+MetricsExporter = none
 `
 	return c
 }

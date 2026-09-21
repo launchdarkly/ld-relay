@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/alecthomas/units"
@@ -351,8 +352,48 @@ type HTTPConfig struct {
 // environment variable for the cardinality limit, and the Go SDK's own OTEL_GO_X_CARDINALITY_LIMIT sits
 // in its experimental namespace, so Relay owns this setting. When it is undefined, Relay applies no
 // option and the SDK's default (or OTEL_GO_X_CARDINALITY_LIMIT, if the operator set it) stands.
+//
+// LogsExporter, TracesExporter and MetricsExporter are read by Relay rather than by the SDK for a
+// different reason: the specification defines them, but only the autoconfiguration packages that other
+// languages ship implement them, and the Go SDK has none. They are declared here, under their
+// specification names, so that operators arriving from another LaunchDarkly SDK reach for the variable
+// that already works and so that the setting can also be given in the configuration file. Relay only
+// implements the OTLP exporter, so "otlp" and "none" are the accepted values.
 type OpenTelemetryConfig struct {
 	Enabled                 bool      `conf:"USE_OTLP"`
 	Protocol                string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	MetricsCardinalityLimit ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
+	LogsExporter            string    `conf:"OTEL_LOGS_EXPORTER"`
+	TracesExporter          string    `conf:"OTEL_TRACES_EXPORTER"`
+	MetricsExporter         string    `conf:"OTEL_METRICS_EXPORTER"`
+}
+
+// Values accepted by the per-signal exporter settings. The OpenTelemetry specification defines several
+// more, along with a comma-separated list syntax; Relay implements only the OTLP exporter, so it accepts
+// the specification's default and its opt-out and rejects anything else rather than silently ignoring it.
+const (
+	SignalExporterOTLP = "otlp"
+	SignalExporterNone = "none"
+)
+
+// ExportLogs reports whether Relay should export logs over OTLP.
+func (c OpenTelemetryConfig) ExportLogs() bool {
+	return c.Enabled && signalExported(c.LogsExporter)
+}
+
+// ExportTraces reports whether Relay should export traces over OTLP.
+func (c OpenTelemetryConfig) ExportTraces() bool {
+	return c.Enabled && signalExported(c.TracesExporter)
+}
+
+// ExportMetrics reports whether Relay should export metrics over OTLP.
+func (c OpenTelemetryConfig) ExportMetrics() bool {
+	return c.Enabled && signalExported(c.MetricsExporter)
+}
+
+// signalExported interprets one OTEL_<SIGNAL>_EXPORTER value. An unset value means the signal is
+// exported, which is the specification's "otlp" default and preserves the behavior USE_OTLP had before
+// the per-signal settings existed. Validation has already rejected anything other than "otlp" or "none".
+func signalExported(value string) bool {
+	return !strings.EqualFold(strings.TrimSpace(value), SignalExporterNone)
 }

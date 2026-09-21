@@ -33,6 +33,19 @@ func TestNewManagerWithoutOpenTelemetryHasNoInstruments(t *testing.T) {
 	assert.Nil(t, manager.GetInstruments())
 }
 
+// OTEL_METRICS_EXPORTER=none has to take the same path as OpenTelemetry being off entirely. If it
+// only skipped the exporter, the Manager would still build a MeterProvider and instruments, and the
+// recording paths would resume assembling attribute sets for measurements nobody collects.
+func TestNewManagerWithMetricsExporterDisabledHasNoInstruments(t *testing.T) {
+	otlpConfig := config.OpenTelemetryConfig{Enabled: true, MetricsExporter: config.SignalExporterNone}
+	manager, err := NewManager(otlpConfig, 0, slog.Default())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	assert.Nil(t, manager.instruments)
+	assert.Nil(t, manager.GetInstruments())
+}
+
 // Every recording path has to tolerate nil instruments, since that is the normal state when
 // OpenTelemetry is disabled.
 func TestRecordingIsSafeWithoutInstruments(t *testing.T) {

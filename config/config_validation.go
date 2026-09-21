@@ -38,6 +38,11 @@ func errEnvironmentWithNoSDKKey(envName string) error {
 	return fmt.Errorf("SDK key is required for environment %q", envName)
 }
 
+func errOTLPInvalidSignalExporter(varName string) error {
+	return fmt.Errorf("OTLP exporter must be %q or %q (%s)",
+		SignalExporterOTLP, SignalExporterNone, varName)
+}
+
 func errMultipleDatabases(databases []string) error {
 	return fmt.Errorf("multiple databases are enabled (%s); only one is allowed", strings.Join(databases, ", "))
 }
@@ -272,6 +277,30 @@ func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
 		if limit := c.OpenTelemetry.MetricsCardinalityLimit; limit.IsDefined() && limit.GetOrElse(0) < 0 {
 			result.AddError(nil, errOTLPNegativeCardinalityLimit)
 		}
+		validateSignalExporters(result, c)
+	}
+}
+
+// validateSignalExporters rejects per-signal exporter values Relay cannot honor. Ignoring an
+// unrecognized value would leave the operator believing they had disabled a signal that is still
+// exporting, or selected an exporter Relay does not have.
+func validateSignalExporters(result *ct.ValidationResult, c *Config) {
+	exporters := []struct {
+		varName string
+		value   string
+	}{
+		{"OTEL_LOGS_EXPORTER", c.OpenTelemetry.LogsExporter},
+		{"OTEL_TRACES_EXPORTER", c.OpenTelemetry.TracesExporter},
+		{"OTEL_METRICS_EXPORTER", c.OpenTelemetry.MetricsExporter},
+	}
+	for _, exporter := range exporters {
+		value := strings.TrimSpace(exporter.value)
+		if value == "" ||
+			strings.EqualFold(value, SignalExporterOTLP) ||
+			strings.EqualFold(value, SignalExporterNone) {
+			continue
+		}
+		result.AddError(nil, errOTLPInvalidSignalExporter(exporter.varName))
 	}
 }
 

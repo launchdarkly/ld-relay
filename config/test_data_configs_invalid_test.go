@@ -45,6 +45,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigMultipleDatabases(),
 		makeInvalidConfigOTLPInvalidProtocol(),
 		makeInvalidConfigOTLPNegativeCardinalityLimit(),
+		makeInvalidConfigOTLPUnsupportedSignalExporter(),
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
 	}
 }
@@ -487,6 +488,21 @@ func makeInvalidConfigOTLPNegativeCardinalityLimit() testDataInvalidConfig {
 [OpenTelemetry]
 Enabled = true
 MetricsCardinalityLimit = -1
+`
+	return c
+}
+
+func makeInvalidConfigOTLPUnsupportedSignalExporter() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "OTLP - unsupported per-signal exporter"}
+	c.envVarsError = errOTLPInvalidSignalExporter("OTEL_LOGS_EXPORTER").Error()
+	c.envVars = map[string]string{
+		"USE_OTLP":           "1",
+		"OTEL_LOGS_EXPORTER": "console",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+LogsExporter = console
 `
 	return c
 }
