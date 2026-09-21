@@ -60,10 +60,11 @@ const (
 	timestampUnit = "s"
 )
 
-// The states each field can report. Every one is observed at each collection, including the zeros.
-// Observing only the current state would leave the others without a fresh sample, and a backend
-// that holds the last sample it saw -- Prometheus holds one for five minutes -- would then show two
-// states reading 1 for the same field.
+// The states each field can report.
+//
+// Relay observes every state on each collection, not only the current one. A series that stops
+// being observed keeps its last value in the backend: Prometheus answers with it for five minutes.
+// Dropping the zeros would therefore report two states as current at once.
 var (
 	//nolint:gochecknoglobals
 	connectionStates = []interfaces.DataSourceState{
@@ -354,9 +355,9 @@ func (si *statusInstruments) observeEnvironment(o otelmetric.Observer, env Envir
 }
 
 // observeState reports one series per state the field can hold, reading 1 for the state it is in.
-// An unrecognized state -- one the SDK added that Relay has not been taught -- leaves every series
-// at 0 rather than being reported under a state of its own, so the sum across states is the signal
-// that something is unaccounted for.
+//
+// A state Relay does not know leaves every series at 0. That is how a state the SDK added but
+// Relay has not been taught shows up: the states sum to 0 instead of 1.
 func observeState[T ~string](
 	o otelmetric.Observer,
 	gauge otelmetric.Int64ObservableGauge,

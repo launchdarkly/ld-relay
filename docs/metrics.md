@@ -92,6 +92,11 @@ SDK and mobile keys are never exported. Identity lives on the two `info` series 
 every state series, which is also how a query reaches the environment ID: these metrics report the
 display name, while `/status` is keyed by ID in automatic configuration mode.
 
+The display name is the configured name, or `<project name> <environment name>` where there is
+none. Project names are not unique, so two environments can produce one display name -- their
+series merge, reporting whichever Relay collected last, while the `info` series stay separate and
+the environment counts stay correct. `/status` remains unambiguous.
+
 #### Reading a state
 
 Each state field reports one series per possible state. The current state reads 1 and the others

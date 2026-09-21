@@ -436,6 +436,46 @@ func TestStatusObserversStopReportingARemovedEnvironment(t *testing.T) {
 	assert.Equal(t, int64(1), counts[0].Value)
 }
 
+func TestStatusObserversMergeEnvironmentsThatShareADisplayName(t *testing.T) {
+	// Two environments can share a display name, because it is the project and environment name
+	// where nothing is configured and project names are not unique. The state series then carry
+	// identical attributes and merge. This pins that behavior rather than endorsing it: the metrics
+	// are documented as merging, and a change in how the SDK resolves duplicate observations would
+	// otherwise pass unnoticed.
+	first := healthyEnvironment("Checkout Production")
+	first.Rep.EnvID = "aaaaaaaaaaaaaaaaaaaaaaaa"
+
+	second := healthyEnvironment("Checkout Production")
+	second.Rep.EnvID = "bbbbbbbbbbbbbbbbbbbbbbbb"
+	second.Rep.Status = api.EnvStatusDisconnected
+	second.Rep.ConnectionStatus.State = interfaces.DataSourceStateInterrupted
+
+	reader := newStatusReader(t, func() StatusSnapshot {
+		return StatusSnapshot{
+			Environments: []EnvironmentStatusSnapshot{first, second},
+		}
+	}, true)
+	ms := collect(t, reader)
+
+	name := envNameAttrKey.String("Checkout Production")
+
+	// One set of state series for two environments, holding the environment observed last.
+	assert.Len(t, intGaugePoints(t, ms[envConnStateMeasureName]), len(connectionStates),
+		"the two environments must share one set of state series")
+	assertOnlyState(t, ms[envConnStateMeasureName], connectionStates,
+		interfaces.DataSourceStateInterrupted, name)
+
+	// The counts are of environments, not of series, so they are unaffected by the collision.
+	counts := intGaugePoints(t, ms[envCountMeasureName])
+	require.Len(t, counts, 1)
+	assert.Equal(t, int64(2), counts[0].Value)
+
+	// The info series carry the environment ID, so they stay distinct and remain the way to tell
+	// the two apart.
+	info := intGaugePoints(t, ms[envInfoMeasureName])
+	assert.Len(t, info, 2, "identity must survive a shared display name")
+}
+
 func TestRegisterStatusObserversDoesNothingWithoutAMeter(t *testing.T) {
 	m := &Manager{}
 	called := false
