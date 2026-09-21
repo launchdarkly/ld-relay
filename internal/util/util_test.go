@@ -28,10 +28,26 @@ func TestRedactURL(t *testing.T) {
 	assert.Equal(t, "redis:xxxxx@redishost:6379", RedactURL("redis:very-secret-password@redishost:6379"))
 	assert.Equal(t, "mailto:xxxxx@example.com", RedactURL("mailto:secret@example.com"))
 
-	// url.Parse also reports a bare "host:port" as scheme plus opaque, so redacting the whole opaque
+	// url.Parse reports a bare "host:port" as scheme plus opaque, so redacting the whole opaque
 	// body would destroy the port. Consul's dbServer is exactly this shape.
 	assert.Equal(t, "consul.example.com:8500", RedactURL("consul.example.com:8500"))
 	assert.Equal(t, "my-host", RedactURL("my-host"))
+
+	// A host:port whose host is numeric or bracketed is rejected by url.Parse outright: the first
+	// path segment cannot contain a colon, and a digit or "[" cannot begin a scheme. These hold no
+	// credential, and Consul's default address is one of them, so they survive verbatim rather than
+	// being replaced. Only the letter-starting forms above take the scheme-plus-opaque path, which
+	// is why they alone did not cover this.
+	assert.Equal(t, "127.0.0.1:8500", RedactURL("127.0.0.1:8500"))
+	assert.Equal(t, "10.0.0.5:6379", RedactURL("10.0.0.5:6379"))
+	assert.Equal(t, "[::1]:8500", RedactURL("[::1]:8500"))
+	assert.Equal(t, "192.168.1.1", RedactURL("192.168.1.1"))
+
+	// An unparseable value that could be hiding a credential is still replaced whole, because
+	// without a parse there is no way to tell which part of it is sensitive.
+	assert.Equal(t, "xxxxx", RedactURL("redis://user:very-secret-password@127.0.0.1:not-a-port"))
+	assert.Equal(t, "xxxxx", RedactURL("127.0.0.1:8500?token=very-secret-token"))
+	assert.Equal(t, "xxxxx", RedactURL("127.0.0.1:8500#very-secret-fragment"))
 
 	// An empty userinfo is not a credential, so do not claim to have redacted one.
 	assert.Equal(t, "redis://@redishost:6379", RedactURL("redis://@redishost:6379"))
