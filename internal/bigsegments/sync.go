@@ -2,6 +2,7 @@ package bigsegments
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,18 +14,37 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
+	"github.com/launchdarkly/ld-relay/v9/internal/retry"
 
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 )
 
 const (
-	unboundedPollPath          = "/sdk/big-segments/revisions"
-	unboundedStreamPath        = "/big-segments"
-	streamReadTimeout          = 5 * time.Minute
-	revisionsPollTimeout       = 90 * time.Second
-	defaultStreamRetryInterval = 10 * time.Second
-	synchronizedOnInterval     = 30 * time.Second
+	unboundedPollPath      = "/sdk/big-segments/revisions"
+	unboundedStreamPath    = "/big-segments"
+	streamReadTimeout      = 5 * time.Minute
+	revisionsPollTimeout   = 90 * time.Second
+	synchronizedOnInterval = 30 * time.Second
+
+	// The retry binding for this component. A failure that is unlikely to correct itself
+	// soon, such as a rejected SDK key, moves the synchronizer from the normal delays to
+	// the extended ones. It keeps retrying either way, because an operator can make the key
+	// valid again without Relay knowing.
+	//
+	// The extended ceiling bounds how much load a whole fleet of Relay Proxy instances puts
+	// on a service that is rejecting every request. The Relay Proxy reports big segment
+	// data as potentially stale well before then, so a long wait stays visible: read
+	// MainConfig.BigSegmentsStaleThreshold, which the status resource reports against.
+	retryInitialDelay         = 10 * time.Second
+	retryNormalCeiling        = 30 * time.Second
+	retryExtendedInitialDelay = 5 * time.Minute
+	retryExtendedCeiling      = time.Hour
+
+	// How long the synchronizer must keep the store marked as synchronized before its retry
+	// state returns to the normal delays. The synchronizer marks the store on every stream
+	// message and at least every synchronizedOnInterval, so this is two of those marks.
+	retryResetThreshold = 60 * time.Second
 
 	segmentUpdatesChannelBufferSize = 20
 )
@@ -83,20 +103,23 @@ type BigSegmentSynchronizerFactory func(
 
 // defaultBigSegmentSynchronizer is the standard implementation of BigSegmentSynchronizer.
 type defaultBigSegmentSynchronizer struct {
-	httpConfig          httpconfig.HTTPConfig
-	store               BigSegmentStore
-	pollURI             string
-	streamURI           string
-	envID               config.EnvironmentID
-	sdkKey              config.SDKKey
-	streamRetryInterval time.Duration
-	segmentUpdatesChan  chan UpdatesSummary
-	hasSynced           bool
-	syncedLock          sync.RWMutex
-	startOnce           sync.Once
-	closeChan           chan struct{}
-	closeOnce           sync.Once
-	logger              *slog.Logger
+	httpConfig httpconfig.HTTPConfig
+	store      BigSegmentStore
+	pollURI    string
+	streamURI  string
+	envID      config.EnvironmentID
+	sdkKey     config.SDKKey
+	// retryStrategy decides how long to wait after each failed synchronization. Only the
+	// syncSupervisor goroutine touches it, so it needs no lock: sync, consumeStream and
+	// setSynced all run on that goroutine.
+	retryStrategy      *retry.Strategy
+	segmentUpdatesChan chan UpdatesSummary
+	hasSynced          bool
+	syncedLock         sync.RWMutex
+	startOnce          sync.Once
+	closeChan          chan struct{}
+	closeOnce          sync.Once
+	logger             *slog.Logger
 }
 
 type segmentChangesSummary map[string]struct{}
@@ -136,16 +159,16 @@ func newDefaultBigSegmentSynchronizer(
 		component = logPrefix + " " + component
 	}
 	s := defaultBigSegmentSynchronizer{
-		httpConfig:          httpConfig,
-		store:               store,
-		pollURI:             strings.TrimSuffix(pollURI, "/") + unboundedPollPath,
-		streamURI:           strings.TrimSuffix(streamURI, "/") + unboundedStreamPath,
-		envID:               envID,
-		sdkKey:              sdkKey,
-		streamRetryInterval: defaultStreamRetryInterval,
-		segmentUpdatesChan:  make(chan UpdatesSummary, segmentUpdatesChannelBufferSize),
-		closeChan:           make(chan struct{}),
-		logger:              logger.With("component", component),
+		httpConfig:         httpConfig,
+		store:              store,
+		pollURI:            strings.TrimSuffix(pollURI, "/") + unboundedPollPath,
+		streamURI:          strings.TrimSuffix(streamURI, "/") + unboundedStreamPath,
+		envID:              envID,
+		sdkKey:             sdkKey,
+		retryStrategy:      retry.NewStrategy(defaultRetryConfig()),
+		segmentUpdatesChan: make(chan UpdatesSummary, segmentUpdatesChannelBufferSize),
+		closeChan:          make(chan struct{}),
+		logger:             logger.With("component", component),
 	}
 
 	return &s
@@ -194,23 +217,51 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 	for {
 		err := s.sync(isRetry)
 		if err != nil {
-			s.logger.Error("synchronization failed", "error", err)
-			if statusError, ok := err.(httpStatusError); ok {
-				if !isHTTPErrorRecoverable(statusError.statusCode) {
-					return
-				}
-			}
+			s.recordFailure(err)
+		} else {
+			// sync returns a nil error when the stream ends, or when an out-of-order patch
+			// makes it restart. The connection is gone either way, so this is an ordinary
+			// transient failure and gets the normal delays.
+			s.retryStrategy.OnFailure(retry.Normal)
 		}
-		s.logger.Warn("will retry")
-		timer := time.NewTimer(s.streamRetryInterval)
-		defer timer.Stop()
+
+		wait := s.retryStrategy.NextWait()
+		s.logger.Warn("will retry", "delay", wait)
+		timer := time.NewTimer(wait)
 		select {
 		case <-s.closeChan:
+			timer.Stop()
 			close(s.segmentUpdatesChan)
 			return
 		case <-timer.C:
 		}
 		isRetry = true
+	}
+}
+
+// recordFailure sorts a synchronization failure into a retry class, logs it, and updates
+// the retry state. It never stops the synchronizer: an operator can make a rejected SDK key
+// valid again without Relay knowing, so the synchronizer keeps trying on the extended
+// delays instead.
+func (s *defaultBigSegmentSynchronizer) recordFailure(err error) {
+	// No transport-level failure is unexpected, so only an HTTP status can move the
+	// synchronizer to the longer delays.
+	class := retry.Normal
+	var statusError *httpStatusError
+	if errors.As(err, &statusError) {
+		class = retry.ClassifyHTTPStatus(statusError.statusCode)
+	}
+
+	// An unexpected failure nearly always means a real configuration problem, so it is worth
+	// an error even though the synchronizer recovers on its own if the problem is fixed.
+	if class == retry.Unexpected {
+		s.logger.Error("synchronization failed", "error", err)
+	} else {
+		s.logger.Warn("synchronization failed", "error", err)
+	}
+
+	if s.retryStrategy.OnFailure(class) {
+		s.logger.Info("classified failure as unexpected; engaging extended backoff")
 	}
 }
 
@@ -275,26 +326,25 @@ func (s *defaultBigSegmentSynchronizer) setSynced() error {
 	s.syncedLock.Lock()
 	s.hasSynced = true
 	s.syncedLock.Unlock()
+
+	// Marking the store as synchronized is what this component exists to do, so it is the
+	// signal that the synchronizer is healthy. Enough of these in a row returns the retry
+	// state to the normal delays. A successful HTTP response alone is not enough, because
+	// the store is what readers depend on.
+	s.retryStrategy.OnHealthy()
+
 	return nil
 }
 
-// Tests whether an HTTP error status represents a condition that might resolve
-// on its own if we retry, or at least should not make us permanently stop
-// sending requests.
-func isHTTPErrorRecoverable(statusCode int) bool {
-	if statusCode >= 400 && statusCode < 500 {
-		switch statusCode {
-		case 400: // bad request
-			return true
-		case 408: // request timeout
-			return true
-		case 429: // too many requests
-			return true
-		default:
-			return false // all other 4xx errors are unrecoverable
-		}
+// defaultRetryConfig returns this component's binding of the retry timings.
+func defaultRetryConfig() retry.Config {
+	return retry.Config{
+		InitialDelay:         retryInitialDelay,
+		NormalCeiling:        retryNormalCeiling,
+		ExtendedInitialDelay: retryExtendedInitialDelay,
+		ExtendedCeiling:      retryExtendedCeiling,
+		ResetThreshold:       retryResetThreshold,
 	}
-	return true
 }
 
 func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, error) {
