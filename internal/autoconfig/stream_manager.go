@@ -332,6 +332,13 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 
 	var readyOnce sync.Once
 	signalReady := func(err error) { readyOnce.Do(func() { readyCh <- err }) }
+	// signalShutdown releases a caller waiting on readyCh without reporting a failure, for the
+	// case where Close is what ended the attempt. It shares readyOnce with signalReady, so
+	// exactly one of the two ever touches the channel and neither can send on a closed one.
+	//
+	// Closing rather than sending nil matters: a non-nil error on this channel makes the caller
+	// treat the failure as fatal and exit the process, and a shutdown is not that.
+	signalShutdown := func() { readyOnce.Do(func() { close(readyCh) }) }
 
 	retryDelay := s.initialRetryDelay
 	if retryDelay <= 0 {
@@ -404,6 +411,17 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 
 		case result := <-streamCh:
 			if result.err != nil {
+				// Close cancels the stream context, and eventsource returns that cancellation from
+				// here without consulting the error handler. It is the shutdown's own doing rather
+				// than a stream failure, so it must not be reported as one: the caller exits the
+				// process on a non-nil error, and this arm and the halt arm below are both ready
+				// once Close has run, so which one wins is decided per-run.
+				select {
+				case <-s.halt:
+					signalShutdown()
+					return
+				default:
+				}
 				s.logger.Error("unexpected error on auto-configuration stream", "error", result.err)
 				// The error handler has already recorded why the connection failed, so this reports
 				// only that the stream is permanently off, and keeps that specific error.
@@ -427,6 +445,9 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 					result.stream.Close()
 				}
 			}()
+			// Nothing signalled readyCh on this path before, so a caller that was still waiting
+			// for the first connection waited forever.
+			signalShutdown()
 			return
 		}
 	}

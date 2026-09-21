@@ -95,6 +95,31 @@ func TestCloseInterruptsAPendingBackoffWait(t *testing.T) {
 			stacksContaining("abandonStreamGoroutine")...))
 }
 
+// Close() while the stream is stuck in its first-connection retry loop must not report the
+// shutdown's own context cancellation as a fatal stream failure. Eventsource returns that
+// cancellation without consulting the error handler, so if it reaches the ready channel here it
+// makes ld-relay.go call os.Exit(1) in the middle of a graceful shutdown. Close() must instead
+// close the ready channel, so whoever waits on it unblocks without an error.
+func TestCloseWhileRetryingDoesNotSignalAFatalStreamError(t *testing.T) {
+	sm, mockLog, _, closeServer := newRejectingStreamManager(t, 5*time.Minute)
+	defer closeServer()
+
+	readyCh := sm.Start()
+	require.Eventually(t, func() bool {
+		return mockLog.HasMessage(slog.LevelError, "invalid auto-configuration key")
+	}, 2*time.Second, 10*time.Millisecond, "expected the first rejection")
+
+	sm.Close()
+
+	select {
+	case err := <-readyCh:
+		assert.NoError(t, err,
+			"the shutdown's context cancellation must not be reported as a fatal stream error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("the ready channel was not closed after Close() returned")
+	}
+}
+
 // The same guarantee stated in terms of observable behavior: nothing reaches LaunchDarkly after
 // Close() returns. A short extended delay is used so a surviving wait would actually fire.
 func TestNoRequestIsMadeAfterClose(t *testing.T) {
