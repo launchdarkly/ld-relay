@@ -3,6 +3,7 @@ package filedata
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +259,82 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 		p.expectEnvironmentsUpdated(testEnv1a)
 		p.expectReloaded()
 	})
+}
+
+func TestUnchangedInvalidFileIsNotReExtractedOnEveryTick(t *testing.T) {
+	tempDirPath := t.TempDir()
+	t.Setenv("TMPDIR", tempDirPath)
+
+	archiveManagerTest(t, func(filePath string) {
+		writeArchive(t, filePath, false, nil, testEnv1)
+	}, func(p archiveManagerTestParams) {
+		require.NoError(t, p.archiveManagerError)
+
+		p.expectEnvironmentsAdded(testEnv1)
+
+		writeMalformedArchive(p.filePath)
+
+		requireLogMessage(t, p.mockLog, ldlog.Warn, "file is invalid")
+
+		time.Sleep(testMonitoringInterval * 20)
+		failureCount := countLogMessages(p.mockLog, ldlog.Warn, "file is invalid")
+		time.Sleep(testMonitoringInterval * 20)
+
+		assert.Equal(t, failureCount, countLogMessages(p.mockLog, ldlog.Warn, "file is invalid"))
+		assert.Equal(t, 0, countTempArchiveDirs(t, tempDirPath))
+
+		// A subsequent change to the file must still be picked up.
+		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
+		writeArchive(t, p.filePath, false, nil, testEnv1a)
+
+		p.expectEnvironmentsUpdated(testEnv1a)
+	})
+}
+
+func TestStartWithEnvironmentWhoseEnvIDDoesNotMatchFileName(t *testing.T) {
+	archiveManagerTest(t, func(filePath string) {
+		writeArchive(t, filePath, false, func(dirPath string) {
+			renameEnvFilesInArchive(dirPath, testEnv1.id(), "rogue", testEnv2.id())
+		}, testEnv1, testEnv2)
+	}, func(p archiveManagerTestParams) {
+		require.NoError(t, p.archiveManagerError)
+
+		p.expectEnvironmentsAdded(testEnv2)
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn,
+			regexp.QuoteMeta(fmt.Sprintf(logMsgEnvHasWrongID, testEnv1.id(), "rogue")))
+	})
+}
+
+func TestFileUpdatedWithEnvironmentWhoseEnvIDDoesNotMatchFileName(t *testing.T) {
+	archiveManagerTest(t, func(filePath string) {
+		writeArchive(t, filePath, false, nil, testEnv1, testEnv2)
+	}, func(p archiveManagerTestParams) {
+		require.NoError(t, p.archiveManagerError)
+
+		p.expectEnvironmentsAdded(testEnv1, testEnv2)
+
+		writeArchive(t, p.filePath, false, func(dirPath string) {
+			renameEnvFilesInArchive(dirPath, testEnv1.id(), "rogue", testEnv2.id())
+		}, testEnv1, testEnv2)
+
+		// The mismatched entry is skipped, so the environment it was previously loaded as is torn
+		// down under the identity that it was registered with.
+		msg := p.requireMessage()
+		require.NotNil(t, msg.delete)
+		assert.Equal(t, testEnv1.id(), msg.delete.EnvironmentID)
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn,
+			regexp.QuoteMeta(fmt.Sprintf(logMsgEnvHasWrongID, testEnv1.id(), "rogue")))
+	})
+}
+
+func countLogMessages(mockLog *ldlogtest.MockLog, level ldlog.LogLevel, expectedSubstring string) int {
+	count := 0
+	for _, message := range mockLog.GetOutput(level) {
+		if strings.Contains(message, expectedSubstring) {
+			count++
+		}
+	}
+	return count
 }
 
 func requireLogMessage(t *testing.T, mockLog *ldlogtest.MockLog, level ldlog.LogLevel, expectedSubstring string) {

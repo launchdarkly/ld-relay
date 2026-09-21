@@ -11,6 +11,7 @@ const (
 	logMsgDeleteEnv                  = "Removed environment %s (%s)"
 	logMsgNoEnvs                     = "The data file does not contain any environments; check your configuration"
 	logMsgBadEnvData                 = "Found invalid data for environment %s; skipping this environment"
+	logMsgEnvHasWrongID              = "Ignoring environment data whose envId %q did not match the archive file name ID %q"
 	logMsgReloadedData               = "Reloaded data from %s"
 	logMsgMonitoringStarted          = "Monitoring data file %s for changes (every %s) (size=%d, mtime=%s)"
 	logMsgReloadFileStatNotFound     = "Data file stat failed; file %s not found"
