@@ -232,25 +232,34 @@ func TestStreamStatusRecordsInvalidDataError(t *testing.T) {
 	})
 }
 
-func TestStreamStatusIsOffAfterUnrecoverableHTTPError(t *testing.T) {
+func TestStreamStatusIsNotOffAfterARejectedKey(t *testing.T) {
+	// The stream keeps retrying a rejected key, so it is not finished and must not report OFF.
+	// OFF is reserved for Close.
 	for _, status := range []int{401, 403} {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
-			streamHandler, stream := httphelpers.SSEHandler(nil)
+			// Every attempt is rejected, so the stream never becomes ready and stays in the
+			// retrying state this test is about. Recovery is covered separately by
+			// TestRecoversAfterUnrecoverableHTTPError.
+			handler := httphelpers.HandlerWithStatus(status)
+			_, stream := httphelpers.SSEHandler(nil)
 			defer stream.Close()
-			handler := httphelpers.SequentialHandler(
-				httphelpers.HandlerWithStatus(status),
-				streamHandler,
-			)
 			streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
+				p.streamManager.extendedRetryDelay = time.Millisecond
 				readyCh := p.streamManager.Start()
-				err := helpers.RequireValue(t, readyCh, time.Second, "timed out waiting for stream failure")
-				require.Error(t, err)
 
-				got := requireStatusEventually(t, p, "expected OFF", func(s StreamStatus) bool {
-					return s.State == interfaces.DataSourceStateOff
-				})
+				got := requireStatusEventually(t, p, "expected the rejection to be recorded",
+					func(s StreamStatus) bool {
+						return s.LastError.StatusCode == status
+					})
+				assert.NotEqual(t, interfaces.DataSourceStateOff, got.State,
+					"the stream is still retrying, so it is not finished")
+				// It never connected, so an interruption keeps the initializing state.
+				assert.Equal(t, interfaces.DataSourceStateInitializing, got.State)
 				assert.Equal(t, interfaces.DataSourceErrorKindErrorResponse, got.LastError.Kind)
-				assert.Equal(t, status, got.LastError.StatusCode)
+
+				if !helpers.AssertNoMoreValues(t, readyCh, 300*time.Millisecond, "Relay reported a failure") {
+					t.FailNow()
+				}
 			})
 		})
 	}
@@ -545,7 +554,7 @@ func TestStreamStatusRecoversOnAnUnrecognizedEvent(t *testing.T) {
 // A key revoked mid-stream is the case where this status is the only signal. The error never reaches
 // the channel Relay exits on, because signalReady has already fired, so Relay keeps serving with a
 // configuration stream that will not be retried.
-func TestStreamStatusIsOffAfterMidStreamKeyRevocation(t *testing.T) {
+func TestStreamStatusIsInterruptedAfterMidStreamKeyRevocation(t *testing.T) {
 	initialEvent := makeEnvPutEvent(testEnv1)
 	streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
 	defer stream.Close()
@@ -563,9 +572,10 @@ func TestStreamStatusIsOffAfterMidStreamKeyRevocation(t *testing.T) {
 
 		stream.EndAll()
 
-		got := requireStatusEventually(t, p, "expected OFF after the key was rejected",
+		// The stream had connected, so a rejection now interrupts it rather than ending it.
+		got := requireStatusEventually(t, p, "expected INTERRUPTED after the key was rejected",
 			func(s StreamStatus) bool {
-				return s.State == interfaces.DataSourceStateOff
+				return s.State == interfaces.DataSourceStateInterrupted
 			})
 		assert.Equal(t, interfaces.DataSourceErrorKindErrorResponse, got.LastError.Kind)
 		assert.Equal(t, 401, got.LastError.StatusCode)
