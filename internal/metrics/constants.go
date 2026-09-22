@@ -33,6 +33,41 @@ const (
 	initUpToDateMeasureName          = "launchdarkly.relay.init.replays.up_to_date"
 	initDeadlineSetErrorsMeasureName = "launchdarkly.relay.init.deadline.set_errors"
 
+	// The status instruments, which report what the status endpoint reports. These carry no
+	// environment attribute, so their cardinality does not grow with the number of environments
+	// Relay serves. They are registered whenever OpenTelemetry is enabled.
+	statusMeasureName                         = "launchdarkly.relay.status"
+	envCountMeasureName                       = "launchdarkly.relay.environment.count"
+	envStatusCountMeasureName                 = "launchdarkly.relay.environment.status.count"
+	envConnStateCountMeasureName              = "launchdarkly.relay.environment.connection.state.count"
+	envStoreStateCountMeasureName             = "launchdarkly.relay.environment.datastore.state.count"
+	envExpiringKeyCountMeasureName            = "launchdarkly.relay.environment.expiring_key.count"
+	envBigSegmentsUnavailableCountMeasureName = "launchdarkly.relay.environment.big_segments.unavailable.count"
+	envBigSegmentsStaleCountMeasureName       = "launchdarkly.relay.environment.big_segments.stale.count"
+
+	// The auto-configuration stream instruments. There is one such stream per process, so these
+	// carry no environment attribute either. They are observed only in automatic configuration
+	// mode.
+	autoConfigStateMeasureName      = "launchdarkly.relay.autoconfig.state"
+	autoConfigStateSinceMeasureName = "launchdarkly.relay.autoconfig.state.since"
+	autoConfigLastErrorMeasureName  = "launchdarkly.relay.autoconfig.last_error"
+
+	// The per-environment status instruments. Each of these says which environment the instruments
+	// above counted, at a cardinality that grows with the number of environments, so they are
+	// registered only when the operator asks for them.
+	envStatusMeasureName            = "launchdarkly.relay.environment.status"
+	envConnStateMeasureName         = "launchdarkly.relay.environment.connection.state"
+	envConnStateSinceMeasureName    = "launchdarkly.relay.environment.connection.state.since"
+	envConnLastErrorMeasureName     = "launchdarkly.relay.environment.connection.last_error"
+	envStoreStateMeasureName        = "launchdarkly.relay.environment.datastore.state"
+	envStoreStateSinceMeasureName   = "launchdarkly.relay.environment.datastore.state.since"
+	envBigSegmentsAvailMeasureName  = "launchdarkly.relay.environment.big_segments.available"
+	envBigSegmentsStaleMeasureName  = "launchdarkly.relay.environment.big_segments.stale"
+	envBigSegmentsSyncedMeasureName = "launchdarkly.relay.environment.big_segments.last_synchronized"
+	envExpiringKeyMeasureName       = "launchdarkly.relay.environment.expiring_key"
+	envInfoMeasureName              = "launchdarkly.relay.environment.info"
+	envStoreInfoMeasureName         = "launchdarkly.relay.environment.datastore.info"
+
 	defaultFlushInterval = time.Minute
 
 	// notProvidedValue is the sentinel reported for an OTel attribute whose value is absent. It is
@@ -102,6 +137,27 @@ var (
 	initOutcomeAttrKey    = attribute.Key("launchdarkly.relay.init.outcome")     //nolint:gochecknoglobals
 	initCapEngagedAttrKey = attribute.Key("launchdarkly.relay.init.cap_engaged") //nolint:gochecknoglobals
 	initAfterWaitAttrKey  = attribute.Key("launchdarkly.relay.init.after_wait")  //nolint:gochecknoglobals
+
+	// Attribute keys for the status instruments. One key carries the state on every status
+	// instrument that reports one; the instrument name says which field the state belongs to, the
+	// way the Prometheus ecosystem spells this pattern.
+	statusStateAttrKey = attribute.Key("launchdarkly.relay.state")        //nolint:gochecknoglobals
+	errorKindAttrKey   = attribute.Key("launchdarkly.relay.error.kind")   //nolint:gochecknoglobals
+	storePrefixAttrKey = attribute.Key("launchdarkly.relay.store.prefix") //nolint:gochecknoglobals
+
+	// Environment and project identity. These are reported on the info instruments rather than on
+	// every state series, which keeps the state series narrow and gives a query one place to join
+	// against. The environment ID matters in automatic configuration mode, where the status
+	// document is keyed by ID while these metrics report the display name.
+	envIDAttrKey    = attribute.Key("launchdarkly.environment.id")  //nolint:gochecknoglobals
+	envKeyAttrKey   = attribute.Key("launchdarkly.environment.key") //nolint:gochecknoglobals
+	projKeyAttrKey  = attribute.Key("launchdarkly.project.key")     //nolint:gochecknoglobals
+	projNameAttrKey = attribute.Key("launchdarkly.project.name")    //nolint:gochecknoglobals
+
+	// Persistent store identity, from the semantic conventions where they define one.
+	dbSystemAttrKey      = semconv.DBSystemNameKey     //nolint:gochecknoglobals
+	dbCollectionAttrKey  = semconv.DBCollectionNameKey //nolint:gochecknoglobals
+	serverAddressAttrKey = semconv.ServerAddressKey    //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals
