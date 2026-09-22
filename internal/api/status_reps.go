@@ -5,6 +5,35 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 )
 
+// The values the status document reports for its state fields. They live here, rather than only
+// where the document is built, because the status metrics report the same vocabulary as attribute
+// values and the two must agree.
+const (
+	// StatusHealthy means Relay knows its full set of environments and every one of them is
+	// healthy.
+	StatusHealthy = "healthy"
+
+	// StatusDegraded means at least one environment is unhealthy, or Relay does not yet know its
+	// full set of environments. Relay keeps serving flags in this state.
+	StatusDegraded = "degraded"
+
+	// EnvStatusConnected means the environment has a client that is initialized and whose data
+	// source has not been disconnected for longer than the configured grace period.
+	EnvStatusConnected = "connected"
+
+	// EnvStatusDisconnected means the environment has no client yet, or its data source has been
+	// away for longer than the configured grace period. The environment still serves the data it
+	// has.
+	EnvStatusDisconnected = "disconnected"
+
+	// The data store states. These spell their values the same way DataSourceState does, but the
+	// data store status is a plain string in the document rather than that type, and it never
+	// reports OFF.
+	DataStoreStateValid        = "VALID"
+	DataStoreStateInitializing = "INITIALIZING"
+	DataStoreStateInterrupted  = "INTERRUPTED"
+)
+
 // StatusRep is the JSON representation returned by the status endpoint.
 //
 // This is exported for use in integration test code.
