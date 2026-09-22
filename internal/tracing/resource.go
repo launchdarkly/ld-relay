@@ -7,12 +7,18 @@ import (
 	"unicode/utf8"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/relay/version"
 
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/pborman/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
+
+// sdkVersionAttrKey reports the version of the Go SDK that Relay embeds. The semantic conventions
+// define service.version for the service itself, but nothing for a library inside it.
+var sdkVersionAttrKey = attribute.Key("launchdarkly.relay.sdk.version") //nolint:gochecknoglobals
 
 // relayID is generated once per process, so that the metrics and trace providers -- which each build
 // their own resource -- report the same identity.
@@ -45,6 +51,11 @@ func NewResource(logger *slog.Logger) *resource.Resource {
 		resource.WithAttributes(
 			semconv.ServiceName("ld-relay"),
 			semconv.ServiceInstanceID(RelayID()),
+			semconv.ServiceVersion(version.Version),
+			// The status endpoint reports the embedded Go SDK version as clientVersion. Neither
+			// version varies within a process, which is what makes both of them resource
+			// attributes rather than attributes on a measurement.
+			sdkVersionAttrKey.String(ld.Version),
 		),
 		resource.WithFromEnv(),
 	}

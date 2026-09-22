@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -44,7 +45,9 @@ func StartHTTPServer(
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM)
 
-	go func() {
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
 		var err error
 		logger.Info("starting server", "port", port)
 		if tlsEnabled {
@@ -60,8 +63,7 @@ func StartHTTPServer(
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
-		close(errCh)
-	}()
+	})
 
 	// Handle graceful shutdown in a separate goroutine
 	go func() {
@@ -83,6 +85,14 @@ func StartHTTPServer(
 		} else {
 			logger.Info("server gracefully stopped")
 		}
+
+		// Closing errCh is what releases the caller, so it must not happen until the shutdown is
+		// finished. srv.Shutdown closes the listeners first, which makes ListenAndServe return at
+		// once, so a close from the serving goroutine would report completion while requests were
+		// still draining. Waiting also keeps the send and the close in a fixed order, which is what
+		// makes a send on a closed channel impossible.
+		wg.Wait()
+		close(errCh)
 	}()
 
 	return srv, errCh

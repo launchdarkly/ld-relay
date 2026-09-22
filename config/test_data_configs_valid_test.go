@@ -101,6 +101,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPUnlimitedCardinality(),
 		makeValidConfigOTLPSignalsDisabled(),
 		makeValidConfigOTLPUnrecognizedSignalExporter(),
+		makeValidConfigOTLPNoEnvironmentStatus(),
 		makeValidConfigProxy(),
 	}
 }
@@ -771,27 +772,30 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.OpenTelemetry = OpenTelemetryConfig{
-			Enabled:                 true,
-			Protocol:                "grpc",
-			MetricsCardinalityLimit: ct.NewOptInt(20000),
-			LogsExporter:            "otlp",
-			TracesExporter:          "otlp",
-			MetricsExporter:         "otlp",
+			Enabled:                  true,
+			Protocol:                 "grpc",
+			MetricsCardinalityLimit:  ct.NewOptInt(20000),
+			EnvironmentStatusMetrics: true,
+			LogsExporter:             "otlp",
+			TracesExporter:           "otlp",
+			MetricsExporter:          "otlp",
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":                       "1",
-		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
-		"OTEL_METRICS_CARDINALITY_LIMIT": "20000",
-		"OTEL_LOGS_EXPORTER":             "otlp",
-		"OTEL_TRACES_EXPORTER":           "otlp",
-		"OTEL_METRICS_EXPORTER":          "otlp",
+		"USE_OTLP":                        "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":     "grpc",
+		"OTEL_METRICS_CARDINALITY_LIMIT":  "20000",
+		"OTEL_ENVIRONMENT_STATUS_METRICS": "1",
+		"OTEL_LOGS_EXPORTER":              "otlp",
+		"OTEL_TRACES_EXPORTER":            "otlp",
+		"OTEL_METRICS_EXPORTER":           "otlp",
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
 Protocol = grpc
 MetricsCardinalityLimit = 20000
+EnvironmentStatusMetrics = true
 LogsExporter = otlp
 TracesExporter = otlp
 MetricsExporter = otlp
@@ -821,6 +825,29 @@ Enabled = true
 LogsExporter = none
 TracesExporter = none
 MetricsExporter = none
+`
+	return c
+}
+
+// makeValidConfigOTLPNoEnvironmentStatus asserts that an explicit "off" is read as off rather than
+// as an unrecognized value that turns the setting on. The expected config is the default one,
+// because off is the default.
+func makeValidConfigOTLPNoEnvironmentStatus() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - per-environment status metrics explicitly disabled"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:                  true,
+			EnvironmentStatusMetrics: false,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":                        "1",
+		"OTEL_ENVIRONMENT_STATUS_METRICS": "0",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+EnvironmentStatusMetrics = false
 `
 	return c
 }

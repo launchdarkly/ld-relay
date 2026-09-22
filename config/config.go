@@ -353,6 +353,16 @@ type HTTPConfig struct {
 // in its experimental namespace, so Relay owns this setting. When it is undefined, Relay applies no
 // option and the SDK's default (or OTEL_GO_X_CARDINALITY_LIMIT, if the operator set it) stands.
 //
+// EnvironmentStatusMetrics is Relay's own for the same reason: it selects how much of the status
+// document is reported, which no OpenTelemetry variable describes.
+//
+// EnvironmentStatusMetrics is off by default, because its cardinality follows the number of
+// environments Relay serves rather than the traffic it receives. In automatic configuration mode
+// that number is every environment in the account, and the OpenTelemetry cardinality cap discards
+// series silently once it is reached. The relay-level status metrics, whose cardinality is fixed,
+// are reported whenever Enabled is true; this setting only adds which environment each of them
+// counted.
+//
 // LogsExporter, TracesExporter and MetricsExporter are read by Relay rather than by the SDK for a
 // different reason: the specification defines them, but only the autoconfiguration packages that other
 // languages ship implement them, and the Go SDK has none. They are declared here, under their
@@ -365,12 +375,13 @@ type HTTPConfig struct {
 // specification requires an unrecognized enum value to be warned about and then ignored, which leaves
 // the signal exporting over OTLP exactly as it did before these settings existed.
 type OpenTelemetryConfig struct {
-	Enabled                 bool      `conf:"USE_OTLP"`
-	Protocol                string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
-	MetricsCardinalityLimit ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
-	LogsExporter            string    `conf:"OTEL_LOGS_EXPORTER"`
-	TracesExporter          string    `conf:"OTEL_TRACES_EXPORTER"`
-	MetricsExporter         string    `conf:"OTEL_METRICS_EXPORTER"`
+	Enabled                  bool      `conf:"USE_OTLP"`
+	Protocol                 string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	MetricsCardinalityLimit  ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
+	EnvironmentStatusMetrics bool      `conf:"OTEL_ENVIRONMENT_STATUS_METRICS"`
+	LogsExporter             string    `conf:"OTEL_LOGS_EXPORTER"`
+	TracesExporter           string    `conf:"OTEL_TRACES_EXPORTER"`
+	MetricsExporter          string    `conf:"OTEL_METRICS_EXPORTER"`
 }
 
 // The per-signal exporter values Relay acts on: the specification's default and its opt-out. The
