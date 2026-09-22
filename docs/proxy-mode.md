@@ -42,6 +42,22 @@ If the Relay Proxy receives requests from SDKs by this time, the behavior depend
 
 If you're an Enterprise customer using [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration), the first thing the Relay Proxy does on startup is request the configuration data from LaunchDarkly. During this time, the Relay Proxy does not yet know what the configured environments are, so it has no way to know if an SDK key or other credential in a request is valid. Therefore it returns a `503` error for all requests, indicating that it isn't ready yet. In this case, all LaunchDarkly SDKs will retry after a backoff delay.
 
+### Relay Proxy receives a request when LaunchDarkly has rejected its auto-configuration key
+
+If LaunchDarkly rejects the auto-configuration stream with a `401` or `403` error, the auto-configuration key is not valid. The Relay Proxy does not give up. It keeps retrying on a slower schedule, which backs off to as long as one hour between attempts, so the connection recovers on its own if the key becomes valid again. Restart the Relay Proxy if you need it to reconnect immediately.
+
+This is the same thing the Relay Proxy already did for every other failure to reach LaunchDarkly, such as a `404`, a `5xx`, a network error, or a certificate problem. A rejected key is no longer treated differently.
+
+What happens to SDK requests in the meantime depends on whether the Relay Proxy has a configuration:
+
+* If you configure a [persistent store](./persistent-storage.md) and it holds configuration data from a previous run, the Relay Proxy loads that data and serves those environments while it keeps retrying. It logs `AutoConfig loaded from persistent cache`.
+
+* If the Relay Proxy has no configuration from any source, it cannot serve any request, because it does not know what its environments are. It answers every request with a `503` error until the key becomes valid.
+
+Read the Relay Proxy logs, or the [status resource](./endpoints.md), to tell a rejected key apart from an unreachable LaunchDarkly service. A rejected key logs `invalid auto-configuration key; will keep retrying in case it becomes valid`, and the status resource records the `401` or `403` under the auto-configuration stream's `lastError`. The reported state is `INTERRUPTED` if the stream had connected before the key was rejected, and `INITIALIZING` if it never connected at all.
+
+Versions of the Relay Proxy before 9.0.0 shut the process down immediately when LaunchDarkly rejected the auto-configuration key, even when a persistent store held usable configuration data. If you relied on the process exiting to detect a bad key, use the status resource instead.
+
 ### Relay Proxy receives a request with invalid credentials
 
 If a server-side or mobile SDK connects to the Relay Proxy with an invalid SDK key or mobile key, the response is a `401` error.
