@@ -10,6 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -30,21 +31,25 @@ func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars m
 	return req
 }
 
-// TODO(sdk-1232): Re-enable these tests
-//func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
-//	headers := make(http.Header)
-//	headers.Set("Content-Type", "application/json")
-//	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
-//	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
-//	resp := httptest.NewRecorder()
-//	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
-//
-//	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
-//
-//	b, _ := io.ReadAll(resp.Body)
-//
-//	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
-//}
+func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	// The store has to come from the client factory. Relay reads the data destination the factory
+	// installs, not the DataStoreFactory argument, and the standard fake factory installs a store
+	// preloaded with the test data. A zero-value FakeStore has no selector, so it reports
+	// uninitialized, which is the condition under test.
+	ctx := testenv.NewTestEnvContextWithClientFactory("",
+		testclient.FakeLDClientFactoryWithStore(false, &testclient.FakeStore{}), nil)
+	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
+	resp := httptest.NewRecorder()
+	evaluateAllFeatureFlags(basictypes.JSClientSDK, ct.OptBase2Bytes{})(resp, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
+
+	b, _ := io.ReadAll(resp.Body)
+
+	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
+}
 
 func TestReportFlagEvalRejectsOversizedBodyWhenLimitConfigured(t *testing.T) {
 	headers := make(http.Header)
