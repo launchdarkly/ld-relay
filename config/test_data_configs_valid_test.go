@@ -100,6 +100,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPAll(),
 		makeValidConfigOTLPUnlimitedCardinality(),
 		makeValidConfigOTLPSignalsDisabled(),
+		makeValidConfigOTLPUnrecognizedSignalExporter(),
 		makeValidConfigProxy(),
 	}
 }
@@ -841,6 +842,30 @@ func makeValidConfigOTLPUnlimitedCardinality() testDataValidConfig {
 Enabled = true
 MetricsCardinalityLimit = 0
 `
+	return c
+}
+
+// An exporter Relay does not implement is a warning, not an error. These variables are routinely set
+// host- or pod-wide for other workloads, so a value like "zipkin" must leave Relay running and
+// exporting over OTLP rather than stopping it from starting.
+func makeValidConfigOTLPUnrecognizedSignalExporter() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - unrecognized per-signal exporter"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:        true,
+			TracesExporter: "zipkin",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":             "1",
+		"OTEL_TRACES_EXPORTER": "zipkin",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+TracesExporter = zipkin
+`
+	c.warnings = []string{warnUnrecognizedSignalExporter("OTEL_TRACES_EXPORTER", "zipkin")}
 	return c
 }
 

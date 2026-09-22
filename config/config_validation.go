@@ -34,13 +34,14 @@ var (
 
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
-func errEnvironmentWithNoSDKKey(envName string) error {
-	return fmt.Errorf("SDK key is required for environment %q", envName)
+func warnUnrecognizedSignalExporter(varName, value string) string {
+	return fmt.Sprintf("%s is set to %q, which Relay does not implement; ignoring it and exporting"+
+		" this signal over OTLP. Set it to %q to turn the signal off.",
+		varName, value, SignalExporterNone)
 }
 
-func errOTLPInvalidSignalExporter(varName string) error {
-	return fmt.Errorf("OTLP exporter must be %q or %q (%s)",
-		SignalExporterOTLP, SignalExporterNone, varName)
+func errEnvironmentWithNoSDKKey(envName string) error {
+	return fmt.Errorf("SDK key is required for environment %q", envName)
 }
 
 func errMultipleDatabases(databases []string) error {
@@ -82,7 +83,7 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
 	validateMaxClientRequestBodySize(&result, c)
-	validateConfigMetrics(&result, c)
+	validateConfigMetrics(&result, c, logger)
 	validateMetricsCapacity(c, logger)
 
 	return result.GetError()
@@ -268,7 +269,7 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 	}
 }
 
-func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
+func validateConfigMetrics(result *ct.ValidationResult, c *Config, logger *slog.Logger) {
 	if c.OpenTelemetry.Enabled {
 		protocol := strings.ToLower(c.OpenTelemetry.Protocol)
 		if protocol != "" && protocol != "grpc" && protocol != "http" {
@@ -277,14 +278,16 @@ func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
 		if limit := c.OpenTelemetry.MetricsCardinalityLimit; limit.IsDefined() && limit.GetOrElse(0) < 0 {
 			result.AddError(nil, errOTLPNegativeCardinalityLimit)
 		}
-		validateSignalExporters(result, c)
+		warnUnrecognizedSignalExporters(c, logger)
 	}
 }
 
-// validateSignalExporters rejects per-signal exporter values Relay cannot honor. Ignoring an
-// unrecognized value would leave the operator believing they had disabled a signal that is still
-// exporting, or selected an exporter Relay does not have.
-func validateSignalExporters(result *ct.ValidationResult, c *Config) {
+// warnUnrecognizedSignalExporters reports per-signal exporter values Relay does not implement, which
+// the OpenTelemetry specification requires be warned about and then ignored rather than rejected.
+// Failing startup instead would be unsafe: OTEL_LOGS_EXPORTER and its siblings are frequently set
+// host- or pod-wide for other workloads, so a legitimate value like "zipkin" or "prometheus" -- which
+// Relay ignores entirely today -- would stop Relay from running at all.
+func warnUnrecognizedSignalExporters(c *Config, logger *slog.Logger) {
 	exporters := []struct {
 		varName string
 		value   string
@@ -300,7 +303,7 @@ func validateSignalExporters(result *ct.ValidationResult, c *Config) {
 			strings.EqualFold(value, SignalExporterNone) {
 			continue
 		}
-		result.AddError(nil, errOTLPInvalidSignalExporter(exporter.varName))
+		logger.Warn(warnUnrecognizedSignalExporter(exporter.varName, exporter.value))
 	}
 }
 

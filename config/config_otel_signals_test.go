@@ -76,6 +76,34 @@ func TestSignalExportDecisions(t *testing.T) {
 			},
 			metrics: true,
 		},
+		{
+			// These variables are routinely set host- or pod-wide for other workloads. An exporter
+			// Relay does not implement has to leave the signal exporting over OTLP, which is both
+			// what the specification requires of an unrecognized enum value and what Relay did
+			// before it read these variables at all.
+			name: "exporters Relay does not implement are ignored, not treated as off",
+			config: OpenTelemetryConfig{
+				Enabled:         true,
+				LogsExporter:    "console",
+				TracesExporter:  "zipkin",
+				MetricsExporter: "prometheus",
+			},
+			logs:    true,
+			traces:  true,
+			metrics: true,
+		},
+		{
+			// The comma-separated list form is a MAY in the specification and Relay does not parse
+			// it, so a list falls into the unrecognized case above rather than turning a signal off.
+			name: "a list is unrecognized rather than partially honored",
+			config: OpenTelemetryConfig{
+				Enabled:      true,
+				LogsExporter: "otlp,console",
+			},
+			logs:    true,
+			traces:  true,
+			metrics: true,
+		},
 	}
 
 	for _, test := range tests {

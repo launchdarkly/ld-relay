@@ -270,14 +270,16 @@ To learn more, read [Metrics](./metrics.md).
 | `enabled`        | `USE_OTLP`                     | Boolean | `false` | If true, enables exporting metrics, traces and logs via OTLP. Each signal can then be turned off individually with the per-signal settings below.                                                                    |
 | `protocol`       | `OTEL_EXPORTER_OTLP_PROTOCOL` | String  |         | The OTLP transport protocol. Must be `grpc` or `http`.                                                                                                                                                             |
 | `metricsCardinalityLimit` | `OTEL_METRICS_CARDINALITY_LIMIT` | Int | `2000` | The maximum number of distinct attribute sets recorded for a single metric instrument in one export cycle. Set to `0` for no limit. To learn more, read [Metrics](./metrics.md). |
-| `logsExporter`   | `OTEL_LOGS_EXPORTER`           | String  | `otlp`  | Set to `none` to stop exporting logs while leaving metrics and traces enabled. The only other accepted value is `otlp`. To learn more, read [Logging](./logging.md#otlp-log-export).                                 |
-| `tracesExporter` | `OTEL_TRACES_EXPORTER`         | String  | `otlp`  | Set to `none` to stop exporting traces while leaving metrics and logs enabled. The only other accepted value is `otlp`. To learn more, read [Tracing](./tracing.md).                                                 |
-| `metricsExporter` | `OTEL_METRICS_EXPORTER`       | String  | `otlp`  | Set to `none` to stop exporting metrics while leaving traces and logs enabled. The only other accepted value is `otlp`. To learn more, read [Metrics](./metrics.md).                                                 |
+| `logsExporter`   | `OTEL_LOGS_EXPORTER`           | String  | `otlp`  | Set to `none` to stop exporting logs while leaving metrics and traces enabled. To learn more, read [Logging](./logging.md#otlp-log-export).                                                                          |
+| `tracesExporter` | `OTEL_TRACES_EXPORTER`         | String  | `otlp`  | Set to `none` to stop exporting traces while leaving metrics and logs enabled. To learn more, read [Tracing](./tracing.md).                                                                                          |
+| `metricsExporter` | `OTEL_METRICS_EXPORTER`       | String  | `otlp`  | Set to `none` to stop exporting metrics while leaving traces and logs enabled. To learn more, read [Metrics](./metrics.md).                                                                                          |
 
 The per-signal settings carry their OpenTelemetry-specified names, so they are spelled the same way
-here as in any other OpenTelemetry SDK. The specification allows several other values and a
-comma-separated list; the Relay Proxy implements only the OTLP exporter, so it accepts `otlp` and
-`none` and rejects anything else at startup rather than ignoring it.
+here as in any other OpenTelemetry SDK. The specification allows several values the Relay Proxy does
+not implement — `zipkin`, `prometheus`, `console` — along with a comma-separated list. Because these
+variables are often set for a whole host or pod, a value the Relay Proxy cannot honor is logged as a
+warning and then ignored, leaving that signal exporting over OTLP. It never prevents startup. Only
+`none` turns a signal off.
 
 All other OTLP configuration — including endpoint, headers, TLS, compression, timeouts, and service name — is handled by standard [OpenTelemetry environment variables](https://opentelemetry.io/docs/specs/otel/protocol/exporter/). The OpenTelemetry SDK reads these directly from the environment. Commonly used variables include:
 
