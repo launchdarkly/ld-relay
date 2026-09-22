@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/alecthomas/units"
@@ -361,9 +362,56 @@ type HTTPConfig struct {
 // series silently once it is reached. The relay-level status metrics, whose cardinality is fixed,
 // are reported whenever Enabled is true; this setting only adds which environment each of them
 // counted.
+//
+// LogsExporter, TracesExporter and MetricsExporter are read by Relay rather than by the SDK for a
+// different reason: the specification defines them, but only the autoconfiguration packages that other
+// languages ship implement them, and the Go SDK has none. They are declared here, under their
+// specification names, so that operators arriving from another LaunchDarkly SDK reach for the variable
+// that already works and so that the setting can also be given in the configuration file.
+//
+// Relay implements only the OTLP exporter, so "otlp" and "none" are the values it acts on. Because
+// these variables are commonly set host- or pod-wide for other workloads, any other value the
+// specification allows -- "zipkin", "prometheus", "console" -- must not stop Relay from starting. The
+// specification requires an unrecognized enum value to be warned about and then ignored, which leaves
+// the signal exporting over OTLP exactly as it did before these settings existed.
 type OpenTelemetryConfig struct {
 	Enabled                  bool      `conf:"USE_OTLP"`
 	Protocol                 string    `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	MetricsCardinalityLimit  ct.OptInt `conf:"OTEL_METRICS_CARDINALITY_LIMIT"`
 	EnvironmentStatusMetrics bool      `conf:"OTEL_ENVIRONMENT_STATUS_METRICS"`
+	LogsExporter             string    `conf:"OTEL_LOGS_EXPORTER"`
+	TracesExporter           string    `conf:"OTEL_TRACES_EXPORTER"`
+	MetricsExporter          string    `conf:"OTEL_METRICS_EXPORTER"`
+}
+
+// The per-signal exporter values Relay acts on: the specification's default and its opt-out. The
+// specification defines several more, along with a comma-separated list syntax; Relay warns about
+// anything else and treats it as unset.
+const (
+	SignalExporterOTLP = "otlp"
+	SignalExporterNone = "none"
+)
+
+// ExportLogs reports whether Relay should export logs over OTLP.
+func (c OpenTelemetryConfig) ExportLogs() bool {
+	return c.Enabled && signalExported(c.LogsExporter)
+}
+
+// ExportTraces reports whether Relay should export traces over OTLP.
+func (c OpenTelemetryConfig) ExportTraces() bool {
+	return c.Enabled && signalExported(c.TracesExporter)
+}
+
+// ExportMetrics reports whether Relay should export metrics over OTLP.
+func (c OpenTelemetryConfig) ExportMetrics() bool {
+	return c.Enabled && signalExported(c.MetricsExporter)
+}
+
+// signalExported interprets one OTEL_<SIGNAL>_EXPORTER value. Only "none" turns a signal off.
+// Everything else exports: an unset or empty value because that is the specification's "otlp" default,
+// and an unrecognized value because the specification requires ignoring it. Both cases preserve the
+// behavior USE_OTLP had before the per-signal settings existed. Validation logs the warning the
+// specification requires for the unrecognized case.
+func signalExported(value string) bool {
+	return !strings.EqualFold(strings.TrimSpace(value), SignalExporterNone)
 }

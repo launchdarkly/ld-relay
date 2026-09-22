@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-The Relay Proxy can export distributed traces via [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) to any compatible backend, such as Grafana Tempo, Jaeger, Datadog, or an OpenTelemetry Collector. Tracing is enabled by the same setting as metrics. To learn about configuration, read [Configuration](./configuration.md).
+The Relay Proxy can export distributed traces via [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) to any compatible backend, such as Grafana Tempo, Jaeger, Datadog, or an OpenTelemetry Collector. Tracing is enabled by the same `USE_OTLP` setting as metrics and logs. To leave metrics and logs exporting but turn traces off, set `OTEL_TRACES_EXPORTER=none`. To learn about configuration, read [Configuration](./configuration.md).
 
 Traces and metrics share the resource attributes described in [Metrics](./metrics.md#resource-attributes), and the environment attribute is spelled the same way in both, so a trace can be correlated with a metric series for the same environment.
 

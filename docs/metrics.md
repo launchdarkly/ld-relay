@@ -322,6 +322,19 @@ otlp_config:
         endpoint: "0.0.0.0:4317"
 ```
 
+That enables traces and metrics. OTLP **log** ingestion is a separate switch that is off by default,
+so an Agent configured as above rejects every log batch the Relay Proxy sends it, answering `404 Not
+Found` on `/v1/logs`. Either enable it:
+
+```yaml
+otlp_config:
+  logs:
+    enabled: true
+```
+
+or turn log export off with `OTEL_LOGS_EXPORTER=none` and let the Agent collect the Relay Proxy's
+console output instead. To learn more, read [Logging](./logging.md#otlp-log-export).
+
 Then configure the Relay Proxy:
 
 ```

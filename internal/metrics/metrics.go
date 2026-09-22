@@ -79,7 +79,7 @@ func NewManager(
 	var instruments *Instruments
 	var initInstruments *InitInstruments
 	var meter otelmetric.Meter
-	if otlpConfig.Enabled {
+	if otlpConfig.ExportMetrics() {
 		opts, err := newOTLPExporters(otlpConfig, logger)
 		if err != nil {
 			return nil, err

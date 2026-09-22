@@ -63,9 +63,9 @@ func run() int {
 		levelVar.Set(c.Main.LogLevel.GetOrElse(slog.LevelInfo))
 	}
 
-	// If OTLP is enabled, recreate the logger with an OTel handler so that
-	// log records are exported alongside metrics.
-	if c.OpenTelemetry.Enabled {
+	// When logs are exported, recreate the logger with an OTel handler so that records go to both
+	// the console and the collector.
+	if c.OpenTelemetry.ExportLogs() {
 		otelLog, err := logging.NewOTelLogProvider(logging.OTelLogConfig{
 			Protocol: c.OpenTelemetry.Protocol,
 		})
@@ -80,7 +80,9 @@ func run() int {
 			logging.WithOTelHandler(otelLog.Handler),
 		)
 		logger.Info("OTLP log export enabled", "protocol", c.OpenTelemetry.Protocol)
+	}
 
+	if c.OpenTelemetry.ExportTraces() {
 		tp, err := tracing.NewTracingProvider(tracing.TracingConfig{
 			Protocol: c.OpenTelemetry.Protocol,
 		}, logger)

@@ -99,6 +99,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
 		makeValidConfigOTLPUnlimitedCardinality(),
+		makeValidConfigOTLPSignalsDisabled(),
+		makeValidConfigOTLPUnrecognizedSignalExporter(),
 		makeValidConfigOTLPNoEnvironmentStatus(),
 		makeValidConfigProxy(),
 	}
@@ -774,6 +776,9 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 			Protocol:                 "grpc",
 			MetricsCardinalityLimit:  ct.NewOptInt(20000),
 			EnvironmentStatusMetrics: true,
+			LogsExporter:             "otlp",
+			TracesExporter:           "otlp",
+			MetricsExporter:          "otlp",
 		}
 	}
 	c.envVars = map[string]string{
@@ -781,6 +786,9 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 		"OTEL_EXPORTER_OTLP_PROTOCOL":     "grpc",
 		"OTEL_METRICS_CARDINALITY_LIMIT":  "20000",
 		"OTEL_ENVIRONMENT_STATUS_METRICS": "1",
+		"OTEL_LOGS_EXPORTER":              "otlp",
+		"OTEL_TRACES_EXPORTER":            "otlp",
+		"OTEL_METRICS_EXPORTER":           "otlp",
 	}
 	c.fileContent = `
 [OpenTelemetry]
@@ -788,6 +796,35 @@ Enabled = true
 Protocol = grpc
 MetricsCardinalityLimit = 20000
 EnvironmentStatusMetrics = true
+LogsExporter = otlp
+TracesExporter = otlp
+MetricsExporter = otlp
+`
+	return c
+}
+
+func makeValidConfigOTLPSignalsDisabled() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - per-signal exporters disabled"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:         true,
+			LogsExporter:    "none",
+			TracesExporter:  "none",
+			MetricsExporter: "none",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":              "1",
+		"OTEL_LOGS_EXPORTER":    "none",
+		"OTEL_TRACES_EXPORTER":  "none",
+		"OTEL_METRICS_EXPORTER": "none",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+LogsExporter = none
+TracesExporter = none
+MetricsExporter = none
 `
 	return c
 }
@@ -832,6 +869,30 @@ func makeValidConfigOTLPUnlimitedCardinality() testDataValidConfig {
 Enabled = true
 MetricsCardinalityLimit = 0
 `
+	return c
+}
+
+// An exporter Relay does not implement is a warning, not an error. These variables are routinely set
+// host- or pod-wide for other workloads, so a value like "zipkin" must leave Relay running and
+// exporting over OTLP rather than stopping it from starting.
+func makeValidConfigOTLPUnrecognizedSignalExporter() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - unrecognized per-signal exporter"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:        true,
+			TracesExporter: "zipkin",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":             "1",
+		"OTEL_TRACES_EXPORTER": "zipkin",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+TracesExporter = zipkin
+`
+	c.warnings = []string{warnUnrecognizedSignalExporter("OTEL_TRACES_EXPORTER", "zipkin")}
 	return c
 }
 
