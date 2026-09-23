@@ -194,11 +194,7 @@ func NewEnvContext(
 		offline:                   envConfig.Offline,
 	}
 
-	envContext.keyRotator.Initialize([]credential.SDKCredential{
-		envConfig.SDKKey,
-		envConfig.MobileKey,
-		envConfig.EnvID,
-	})
+	envContext.keyRotator.Initialize(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID)
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
 	if bigSegmentStoreFactory == nil {
@@ -611,7 +607,7 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 		}
 		return nil
 	}
-	return c.clients[c.keyRotator.SDKKey()]
+	return c.clients[c.keyRotator.AnchorKey()]
 }
 
 func (c *envContextImpl) GetStore() subsystems.ReadOnlyDataStore {
