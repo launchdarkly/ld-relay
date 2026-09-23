@@ -25,17 +25,16 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	invalidCredential2 := sdkauth.New(testEnvID)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, StreamProviderSettings{MaxConnTime: maxConnTime})
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
 	}
 
 	t.Run("constructor", func(t *testing.T) {
-		maxConnTime := time.Hour
-		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
+		withSettings(t, basictypes.ServerSideFlagsOnlyStream, constructorTestSettings, func(sp StreamProvider) {
 			require.IsType(t, &serverSideFlagsOnlyStreamProvider{}, sp)
-			verifyServerProperties(t, sp.(*serverSideFlagsOnlyStreamProvider).server, maxConnTime)
+			verifyServerProperties(t, sp.(*serverSideFlagsOnlyStreamProvider).server, constructorTestSettings)
 		})
 	})
 

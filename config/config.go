@@ -104,6 +104,9 @@ const (
 	// credentials to be revoked nearly instantaneously. It is not necessarily a recommendation.
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumCredentialCleanupInterval = 100 * time.Millisecond
+	// minimumMaxClientWriteTime guards against a value so small that healthy clients are dropped
+	// mid-payload and reconnect to re-download it.
+	minimumMaxClientWriteTime = time.Second
 	// minimumMetricsCapacity is the smallest value accepted for EventsConfig.MetricsCapacity. Usage
 	// metrics report account usage, so the floor is the historical default of 1000.
 	minimumMetricsCapacity = 1000

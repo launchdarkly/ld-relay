@@ -93,3 +93,13 @@ func (w *loggingHTTPResponseWriter) Flush() {
 		f.Flush()
 	}
 }
+
+// FlushError lets http.ResponseController report the flush errors that Flush discards.
+func (w *loggingHTTPResponseWriter) FlushError() error {
+	return http.NewResponseController(w.writer).Flush()
+}
+
+// Unwrap lets http.ResponseController reach the underlying connection, e.g. to set write deadlines.
+func (w *loggingHTTPResponseWriter) Unwrap() http.ResponseWriter {
+	return w.writer
+}

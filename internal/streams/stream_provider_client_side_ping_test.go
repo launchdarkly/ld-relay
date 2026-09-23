@@ -27,18 +27,17 @@ func TestStreamProviderMobilePing(t *testing.T) {
 	invalidCredential2 := sdkauth.New(testEnvID)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{MaxConnTime: maxConnTime})
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
 	}
 
 	t.Run("constructor", func(t *testing.T) {
-		maxConnTime := time.Hour
-		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
+		withSettings(t, basictypes.MobilePingStream, constructorTestSettings, func(sp StreamProvider) {
 			require.IsType(t, &clientSidePingStreamProvider{}, sp)
 			assert.False(t, sp.(*clientSidePingStreamProvider).isJSClient)
-			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, maxConnTime)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, constructorTestSettings)
 		})
 	})
 
@@ -70,18 +69,17 @@ func TestStreamProviderJSClientPing(t *testing.T) {
 	invalidCredential2 := sdkauth.New(testMobileKey)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.JSClientPingStream, StreamProviderSettings{MaxConnTime: maxConnTime})
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
 	}
 
 	t.Run("constructor", func(t *testing.T) {
-		maxConnTime := time.Hour
-		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
+		withSettings(t, basictypes.JSClientPingStream, constructorTestSettings, func(sp StreamProvider) {
 			require.IsType(t, &clientSidePingStreamProvider{}, sp)
 			assert.True(t, sp.(*clientSidePingStreamProvider).isJSClient)
-			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, maxConnTime)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, constructorTestSettings)
 		})
 	})
 
@@ -114,7 +112,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 
 	validCredential := sdkauth.New(testMobileKey)
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{MaxConnTime: maxConnTime})
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)

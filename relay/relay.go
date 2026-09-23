@@ -146,18 +146,21 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
 
-	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
-	maxWriteTime := streams.WithMaxWriteTime(c.Main.MaxClientWriteTime.GetOrElse(0))
-	pingStreamJitterTime := c.Main.PingStreamJitterTime.GetOrElse(0)
+	streamSettings := streams.StreamProviderSettings{
+		MaxConnTime:          c.Main.MaxClientConnectionTime.GetOrElse(0),
+		MaxWriteTime:         c.Main.MaxClientWriteTime.GetOrElse(0),
+		PingStreamJitterTime: c.Main.PingStreamJitterTime.GetOrElse(0),
+		Loggers:              loggers,
+	}
 
 	userAgent := "LDRelay/" + version.Version
 
 	r := &Relay{
 		envsByCredential:              NewEnvironmentLookup(),
-		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0, maxWriteTime),
-		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0, maxWriteTime),
-		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime, maxWriteTime),
-		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime, maxWriteTime),
+		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, streamSettings),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, streamSettings),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, streamSettings),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, streamSettings),
 		metricsManager:                metricsManager,
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
@@ -39,12 +40,24 @@ func (e testEvent) Retry() int64 {
 	return 0
 }
 
-func verifyServerProperties(t *testing.T, server *eventsource.Server, maxConnTime time.Duration) {
+var constructorTestSettings = StreamProviderSettings{MaxConnTime: time.Hour, MaxWriteTime: 45 * time.Second}
+
+func withSettings(t *testing.T, kind basictypes.StreamKind, settings StreamProviderSettings, action func(StreamProvider)) {
+	sp := NewStreamProvider(kind, settings)
+	require.NotNil(t, sp)
+	defer sp.Close()
+	action(sp)
+}
+
+func verifyServerProperties(t *testing.T, server *eventsource.Server, settings StreamProviderSettings) {
 	require.NotNil(t, server)
 	assert.False(t, server.Gzip)
 	assert.True(t, server.AllowCORS)
 	assert.True(t, server.ReplayAll)
-	assert.Equal(t, maxConnTime, server.MaxConnTime)
+	assert.Equal(t, settings.MaxConnTime, server.MaxConnTime)
+	assert.Equal(t, settings.MaxWriteTime, server.WriteTimeout)
+	require.NotNil(t, server.Trace)
+	assert.NotNil(t, server.Trace.WriteError)
 }
 
 func verifyHandlerGetsPublishedEvent(t *testing.T, sp StreamProvider, credential sdkauth.ScopedCredential, key string, server *eventsource.Server) {
