@@ -44,7 +44,21 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
+		makeInvalidConfigMaxClientWriteTime("-30s"),
+		makeInvalidConfigMaxClientWriteTime("999ms"),
 	}
+}
+
+func makeInvalidConfigMaxClientWriteTime(d string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "max client write time " + d}
+	c.envVarsError = errInvalidMaxClientWriteTime.Error()
+	c.fileError = errInvalidMaxClientWriteTime.Error()
+	c.envVars = map[string]string{"MAX_CLIENT_WRITE_TIME": d}
+	c.fileContent = `
+[Main]
+MaxClientWriteTime = ` + d + `
+`
+	return c
 }
 
 func makeInvalidConfigMaxClientRequestBodySize(size string) testDataInvalidConfig {
