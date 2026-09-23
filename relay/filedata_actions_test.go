@@ -199,7 +199,7 @@ func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
 
-		offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		offlineModeTest(t, allConfig, func(p offlineModeTestParams) {
 			p.updateHandler.AddEnvironment(testFileDataEnv1)
 			_ = p.awaitClient()
 
