@@ -79,11 +79,13 @@ func TestStartHTTPServerMaxClientWriteTimeFreesHandlerOnStalledHTTP2Connection(t
 		conn := stalledHTTP2Conn(t, port)
 		defer conn.Close()
 
-		// Without the connection write timeout the handler stays parked until the kernel gives
-		// up on the peer, which takes seconds on macOS and minutes on Linux.
+		// The timeout closes the connection, and crypto/tls then spends up to 5s trying to send
+		// its close alert before the handler is released. Without the timeout the handler stays
+		// parked for minutes on Linux, where CI runs; macOS gives up after about 5s by itself,
+		// so there this test cannot tell the two apart.
 		select {
 		case <-handlerDone:
-		case <-time.After(3 * time.Second):
+		case <-time.After(9 * time.Second):
 			t.Fatal("handler still blocked writing to a stalled HTTP/2 connection")
 		}
 	})
