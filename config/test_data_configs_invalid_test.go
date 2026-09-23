@@ -45,7 +45,6 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigMultipleDatabases(),
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
 		makeInvalidConfigMaxClientWriteTime("-30s"),
-		makeInvalidConfigMaxClientWriteTime("0s"),
 		makeInvalidConfigMaxClientWriteTime("999ms"),
 	}
 }

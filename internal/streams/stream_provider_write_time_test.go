@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
@@ -26,7 +29,7 @@ import (
 
 // unreadStreamConn sends a stream request, consumes the response headers, then never reads
 // again, like a client behind a proxy that half-closed the connection.
-func unreadStreamConn(t *testing.T, url string) *net.TCPConn {
+func unreadStreamConn(t *testing.T, url string, headers ...string) (*net.TCPConn, string) {
 	t.Helper()
 	u, err := neturl.Parse(url)
 	require.NoError(t, err)
@@ -34,7 +37,8 @@ func unreadStreamConn(t *testing.T, url string) *net.TCPConn {
 	require.NoError(t, err)
 	conn := c.(*net.TCPConn)
 	require.NoError(t, conn.SetReadBuffer(4096))
-	_, err = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\nAccept: text/event-stream\r\n\r\n", u.Host)
+	_, err = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\nAccept: text/event-stream\r\n%s\r\n",
+		u.Host, strings.Join(append(headers, ""), "\r\n"))
 	require.NoError(t, err)
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	var head []byte
@@ -45,12 +49,31 @@ func unreadStreamConn(t *testing.T, url string) *net.TCPConn {
 		head = append(head, buf[:n]...)
 	}
 	require.NoError(t, conn.SetReadDeadline(time.Time{}))
-	return conn
+	return conn, string(head)
 }
 
 // The initial put for a large environment, written to a client that never reads, must end in
-// a logged write timeout even behind the debug request logger that wraps every response.
+// a logged write timeout behind the same writer wrappers Relay's router installs.
 func TestStreamProviderMaxWriteTimeDisconnectsClientThatStopsReading(t *testing.T) {
+	t.Run("debug request logger", func(t *testing.T) {
+		testMaxWriteTimeDisconnects(t, func(h http.Handler, loggers ldlog.Loggers) http.Handler {
+			return logging.RequestLoggerMiddleware(loggers)(h)
+		})
+	})
+	t.Run("debug request logger and compression", func(t *testing.T) {
+		head := testMaxWriteTimeDisconnects(t, func(h http.Handler, loggers ldlog.Loggers) http.Handler {
+			return logging.RequestLoggerMiddleware(loggers)(gzhttp.GzipHandler(h))
+		}, "Accept-Encoding: gzip")
+		require.Contains(t, head, "Content-Encoding: gzip", "the stream was not compressed")
+	})
+}
+
+// testMaxWriteTimeDisconnects returns the response head the client received.
+func testMaxWriteTimeDisconnects(
+	t *testing.T,
+	wrap func(http.Handler, ldlog.Loggers) http.Handler,
+	headers ...string,
+) string {
 	mockLog := ldlogtest.NewMockLog()
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
 	defer mockLog.DumpIfTestFailed(t)
@@ -70,9 +93,9 @@ func TestStreamProviderMaxWriteTimeDisconnectsClientThatStopsReading(t *testing.
 	esp := sp.Register(credential, makeMockStore([]ldmodel.FeatureFlag{bigFlag}, nil), mockLog.Loggers)
 	defer esp.Close()
 
-	httpServer := httptest.NewServer(logging.RequestLoggerMiddleware(mockLog.Loggers)(sp.Handler(credential)))
+	httpServer := httptest.NewServer(wrap(sp.Handler(credential), mockLog.Loggers))
 	defer httpServer.Close()
-	conn := unreadStreamConn(t, httpServer.URL)
+	conn, head := unreadStreamConn(t, httpServer.URL, headers...)
 	defer func() {
 		_ = conn.SetLinger(0)
 		_ = conn.Close()
@@ -81,4 +104,5 @@ func TestStreamProviderMaxWriteTimeDisconnectsClientThatStopsReading(t *testing.
 	require.Eventually(t, func() bool {
 		return mockLog.HasMessageMatch(ldlog.Warn, "took longer than maxClientWriteTime")
 	}, 3*time.Second, 10*time.Millisecond, "handler never timed out its write")
+	return head
 }

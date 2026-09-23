@@ -70,6 +70,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigAllBaseProperties(),
 		makeValidConfigCustomBaseURIOnly(),
 		makeValidConfigExplicitDefaultBaseURI(),
+		makeValidConfigMaxClientWriteTimeDisabled(),
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
@@ -299,6 +300,19 @@ func makeValidConfigCustomBaseURIOnly() testDataValidConfig {
 	c.fileContent = `
 [Main]
 BaseURI = http://custom-base
+`
+	return c
+}
+
+func makeValidConfigMaxClientWriteTimeDisabled() testDataValidConfig {
+	c := testDataValidConfig{name: "max client write time explicitly disabled"}
+	c.makeConfig = func(c *Config) {
+		c.Main.MaxClientWriteTime = ct.NewOptDuration(0)
+	}
+	c.envVars = map[string]string{"MAX_CLIENT_WRITE_TIME": "0s"}
+	c.fileContent = `
+[Main]
+MaxClientWriteTime = 0s
 `
 	return c
 }

@@ -161,3 +161,11 @@ func verifyHandlerHeartbeat(
 		}
 	})
 }
+
+func TestStreamProviderWithoutMaxWriteTimeInstallsNoTrace(t *testing.T) {
+	withSettings(t, basictypes.ServerSideStream, StreamProviderSettings{MaxConnTime: time.Hour}, func(sp StreamProvider) {
+		server := sp.(*serverSideStreamProvider).server
+		assert.Zero(t, server.WriteTimeout)
+		assert.Nil(t, server.Trace)
+	})
+}

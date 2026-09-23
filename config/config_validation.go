@@ -29,7 +29,7 @@ var (
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
-	errInvalidMaxClientWriteTime               = fmt.Errorf("max client write time must be >= %s", minimumMaxClientWriteTime)
+	errInvalidMaxClientWriteTime               = fmt.Errorf("max client write time must be 0 (disabled) or >= %s", minimumMaxClientWriteTime)
 )
 
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
@@ -342,7 +342,7 @@ func normalizeRedisConfig(result *ct.ValidationResult, c *Config) {
 
 func validateMaxClientWriteTime(result *ct.ValidationResult, c *Config) {
 	if c.Main.MaxClientWriteTime.IsDefined() {
-		if c.Main.MaxClientWriteTime.GetOrElse(0) < minimumMaxClientWriteTime {
+		if d := c.Main.MaxClientWriteTime.GetOrElse(0); d != 0 && d < minimumMaxClientWriteTime {
 			result.AddError(nil, errInvalidMaxClientWriteTime)
 		}
 	}
