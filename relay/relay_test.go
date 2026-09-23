@@ -67,19 +67,6 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfFileDataSourceIsSet(t *testing.
 	assert.NotEqual(t, errNoEnvironments, err)
 }
 
-func TestNewRelayDoesNotCreateFilteredEnvironments(t *testing.T) {
-	// Relay used to fan each environment out into one extra environment per configured filter key,
-	// registered as "<env>/<filterKey>". Nothing creates those now, so the environment set holds
-	// exactly what the configuration declares.
-	config := c.Config{Environment: map[string]*c.EnvConfig{
-		"a": {SDKKey: "123", ProjKey: "proj"},
-		"b": {SDKKey: "234", ProjKey: "proj"},
-	}}
-	withStartedRelay(t, config, func(p relayTestParams) {
-		assert.Len(t, p.relay.getAllEnvironments(), 2)
-	})
-}
-
 func TestStrayFilterQueryParameterIsIgnored(t *testing.T) {
 	// Payload filters are not supported, but an SDK configured with one keeps sending ?filter= on
 	// every request. Those requests must be served the environment's full data. Refusing them would

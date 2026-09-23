@@ -307,7 +307,6 @@ type EnvConfig struct {
 	SecureMode    bool             `conf:"LD_SECURE_MODE_"`
 	LogLevel      OptLogLevel      `conf:"LD_LOG_LEVEL_"`
 	TTL           ct.OptDuration   `conf:"LD_TTL_"`
-	ProjKey       string           `conf:"LD_PROJ_KEY_"`
 	Offline       bool             // set to true if this environment was created in offline mode
 }
 
