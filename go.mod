@@ -55,8 +55,10 @@ require (
 
 require (
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
+	github.com/coder/websocket v1.8.15
 	github.com/klauspost/compress v1.18.7
 	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.1
 	go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux v0.71.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
@@ -108,6 +110,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/onsi/gomega v1.27.10 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/log v0.22.0 // indirect
