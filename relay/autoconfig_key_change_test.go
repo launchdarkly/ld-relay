@@ -84,7 +84,7 @@ func verifyEventSummarizingRelay(t *testing.T, p autoConfTestParams, url string,
 func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
+		client := p.awaitClient()
 
 		env := p.awaitEnvironment(testAutoConfEnv1.id)
 		assertEnvProps(t, testAutoConfEnv1.params(), env)
@@ -92,10 +92,14 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-		client2 := p.awaitClient()
-		assert.Equal(t, modified.SDKKey(), client2.Key)
-
-		client1.AwaitClose(t, 10000*time.Second)
+		// The rotation re-keys the environment's one client rather than building a second one, so the
+		// client stays open and reports the new key.
+		require.Eventually(t, func() bool { return client.CurrentSDKKey() == modified.SDKKey() },
+			time.Second, time.Millisecond, "timed out waiting for the client to be re-keyed")
+		if !helpers.AssertChannelNotClosed(t, client.CloseCh, time.Millisecond*300,
+			"the environment's only client must stay open across a rotation") {
+			t.FailNow()
+		}
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.SDKKey())
@@ -118,14 +122,14 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 		}
 		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-		client2 := p.awaitClient()
-		assert.Equal(t, modified.SDKKey(), client2.Key)
+		require.Eventually(t, func() bool { return client1.CurrentSDKKey() == modified.SDKKey() },
+			time.Second, time.Millisecond, "timed out waiting for the client to be re-keyed")
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
 		assert.Equal(t, []credential.SDKCredential{testAutoConfEnv1.sdkKey.Value}, env.GetDeprecatedCredentials())
 
-		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
+		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed the environment's client") {
 			t.FailNow()
 		}
 	})
@@ -192,21 +196,26 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		}
 		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-		client2 := p.awaitClient()
-		assert.Equal(t, modified.SDKKey(), client2.Key)
+		require.Eventually(t, func() bool { return client1.CurrentSDKKey() == modified.SDKKey() },
+			time.Second, time.Millisecond, "timed out waiting for the client to be re-keyed")
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		newCredentials := credentialsAsSet(env.GetCredentials()...)
 		foundEnvWithOldKey, _ := p.relay.getEnvironment(oldKey)
-		assert.Equal(t, env, foundEnvWithOldKey)
+		assert.Equal(t, env, foundEnvWithOldKey, "the expiring key should still resolve during its grace period")
 
-		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Duration(briefExpiryMillis+100)*time.Millisecond, "timed out waiting for client with old key to close") {
+		// The expiry takes the old key's mapping down. The client is not tied to that key any more, so
+		// it stays open: it is the environment's only upstream connection.
+		require.Eventually(t, func() bool {
+			noEnv, _ := p.relay.getEnvironment(oldKey)
+			return noEnv == nil
+		}, time.Duration(briefExpiryMillis+500)*time.Millisecond, 10*time.Millisecond,
+			"timed out waiting for the expired key's mapping to be removed")
+
+		assert.NotContains(t, env.GetCredentials(), oldKey)
+		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*100,
+			"expiring a key must not close the environment's client") {
 			t.FailNow()
 		}
-
-		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
-		noEnv, _ := p.relay.getEnvironment(oldKey)
-		assert.Nil(t, noEnv)
 	})
 }
 

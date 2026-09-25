@@ -34,6 +34,13 @@ type FakeLDClient struct {
 	dataSourceStatus *interfaces.DataSourceStatus
 	initialized      bool
 	lock             sync.Mutex
+
+	// SetSDKKeyErr, if non-nil, is what SetSDKKey returns instead of applying the new key. Tests set
+	// it to exercise the path where the SDK rejects a key.
+	SetSDKKeyErr error
+	// sdkKeys records every key SetSDKKey accepted, in order, so a test can assert what the client
+	// was re-keyed to.
+	sdkKeys []config.SDKKey
 }
 
 type CapturedLDClient struct {
@@ -64,6 +71,31 @@ func (c *FakeLDClient) GetDataSourceStatus() interfaces.DataSourceStatus {
 
 func (c *FakeLDClient) GetDataStoreStatus() sdks.DataStoreStatusInfo {
 	return sdks.DataStoreStatusInfo{Available: true}
+}
+
+func (c *FakeLDClient) SetSDKKey(sdkKey string) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.SetSDKKeyErr != nil {
+		return c.SetSDKKeyErr
+	}
+	c.Key = config.SDKKey(sdkKey)
+	c.sdkKeys = append(c.sdkKeys, config.SDKKey(sdkKey))
+	return nil
+}
+
+// SDKKeys returns the keys SetSDKKey accepted, in order.
+func (c *FakeLDClient) SDKKeys() []config.SDKKey {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return append([]config.SDKKey{}, c.sdkKeys...)
+}
+
+// CurrentSDKKey returns the key the client is currently using.
+func (c *FakeLDClient) CurrentSDKKey() config.SDKKey {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.Key
 }
 
 func (c *FakeLDClient) Close() error {

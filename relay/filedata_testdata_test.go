@@ -24,6 +24,12 @@ var testFileDataEnv1 = filedata.ArchiveEnvironment{
 		EnvID:     config.EnvironmentID("env1"),
 		SDKKey:    config.SDKKey("sdkkey1"),
 		MobileKey: config.MobileKey("mobilekey1"),
+		// These fixtures construct EnvironmentParams directly rather than through
+		// EnvironmentRep.ToParams, which is what synthesizes the accepted sets for a real archive, so
+		// they carry them explicitly. BuildAcceptedSet rejects a payload whose anchor is absent from
+		// the accepted SDK keys.
+		AcceptedSDKKeys:    []envfactory.AcceptedSDKKey{{Value: config.SDKKey("sdkkey1")}},
+		AcceptedMobileKeys: []envfactory.AcceptedMobileKey{{Value: config.MobileKey("mobilekey1")}},
 		Identifiers: relayenv.EnvIdentifiers{
 			ProjName: "Project",
 			ProjKey:  "project",
@@ -43,9 +49,11 @@ var testFileDataEnv1 = filedata.ArchiveEnvironment{
 
 var testFileDataEnv2 = filedata.ArchiveEnvironment{
 	Params: envfactory.EnvironmentParams{
-		EnvID:     config.EnvironmentID("env2"),
-		SDKKey:    config.SDKKey("sdkkey2"),
-		MobileKey: config.MobileKey("mobilekey2"),
+		EnvID:              config.EnvironmentID("env2"),
+		SDKKey:             config.SDKKey("sdkkey2"),
+		MobileKey:          config.MobileKey("mobilekey2"),
+		AcceptedSDKKeys:    []envfactory.AcceptedSDKKey{{Value: config.SDKKey("sdkkey2")}},
+		AcceptedMobileKeys: []envfactory.AcceptedMobileKey{{Value: config.MobileKey("mobilekey2")}},
 		Identifiers: relayenv.EnvIdentifiers{
 			ProjName: "Project",
 			ProjKey:  "project",
@@ -70,12 +78,9 @@ func RotateSDKKey(primary config.SDKKey) filedata.ArchiveEnvironment {
 func RotateSDKKeyWithGracePeriod(primary config.SDKKey, expiring config.SDKKey, expiry time.Time) filedata.ArchiveEnvironment {
 	return filedata.ArchiveEnvironment{
 		Params: envfactory.EnvironmentParams{
-			EnvID:  "env1",
-			SDKKey: primary,
-			ExpiringSDKKey: envfactory.ExpiringSDKKey{
-				Key:        expiring,
-				Expiration: expiry,
-			},
+			EnvID:           "env1",
+			SDKKey:          primary,
+			AcceptedSDKKeys: acceptedSDKKeys(primary, expiring, expiry),
 			Identifiers: relayenv.EnvIdentifiers{
 				ProjName: "Project",
 				ProjKey:  "project",
@@ -92,4 +97,26 @@ func RotateSDKKeyWithGracePeriod(primary config.SDKKey, expiring config.SDKKey, 
 			},
 		},
 	}
+}
+
+// acceptedSDKKeys builds the accepted SDK key set for a rotation fixture: the incoming key, plus the
+// outgoing one when the rotation grants it a grace period.
+func acceptedSDKKeys(primary config.SDKKey, expiring config.SDKKey, expiry time.Time) []envfactory.AcceptedSDKKey {
+	keys := []envfactory.AcceptedSDKKey{{Value: primary}}
+	if expiring.Defined() {
+		keys = append(keys, envfactory.AcceptedSDKKey{Value: expiring, Expiry: expiry})
+	}
+	return keys
+}
+
+// ExpiringKeyIn returns the accepted SDK key that carries an expiry. The fixtures here add at most
+// one, so this stands in for the EnvironmentParams.ExpiringSDKKey field that the accepted set
+// replaced.
+func ExpiringKeyIn(params envfactory.EnvironmentParams) config.SDKKey {
+	for _, k := range params.AcceptedSDKKeys {
+		if !k.Expiry.IsZero() {
+			return k.Value
+		}
+	}
+	return ""
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -88,20 +89,28 @@ type EnvContextImplParams struct {
 }
 
 type envContextImpl struct {
-	mu                        sync.RWMutex
-	clients                   map[config.SDKKey]sdks.LDClientContext
-	logger                    *slog.Logger
-	wrapper                   *datadestination.DataDestinationWrapper
-	identifiers               EnvIdentifiers
-	secureMode                bool
-	envStreams                *streams.EnvStreams
-	streamProviders           []streams.StreamProvider
-	handlersV1                map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
-	handlersV2                map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
-	jsContext                 JSClientContext
-	evaluator                 ldeval.Evaluator
-	eventDispatcher           *events.EventDispatcher
-	bigSegmentSync            bigsegments.BigSegmentSynchronizer
+	mu sync.RWMutex
+	// client is the environment's single SDK client. Only construction creates one: a key rotation
+	// re-keys this client in place rather than building a replacement, so an environment never holds
+	// two data systems and never holds two copies of the environment's data.
+	client          sdks.LDClientContext
+	logger          *slog.Logger
+	wrapper         *datadestination.DataDestinationWrapper
+	identifiers     EnvIdentifiers
+	secureMode      bool
+	envStreams      *streams.EnvStreams
+	streamProviders []streams.StreamProvider
+	jsContext       JSClientContext
+	evaluator       ldeval.Evaluator
+	eventDispatcher *events.EventDispatcher
+	bigSegmentSync  bigsegments.BigSegmentSynchronizer
+	// makeBigSegmentSync builds a synchronizer for an anchor SDK key. A re-anchor uses it to rebuild
+	// the synchronizer, because the synchronizer takes its key at construction and exposes no way to
+	// change it. Its HTTP requests already set Authorization per request rather than relying on baked
+	// in headers, so re-keying it in place is within reach; what stands in the way is coordinating a
+	// backoff reset and a reconnect with the goroutine that owns its retry strategy. Refer to
+	// SDK-3200. It is nil when big segments are not configured.
+	makeBigSegmentSync        func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer
 	bigSegmentStore           bigsegments.BigSegmentStore
 	bigSegmentsExist          bool
 	sdkBigSegments            *ldstoreimpl.BigSegmentStoreWrapper
@@ -122,6 +131,10 @@ type envContextImpl struct {
 	connectionMapper          ConnectionMapper
 	offline                   bool
 	closed                    bool
+
+	// reconcileMu serializes reconcileCredentials against itself and against the cleanup ticker. It is
+	// held separately from mu so that readers keep running while a reconcile is in progress.
+	reconcileMu sync.Mutex
 
 	// pollFlightGroup deduplicates concurrent polling requests for this environment; it is
 	// internally synchronized and needs no zero-value setup. It is deliberately not guarded by
@@ -173,12 +186,9 @@ func NewEnvContext(
 
 	envContext := &envContextImpl{
 		identifiers:               params.Identifiers,
-		clients:                   make(map[config.SDKKey]sdks.LDClientContext),
 		logger:                    envLogger,
 		secureMode:                envConfig.SecureMode,
 		streamProviders:           params.StreamProviders,
-		handlersV1:                make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
-		handlersV2:                make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
 		jsContext:                 params.JSClientContext,
 		sdkClientFactory:          params.ClientFactory,
 		sdkInitTimeout:            allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
@@ -212,31 +222,17 @@ func NewEnvContext(
 		if factory == nil {
 			factory = bigsegments.DefaultBigSegmentSynchronizerFactory
 		}
-		envContext.bigSegmentSync = factory(
-			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
-			envConfig.EnvID, envConfig.SDKKey, envLogger, logPrefix)
-		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
-		segmentUpdateCh := envContext.bigSegmentSync.SegmentUpdatesCh()
-		if segmentUpdateCh != nil {
-			go func() {
-				for range segmentUpdateCh {
-					// BigSegmentSynchronizer sends to this channel after processing a batch of
-					// big segment updates. The value it sends is a list of segment keys, but in
-					// the current implementation, we don't care what those keys are because we'll
-					// just be broadcasting a "ping" to all connected client-side SDKs. In the future
-					// if we have real evaluation streams, we'll need to determine which flags should
-					// be re-evaluated based on the segments.
-					if envContext.sdkBigSegments != nil {
-						envContext.sdkBigSegments.ClearCache()
-					}
-					if envContext.envStreams != nil {
-						envContext.envStreams.InvalidateClientSideState()
-					}
-					// If we shut down the environment, the BigSegmentSynchronizer will be closed which
-					// will also cause this channel to be closed, exiting this goroutine.
-				}
-			}()
+		// Bind the construction-time inputs so a re-anchor can rebuild the synchronizer on the new
+		// anchor key. The synchronizer authenticates with the key it is given.
+		bigSegmentBaseURI := allConfig.Main.BaseURI.String()
+		bigSegmentStreamURI := allConfig.Main.StreamURI.String()
+		envContext.makeBigSegmentSync = func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer {
+			return factory(httpConfig, bigSegmentStore, bigSegmentBaseURI, bigSegmentStreamURI,
+				envConfig.EnvID, anchor, envLogger, logPrefix)
 		}
+		envContext.bigSegmentSync = envContext.makeBigSegmentSync(envConfig.SDKKey)
+		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
+		envContext.consumeBigSegmentUpdates(envContext.bigSegmentSync)
 		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
 		// start until we know that at least one big segment exists. That's implemented by the
 		// envContextStreamUpdates methods.
@@ -258,22 +254,6 @@ func NewEnvContext(
 	allCreds := envContext.keyRotator.AllCredentials()
 	for _, c := range allCreds {
 		envStreams.AddCredential(c)
-	}
-	for _, sp := range params.StreamProviders {
-		handlersV1 := make(map[credential.SDKCredential]http.Handler)
-		handlersV2 := make(map[credential.SDKCredential]http.Handler)
-		for _, c := range allCreds {
-			hV1 := sp.HandlerV1(c)
-			if hV1 != nil {
-				handlersV1[c] = hV1
-			}
-			hV2 := sp.HandlerV2(c)
-			if hV2 != nil {
-				handlersV2[c] = hV2
-			}
-		}
-		envContext.handlersV1[sp] = handlersV1
-		envContext.handlersV2[sp] = handlersV2
 	}
 
 	wrapper := datadestination.NewDataDesinationWrapper(envStreamUpdates)
@@ -441,72 +421,42 @@ func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
 	}
 }
 
+// addCredential makes cred authenticate downstream traffic for this environment. It never touches the
+// SDK client: the anchor owns the upstream connection, and only reanchor moves it.
 func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.envStreams.AddCredential(newCredential)
-	for streamProvider, handlers := range c.handlersV1 {
-		if h := streamProvider.HandlerV1(newCredential); h != nil {
-			handlers[newCredential] = h
-		}
-	}
-	for streamProvider, handlers := range c.handlersV2 {
-		if h := streamProvider.HandlerV2(newCredential); h != nil {
-			handlers[newCredential] = h
-		}
-	}
+	c.registerCredentialMappings(newCredential)
 
-	// A new SDK key means:
-	//  1. we should start a new SDK client*
-	//  2. we should tell all event forwarding components that use an SDK key to use the new one.
-	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
-	// components that use a mobile key.
-	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl
-	// is used for both offline and online mode, yet starting up an SDK client is only relevant in online mode. This is
-	// because in offline mode, we already have the data (from a file) - there's no need to open a new streaming connection.
-	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
-	switch key := newCredential.(type) {
-	case config.SDKKey:
-		if !c.offline {
-			go c.startSDKClient(key, nil, false)
-		}
-		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-			c.metricsEventPub.ReplaceCredential(key)
-		}
+	// Event forwarding collapses to one mobile key, so only the primary repoints the dispatcher. A
+	// non-primary accepted mobile key authenticates downstream traffic but forwards nothing.
+	if mobileKey, ok := newCredential.(config.MobileKey); ok && mobileKey == c.keyRotator.MobileKey() {
 		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
-		}
-	case config.MobileKey:
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+			c.eventDispatcher.ReplaceCredential(mobileKey)
 		}
 	}
-
-	c.connectionMapper.AddConnectionMapping(newCredential, c)
 }
 
+// registerCredentialMappings registers cred with the environment's stream machinery and adds the
+// connection-to-environment mapping, so a connection authenticating with cred reaches this
+// environment. Stream handlers are built per request, in GetStreamHandlerV1 and GetStreamHandlerV2.
+// The caller must hold c.mu.
+func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredential) {
+	c.envStreams.AddCredential(cred)
+	c.connectionMapper.AddConnectionMapping(cred, c)
+}
+
+// removeCredential stops cred from authenticating downstream traffic for this environment.
+//
+// It deliberately does NOT close the SDK client. The client is no longer tied to the key it was built
+// with -- a re-anchor re-keys it in place -- so closing it here would tear down the environment's
+// only upstream connection whenever any SDK key was revoked, the environment's original key
+// included, once it has been rotated away from.
 func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.connectionMapper.RemoveConnectionMapping(oldCredential)
 	c.envStreams.RemoveCredential(oldCredential)
-	for _, handlers := range c.handlersV1 {
-		delete(handlers, oldCredential)
-	}
-	for _, handlers := range c.handlersV2 {
-		delete(handlers, oldCredential)
-	}
-	// See the comment in addCredential for more context. In offline mode, there's no need to close the SDK client
-	// because our data comes from a file, not a streaming connection.
-	if !c.offline {
-		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
-			// The SDK client instance is tied to the SDK key, so get rid of it
-			if client := c.clients[sdkKey]; client != nil {
-				delete(c.clients, sdkKey)
-				_ = client.Close()
-			}
-		}
-	}
 }
 
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
@@ -514,7 +464,15 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
 	if client != nil {
-		c.clients[sdkKey] = client
+		c.client = client
+		// A reconcile can move the anchor while this build is in flight, and the build used the key it
+		// was started with. Catch the client up so it does not connect on a superseded key.
+		if anchor := c.keyRotator.AnchorKey(); !c.offline && anchor.Defined() && anchor != sdkKey {
+			if err := client.SetSDKKey(string(anchor)); err != nil {
+				c.globalLogger.Error("could not apply the current SDK key to a newly built client",
+					"env", name, "error", err)
+			}
+		}
 
 		// The data store instance is created by the SDK when it creates the client. Now that
 		// we have a data store, we can finish setting up the Evaluator that we'll use for this
@@ -567,16 +525,135 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
-func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
-	if !update.deprecated.Defined() {
-		c.keyRotator.Rotate(update.primary)
-	} else {
-		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
-	}
-	c.triggerCredentialChanges(update.now)
+func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
+	c.reconcileCredentials(newSet, time.Now())
 }
 
+// reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
+// reference time for expiry arithmetic.
+//
+// reconcileMu serializes it against concurrent reconciles and against the cleanup ticker, so that
+// the ticker cannot steal additions a reconcile has just queued.
+func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
+	c.reconcileMu.Lock()
+	defer c.reconcileMu.Unlock()
+
+	c.applyCredentialSet(newSet, now)
+}
+
+// applyCredentialSet moves the environment to newSet: add, re-anchor, remove. The caller must hold
+// reconcileMu.
+//
+// Adding first registers the incoming keys' mappings. The re-anchor then moves the upstream
+// connection while the outgoing anchor still authenticates downstream traffic. Removal comes last,
+// so a revoked key keeps working until the connection has moved.
+func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now time.Time) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		// The environment is being torn down, so there is nothing left to reconcile against.
+		return
+	}
+
+	result := c.keyRotator.Reconcile(newSet, now)
+	additions, expirations := c.keyRotator.StepTime(now)
+
+	for _, cred := range additions {
+		c.addCredential(cred)
+	}
+
+	if result.AnchorChange != nil && !c.reanchor(result.AnchorChange) {
+		// The re-anchor did not happen. Undo only the anchor change; every other change in this
+		// payload stands. A brand-new anchor had its mappings registered by reanchor, so take them
+		// back down.
+		if !result.AnchorChange.NewAnchorPreviouslyAccepted {
+			c.removeCredential(result.AnchorChange.NewAnchor)
+		}
+		c.keyRotator.RevertAnchorChange(*result.AnchorChange)
+		// Keep the outgoing anchor serving by not expiring it here, even if this payload revoked it.
+		previousAnchor := result.AnchorChange.PreviousAnchor
+		expirations = slices.DeleteFunc(expirations, func(cred credential.SDKCredential) bool {
+			return cred == previousAnchor
+		})
+	}
+
+	if result.MobilePrimaryRepoint != nil {
+		c.mu.RLock()
+		dispatcher := c.eventDispatcher
+		c.mu.RUnlock()
+		if dispatcher != nil {
+			dispatcher.ReplaceCredential(*result.MobilePrimaryRepoint)
+		}
+	}
+
+	for _, cred := range expirations {
+		c.removeCredential(cred)
+	}
+}
+
+// reanchor moves the environment's upstream connection to change.NewAnchor by re-keying the existing
+// SDK client. It reports whether the anchor moved.
+//
+// There is no client to build and so nothing to roll back on a transient failure: the only way
+// SetSDKKey fails is a key that is not valid in an HTTP header, which no retry will fix. That is a
+// configuration error, so the environment parks on its current anchor and says so loudly, and the
+// next auto-configuration payload supplies a new key.
+//
+// An offline environment has no upstream connection, so re-anchoring it is only the mapping and
+// designation changes.
+func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return false
+	}
+
+	// Mappings can exist without the anchor owning them, but never the reverse. Reconcile stripped a
+	// brand-new anchor from additions, so register it here; an already-accepted key has its mappings.
+	if !change.NewAnchorPreviouslyAccepted {
+		c.registerCredentialMappings(change.NewAnchor)
+	}
+
+	if !c.offline && c.client != nil {
+		if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
+			c.globalLogger.Error("could not move the environment to its new SDK key; "+
+				"keeping the previous key, which LaunchDarkly may already be invalidating",
+				"env", c.identifiers.GetDisplayName(),
+				"previous", change.PreviousAnchor.Masked(),
+				"new", change.NewAnchor.Masked(),
+				"error", err)
+			return false
+		}
+	}
+
+	c.keyRotator.CommitAnchor(change.NewAnchor)
+
+	if c.metricsEventPub != nil {
+		c.metricsEventPub.ReplaceCredential(change.NewAnchor)
+	}
+	if c.eventDispatcher != nil {
+		c.eventDispatcher.ReplaceCredential(change.NewAnchor)
+	}
+
+	// Big-segment requests authenticate with the anchor, so the synchronizer follows it.
+	c.reanchorBigSegmentSync(change.NewAnchor)
+
+	c.globalLogger.Info("moved the environment to a new SDK key",
+		"env", c.identifiers.GetDisplayName(),
+		"previous", change.PreviousAnchor.Masked(),
+		"new", change.NewAnchor.Masked())
+	return true
+}
+
+// triggerCredentialChanges drains the rotator's queue and applies the additions and expirations. It
+// runs on the cleanup ticker, so it can fire while a reconcile is in flight; reconcileMu keeps the
+// two from interleaving. reconcileCredentials never calls it, so there is no re-entrancy.
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
+	c.reconcileMu.Lock()
+	defer c.reconcileMu.Unlock()
+
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
 		c.addCredential(cred)
@@ -587,7 +664,19 @@ func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 }
 
 func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
-	return c.keyRotator.PrimaryCredentials()
+	return c.keyRotator.AllCredentials()
+}
+
+func (c *envContextImpl) GetAnchorKey() config.SDKKey {
+	return c.keyRotator.AnchorKey()
+}
+
+func (c *envContextImpl) GetMobileKey() config.MobileKey {
+	return c.keyRotator.MobileKey()
+}
+
+func (c *envContextImpl) GetAcceptedKeys() credential.AcceptedKeySet {
+	return c.keyRotator.AcceptedKeys()
 }
 
 func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
@@ -597,17 +686,7 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// In offline mode, there's only one SDK client. This is awkward because we represent the active clients
-	// as a map, but in this case there's only one client in the map. A refactoring might pull this logic (along with
-	// differences in add/removeCredential into an interface that is injected based on the environment being
-	// offline or online.
-	if c.offline {
-		for _, client := range c.clients {
-			return client
-		}
-		return nil
-	}
-	return c.clients[c.keyRotator.AnchorKey()]
+	return c.client
 }
 
 func (c *envContextImpl) GetStore() subsystems.ReadOnlyDataStore {
@@ -636,24 +715,51 @@ func (c *envContextImpl) GetLogger() *slog.Logger {
 	return c.logger
 }
 
-func (c *envContextImpl) GetStreamHandlerV1(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	h := c.handlersV1[streamProvider][credential]
-	if h == nil {
+func (c *envContextImpl) GetStreamHandlerV1(streamProvider streams.StreamProvider, cred credential.SDKCredential) http.Handler {
+	if !c.acceptsForStream(cred) {
 		return http.HandlerFunc(invalidStreamHandler)
 	}
-	return h
+	if h := streamProvider.HandlerV1(cred); h != nil {
+		return h
+	}
+	return http.HandlerFunc(invalidStreamHandler)
 }
 
-func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	h := c.handlersV2[streamProvider][credential]
-	if h == nil {
+func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvider, cred credential.SDKCredential) http.Handler {
+	if !c.acceptsForStream(cred) {
 		return http.HandlerFunc(invalidStreamHandler)
 	}
-	return h
+	if h := streamProvider.HandlerV2(cred); h != nil {
+		return h
+	}
+	return http.HandlerFunc(invalidStreamHandler)
+}
+
+// acceptsForStream re-checks the accepted set before a stream handler is built.
+//
+// Handlers used to be built once per credential and cached in a map that add and remove had to keep
+// in step. That map was what made revocation racy: a handler stayed in it until the removal was
+// processed, so a request that authenticated before a revocation still found a working handler.
+// Building per request is what creates a place to ask the question again.
+//
+// The build is cheap enough to do per connect. Measured: the client-side path costs 13ns with no
+// allocations, which is faster than the two-level map lookup it replaced, and the heaviest provider
+// -- the server-side V2 handler, which wraps an init deadline and a basis-header closure -- costs
+// 105ns and 96 bytes. Both are invisible next to the SSE handshake and payload send that follow.
+//
+// The middleware authenticates the credential once, at the start of the request, and a credential can
+// be revoked while that request is still in flight: on the REPORT stream endpoints the client paces
+// the body read that precedes this call, so the window is as long as the client wants. The stream
+// providers only type-check the credential, so a revoked one would otherwise be handed a working
+// handler rather than a 404.
+//
+// A revocation can still land between this check and the subscription registering. The eventsource
+// handler writes the status line first, so that case still answers 200.
+//
+// The rotator guards its own accepted set, so this deliberately does not take c.mu: a reconcile holds
+// that lock across its whole re-anchor, and stream connects must not queue behind it.
+func (c *envContextImpl) acceptsForStream(cred credential.SDKCredential) bool {
+	return c.keyRotator.IsAccepted(cred)
 }
 
 func (c *envContextImpl) GetPollingFlightGroup() *singleflight.Group {
@@ -737,10 +843,10 @@ func (c *envContextImpl) Close() error {
 		return nil
 	}
 	c.closed = true
-	for _, client := range c.clients {
-		_ = client.Close()
+	if c.client != nil {
+		_ = c.client.Close()
+		c.client = nil
 	}
-	c.clients = make(map[config.SDKKey]sdks.LDClientContext)
 	c.mu.Unlock()
 
 	close(c.stopMonitoringCredentials)
@@ -772,14 +878,68 @@ func (c *envContextImpl) Close() error {
 	return nil
 }
 
+// consumeBigSegmentUpdates spawns a goroutine that drains sync's update channel and broadcasts a
+// cache clear and a client-side invalidation for each batch. The goroutine ends when sync closes.
+//
+// The batch's segment keys are not needed: relay pings every connected client-side SDK rather than
+// working out which flags to re-evaluate.
+func (c *envContextImpl) consumeBigSegmentUpdates(sync bigsegments.BigSegmentSynchronizer) {
+	ch := sync.SegmentUpdatesCh()
+	if ch == nil {
+		return
+	}
+	go func() {
+		for range ch {
+			if c.sdkBigSegments != nil {
+				c.sdkBigSegments.ClearCache()
+			}
+			if c.envStreams != nil {
+				c.envStreams.InvalidateClientSideState()
+			}
+		}
+	}()
+}
+
+// reanchorBigSegmentSync rebuilds the big-segment synchronizer on the new anchor. The synchronizer
+// bakes in its SDK key and is not restartable, so a re-anchor replaces it. The replacement is started
+// only when the outgoing one had been started. The caller must hold c.mu.
+func (c *envContextImpl) reanchorBigSegmentSync(newAnchor config.SDKKey) {
+	if c.bigSegmentSync == nil {
+		return
+	}
+	wasStarted := c.bigSegmentsExist
+	outgoing := c.bigSegmentSync
+	c.bigSegmentSync = c.makeBigSegmentSync(newAnchor)
+	c.consumeBigSegmentUpdates(c.bigSegmentSync)
+	if wasStarted {
+		c.bigSegmentSync.Start()
+	}
+	outgoing.Close()
+}
+
+// bigSegmentSyncConfigured reports whether this environment has a big-segment synchronizer. The read
+// is synchronized against reanchorBigSegmentSync's reassignment, because the store-update sink runs
+// on the SDK's data-source goroutine while a re-anchor runs on the reconcile goroutine.
+func (c *envContextImpl) bigSegmentSyncConfigured() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.bigSegmentSync != nil
+}
+
 func (c *envContextImpl) setBigSegmentsExist() {
 	c.mu.Lock()
-	alreadyExisted := c.bigSegmentsExist
+	firstTime := !c.bigSegmentsExist
 	c.bigSegmentsExist = true
+	// Start the synchronizer while holding the lock. Starting it afterwards could start one that a
+	// concurrent re-anchor has already retired. Start only launches a goroutine, so holding c.mu is
+	// safe here.
+	started := firstTime && c.bigSegmentSync != nil
+	if started {
+		c.bigSegmentSync.Start()
+	}
 	c.mu.Unlock()
 
-	if !alreadyExisted && c.bigSegmentSync != nil {
-		c.bigSegmentSync.Start()
+	if started {
 		c.sdkBigSegments.SetPollingActive(true) // has no effect if already active
 	}
 }
@@ -806,7 +966,7 @@ func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretyp
 }
 
 func (u *envContextStreamUpdates) handleBigSegments(events []subsystems.Change) {
-	if u.context.bigSegmentSync == nil {
+	if !u.context.bigSegmentSyncConfigured() {
 		return
 	}
 
