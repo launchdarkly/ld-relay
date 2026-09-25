@@ -59,18 +59,45 @@ type AutoConfigStatusRep struct {
 //
 // This is exported for use in integration test code.
 type EnvironmentStatusRep struct {
-	SDKKey           string               `json:"sdkKey"`
-	EnvID            string               `json:"envId,omitempty"`
-	EnvKey           string               `json:"envKey,omitempty"`
-	EnvName          string               `json:"envName,omitempty"`
-	ProjKey          string               `json:"projKey,omitempty"`
-	ProjName         string               `json:"projName,omitempty"`
-	MobileKey        string               `json:"mobileKey,omitempty"`
-	ExpiringSDKKey   string               `json:"expiringSdkKey,omitempty"`
+	// SDKKey is the obscured anchor SDK key. It designates which SDKKeys entry owns the
+	// environment's connection to LaunchDarkly.
+	//
+	// It is deliberately kept alongside the array rather than replaced by a flag on an entry. It
+	// predates concurrent keys and is what consumers read to identify an environment, v8 reports the
+	// same pair of fields, and encoding the designation in two places would let them drift.
+	SDKKey string `json:"sdkKey"`
+	// SDKKeys is every server-side SDK key the environment accepts, the anchor included. It is always
+	// present and always holds at least the anchor. Order is unspecified.
+	SDKKeys []KeyStatus `json:"sdkKeys"`
+	EnvID   string      `json:"envId,omitempty"`
+	EnvKey  string      `json:"envKey,omitempty"`
+	EnvName string      `json:"envName,omitempty"`
+	ProjKey string      `json:"projKey,omitempty"`
+	// ProjName is the project's name.
+	ProjName string `json:"projName,omitempty"`
+	// MobileKey is the obscured primary mobile key. It designates which MobileKeys entry is the one
+	// used where a single mobile key is required, such as event forwarding.
+	MobileKey string `json:"mobileKey,omitempty"`
+	// MobileKeys is every mobile key the environment accepts, the primary included. It is always
+	// present, and empty for an environment with no mobile key.
+	MobileKeys       []KeyStatus          `json:"mobileKeys"`
 	Status           string               `json:"status"`
 	ConnectionStatus ConnectionStatusRep  `json:"connectionStatus"`
 	DataStoreStatus  DataStoreStatusRep   `json:"dataStoreStatus"`
 	BigSegmentStatus *BigSegmentStatusRep `json:"bigSegmentStatus,omitempty"`
+}
+
+// KeyStatus is one accepted credential in the status resource's sdkKeys and mobileKeys arrays.
+//
+// Key is the non-secret wire identifier, omitted when the source carried none. Value is the
+// credential secret, obscured. Expiry is a Unix millisecond timestamp, omitted for a permanent key.
+//
+// This replaces the singular expiringSdkKey field, which could name only one key and so could not
+// describe an environment that accepts several with different expiries.
+type KeyStatus struct {
+	Key    string `json:"key,omitempty"`
+	Value  string `json:"value"`
+	Expiry *int64 `json:"expiry,omitempty"`
 }
 
 // BigSegmentStatusRep is the big segment status representation returned by the status endpoint.

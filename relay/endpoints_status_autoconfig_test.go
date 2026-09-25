@@ -209,8 +209,21 @@ func TestAutoConfigStatusEndpoints(t *testing.T) {
 				status, "environments", envKey, "envId")
 			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.Config.SDKKey)),
 				status, "environments", envKey, "sdkKey")
-			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.ExpiringSDKKey)),
-				status, "environments", envKey, "expiringSdkKey")
+			// Per-key expiry lives in the sdkKeys array now. The anchor and the expiring key are both
+			// accepted, so the array carries two entries and only one of them has an expiry.
+			sdkKeys := status.GetByKey("environments").GetByKey(envKey).GetByKey("sdkKeys")
+			require.Equal(t, 2, sdkKeys.Count(), "the anchor and the expiring key are both accepted")
+			expiringValue := sdks.ObscureKey(string(envConfig.ExpiringSDKKey))
+			var foundExpiring bool
+			for i := 0; i < sdkKeys.Count(); i++ {
+				entry := sdkKeys.GetByIndex(i)
+				if entry.GetByKey("value").StringValue() != expiringValue {
+					continue
+				}
+				foundExpiring = true
+				assert.False(t, entry.GetByKey("expiry").IsNull(), "the expiring key carries its expiry")
+			}
+			assert.True(t, foundExpiring, "the expiring key appears in sdkKeys")
 		})
 	})
 }
