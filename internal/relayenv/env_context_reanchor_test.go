@@ -4,9 +4,11 @@ package relayenv
 // the SDK client owns, plus the accepted-set re-check that guards stream handlers.
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +24,8 @@ import (
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
+
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -196,4 +200,126 @@ func assertRefusesStream(t *testing.T, env EnvContext, sp streams.StreamProvider
 		h.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	}
+}
+
+// recordingConnectionMapper records the credential mappings an environment adds and removes, so a
+// test can assert which credentials can currently reach the environment.
+type recordingConnectionMapper struct {
+	mu      sync.Mutex
+	added   []credential.SDKCredential
+	removed []credential.SDKCredential
+}
+
+func (m *recordingConnectionMapper) AddConnectionMapping(cred credential.SDKCredential, _ EnvContext) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.added = append(m.added, cred)
+}
+
+func (m *recordingConnectionMapper) RemoveConnectionMapping(cred credential.SDKCredential) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removed = append(m.removed, cred)
+}
+
+// active reports the credentials that were added and not later removed. An environment's initial
+// credentials are mapped by the relay rather than through this interface, so active covers only what
+// a reconcile did.
+func (m *recordingConnectionMapper) active() []credential.SDKCredential {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []credential.SDKCredential
+	for _, cred := range m.added {
+		if !slices.Contains(m.removed, cred) {
+			out = append(out, cred)
+		}
+	}
+	return out
+}
+
+func (m *recordingConnectionMapper) wasAdded(cred credential.SDKCredential) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Contains(m.added, cred)
+}
+
+func (m *recordingConnectionMapper) wasRemoved(cred credential.SDKCredential) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Contains(m.removed, cred)
+}
+
+func TestAFailedReanchorLeavesNoMappingForTheKeyItCouldNotMoveTo(t *testing.T) {
+	// reanchor registers a brand-new anchor's mappings before it re-keys the client, because a key
+	// cannot serve before its mappings exist. When the re-key fails, those mappings have to come back
+	// down. Leaving them would let an SDK authenticate with a key this environment never moved to,
+	// and be served by a client still connected on the previous one.
+	envConfig := st.EnvMain.Config
+	mapper := &recordingConnectionMapper{}
+	clientCh := make(chan *testclient.FakeLDClient, 1)
+
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:        envConfig,
+		AllConfig:        config.Config{},
+		ClientFactory:    testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil),
+		ConnectionMapper: mapper,
+		Logger:           slog.Default(),
+	}, nil)
+	require.NoError(t, err)
+	defer env.Close()
+
+	client := helpers.RequireValue(t, clientCh, time.Second, "timed out waiting for the client")
+	client.SetSDKKeyErr = errors.New("SDK key contains invalid characters")
+
+	refused := config.SDKKey("sdk-refused")
+	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, refused, "", ""), time.Unix(1000, 0))
+
+	// The sequence is the invariant: the new anchor's mappings go up before the re-key, and the
+	// rollback takes them back down.
+	assert.True(t, mapper.wasAdded(refused), "reanchor registers the new anchor before re-keying")
+	assert.True(t, mapper.wasRemoved(refused), "the rollback must unregister it again")
+	assert.NotContains(t, mapper.active(), refused,
+		"a key the client refused must not be left able to reach the environment")
+
+	assert.False(t, mapper.wasRemoved(envConfig.SDKKey),
+		"the previous anchor keeps serving, because it is what the client is still connected on")
+	assert.True(t, env.(*envContextImpl).keyRotator.IsAccepted(envConfig.SDKKey),
+		"the previous anchor must stay accepted after a rolled-back re-anchor")
+	assert.Equal(t, envConfig.SDKKey, env.(*envContextImpl).keyRotator.AnchorKey(),
+		"the rotator must stay on the anchor the client actually uses")
+	assert.Equal(t, envConfig.SDKKey, client.CurrentSDKKey())
+}
+
+func TestAnAnchorThatMovesDuringTheClientBuildIsAppliedWhenTheBuildFinishes(t *testing.T) {
+	// A reconcile can land while the initial client build is still running. The build used the key it
+	// was started with, so without a catch-up the client would connect on a key the rotator has
+	// already moved off, and the environment would serve from a superseded connection.
+	envConfig := st.EnvMain.Config
+	// An unbuffered channel holds the factory inside the send, which keeps the build in flight for as
+	// long as the test wants.
+	clientCh := make(chan *testclient.FakeLDClient)
+
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:        envConfig,
+		AllConfig:        config.Config{},
+		ClientFactory:    testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil),
+		ConnectionMapper: mockConnectionMapper{},
+		Logger:           slog.Default(),
+	}, nil)
+	require.NoError(t, err)
+	defer env.Close()
+
+	rotated := config.SDKKey("sdk-rotated")
+	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, rotated, "", ""), time.Unix(1000, 0))
+	require.Equal(t, rotated, env.(*envContextImpl).keyRotator.AnchorKey(),
+		"with no client yet, the anchor moves without a re-key")
+
+	// Let the build finish, now that the anchor has already moved.
+	client := helpers.RequireValue(t, clientCh, time.Second, "timed out waiting for the client")
+
+	require.Eventually(t, func() bool {
+		return client.CurrentSDKKey() == rotated
+	}, time.Second, time.Millisecond, "the newly built client must be caught up to the current anchor")
 }
