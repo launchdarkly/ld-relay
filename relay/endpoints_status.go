@@ -7,6 +7,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/api"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 
@@ -187,6 +188,25 @@ func (r *Relay) buildAutoConfigStatus() *api.AutoConfigStatusRep {
 	return rep
 }
 
+// soonestExpiringSDKKey picks the value for the status resource's expiringSdkKey field: the
+// non-anchor SDK key whose expiry comes first. The field is singular while an environment can accept
+// several expiring keys, so a rule is needed; the value comparison breaks ties, because map iteration
+// order is not stable and both this field and the metrics derived from it must be deterministic.
+func soonestExpiringSDKKey(accepted credential.AcceptedKeySet) (string, bool) {
+	var best string
+	var bestExpiry time.Time
+	for value, info := range accepted.Server {
+		if value == accepted.Anchor || info.Expiry == nil {
+			continue
+		}
+		if best == "" || info.Expiry.Before(bestExpiry) ||
+			(info.Expiry.Equal(bestExpiry) && string(value) < best) {
+			best, bestExpiry = string(value), *info.Expiry
+		}
+	}
+	return best, best != ""
+}
+
 // buildEnvironmentStatus constructs an EnvironmentStatusRep for a single environment.
 // Returns the status and a boolean indicating whether the environment is healthy.
 //
@@ -202,21 +222,23 @@ func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.Envir
 		ProjName: identifiers.ProjName,
 	}
 
+	// One snapshot drives every credential field, so they cannot disagree with each other under a
+	// concurrent reconcile. Iterating GetCredentials for these would also be nondeterministic now that
+	// an environment accepts a set of SDK and mobile keys rather than one of each.
+	accepted := clientCtx.GetAcceptedKeys()
+	if accepted.Anchor.Defined() {
+		status.SDKKey = sdks.ObscureKey(string(accepted.Anchor))
+	}
+	if accepted.PrimaryMobile.Defined() {
+		status.MobileKey = sdks.ObscureKey(string(accepted.PrimaryMobile))
+	}
 	for _, c := range clientCtx.GetCredentials() {
-		switch c := c.(type) {
-		case config.SDKKey:
-			status.SDKKey = sdks.ObscureKey(string(c))
-		case config.MobileKey:
-			status.MobileKey = sdks.ObscureKey(string(c))
-		case config.EnvironmentID:
-			status.EnvID = string(c)
+		if envID, ok := c.(config.EnvironmentID); ok {
+			status.EnvID = string(envID)
 		}
 	}
-
-	for _, c := range clientCtx.GetDeprecatedCredentials() {
-		if key, ok := c.(config.SDKKey); ok {
-			status.ExpiringSDKKey = sdks.ObscureKey(string(key))
-		}
+	if expiring, ok := soonestExpiringSDKKey(accepted); ok {
+		status.ExpiringSDKKey = sdks.ObscureKey(expiring)
 	}
 
 	healthy := true

@@ -21,6 +21,17 @@ type LDClientContext interface {
 	SecureModeHash(ldcontext.Context) string
 	GetDataSourceStatus() interfaces.DataSourceStatus
 	GetDataStoreStatus() DataStoreStatusInfo
+
+	// SetSDKKey changes the SDK key the client authenticates with. Relay uses it to follow a key
+	// rotation without building a second client, which would mean a second copy of the environment's
+	// data. Refer to envContextImpl.reanchor.
+	//
+	// New requests use the new key, including polling, event delivery and stream reconnections. An
+	// already-open stream is not closed; it runs until LaunchDarkly or the network ends it, and the
+	// client then reconnects with the new key. It returns an error, and keeps the current key, if the
+	// value is not valid in an HTTP header.
+	SetSDKKey(sdkKey string) error
+
 	Close() error
 }
 

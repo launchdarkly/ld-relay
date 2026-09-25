@@ -153,118 +153,168 @@ func TestLogPrefix(t *testing.T) {
 	testPrefix("impossibly short env ID", LogNameIsEnvID, config.SDKKey("1234567890"), config.EnvironmentID("hij"), "[env: hij]")
 }
 
-func TestAddRemoveCredential(t *testing.T) {
+func TestReconcileAddsAndRemovesCredentials(t *testing.T) {
 	envConfig := st.EnvMain.Config
-
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), slog.Default(), nil)
 	defer env.Close()
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.EnvID))
+	mobile := st.EnvWithAllCredentials.Config.MobileKey
+	envID := st.EnvWithAllCredentials.Config.EnvID
+	env.ReconcileCredentials(mustAcceptedSet(t, envConfig.SDKKey, mobile, envID))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.Contains(t, creds, mobile)
+	assert.Contains(t, creds, envID)
+	assert.Equal(t, mobile, env.GetMobileKey())
 
-	env.UpdateCredential(NewCredentialUpdate(config.MobileKey("evict-the-previous-key")))
+	// A set that names a different mobile key revokes the previous one.
+	replacement := config.MobileKey("evict-the-previous-key")
+	env.ReconcileCredentials(mustAcceptedSet(t, envConfig.SDKKey, replacement, envID))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.NotContains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.NotContains(t, creds, mobile)
+	assert.Contains(t, creds, replacement)
+	assert.Contains(t, creds, envID)
+	assert.Equal(t, replacement, env.GetMobileKey())
 }
 
-func TestAddExistingCredentialDoesNothing(t *testing.T) {
+func TestReconcileWithAnUnchangedSetChangesNothing(t *testing.T) {
 	envConfig := st.EnvMain.Config
-
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), slog.Default(), nil)
 	defer env.Close()
 
-	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	mobile := st.EnvWithAllCredentials.Config.MobileKey
+	set := mustAcceptedSet(t, envConfig.SDKKey, mobile, "")
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	env.ReconcileCredentials(set)
+	first := env.GetCredentials()
+	assert.Len(t, first, 2)
 
-	creds := env.GetCredentials()
-	assert.Len(t, creds, 2)
-	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
-
-	creds = env.GetCredentials()
-	assert.Len(t, creds, 2)
-	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	env.ReconcileCredentials(set)
+	assert.ElementsMatch(t, first, env.GetCredentials())
+	assert.Equal(t, envConfig.SDKKey, env.GetAnchorKey())
 }
 
-func TestChangeSDKKey(t *testing.T) {
+// TestRotatingTheSDKKeyRekeysTheSameClient is the central behavioral test for the re-anchor.
+//
+// The environment holds exactly one SDK client for its lifetime. A key rotation re-keys that client
+// rather than building a replacement, which is what keeps relay from holding two data systems and two
+// copies of the environment's data. The outgoing key keeps authenticating downstream traffic for its
+// grace period, and its expiry must not take the client down with it.
+func TestRotatingTheSDKKeyRekeysTheSameClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	readyCh := make(chan EnvContext, 1)
-	key2 := config.SDKKey("key2")
+	newKey := config.SDKKey("key2")
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
-
-	env := makeBasicEnv(t, envConfig, clientFactory, slog.Default(), readyCh)
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil),
+		slog.Default(), readyCh)
 	defer env.Close()
 
-	assert.Equal(t, env, requireEnvReady(t, readyCh))
-	client1 := requireClientReady(t, clientCh)
-	assert.Equal(t, env.GetClient(), client1)
-	assert.Nil(t, env.GetInitError())
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	client := requireClientReady(t, clientCh)
+	require.Equal(t, env.GetClient(), client)
+	require.Equal(t, envConfig.SDKKey, client.CurrentSDKKey())
+	require.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	require.Empty(t, env.GetDeprecatedCredentials())
 
-	// The environment should have been initialized with a single SDK key (found in the envConfig.)
-	// At this point, there's no deprecated credentials.
-	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
-	assert.Empty(t, env.GetDeprecatedCredentials())
-
-	// For the purposes of key rotation, we'll make time deterministic.
 	start := time.Unix(1000, 0)
+	expiry := start.Add(1 * time.Hour)
+	impl := env.(*envContextImpl)
 
-	// Upon rotating to key2, the original key should still be valid for a hour.
-	env.UpdateCredential(
-		NewCredentialUpdate(key2).
-			WithTime(start).
-			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)))
+	// Rotate to newKey, with the outgoing key accepted for another hour.
+	impl.reconcileCredentials(mustAcceptedSetWithExpiring(t, newKey, envConfig.SDKKey, expiry), start)
 
-	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	// The anchor moved and the same client was re-keyed. No second client was built.
+	assert.Equal(t, newKey, env.GetAnchorKey())
+	assert.Same(t, client, env.GetClient(), "a rotation must not replace the environment's client")
+	assert.Equal(t, newKey, client.CurrentSDKKey())
+	assert.Equal(t, []config.SDKKey{newKey}, client.SDKKeys())
+	helpers.AssertNoMoreValues(t, clientCh, time.Millisecond*100, "no second client should be built")
+
+	// Both keys authenticate during the grace period.
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, newKey)
+	assert.Contains(t, creds, envConfig.SDKKey)
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
 
-	client2 := requireClientReady(t, clientCh)
-	assert.NotEqual(t, client1, client2)
-	// GetClient() may not return client2 immediately because startSDKClient stores
-	// the client in the map asynchronously after the factory sends it to clientCh.
-	require.Eventually(t, func() bool {
-		return env.GetClient() == client2
-	}, time.Second, 10*time.Millisecond, "expected GetClient() to return the new client")
+	// Part-way through the grace period nothing changes.
+	impl.triggerCredentialChanges(start.Add(45 * time.Minute))
+	assert.Contains(t, env.GetCredentials(), envConfig.SDKKey)
 
-	// The client for the original SDK key should not have been closed, since it's valid for an hour.
-	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
-		t.FailNow()
-	}
-
-	// Simulate an amount of time passing that is less than the deprecation period. The original key should still be valid.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(45 * time.Minute)))
-	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
-		t.FailNow()
-	}
-
-	// We are now an instant after the deprecation period. This should cause the original key to become expired
-	// and trigger the client to close.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(1*time.Hour + 1*time.Millisecond)))
-	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	// An instant past the expiry the outgoing key stops authenticating, and the client survives.
+	impl.triggerCredentialChanges(expiry.Add(time.Millisecond))
+	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
-
-	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed") {
+	assert.Same(t, client, env.GetClient(),
+		"expiring the key the client was built with must not close the client")
+	if !helpers.AssertChannelNotClosed(t, client.CloseCh, 100*time.Millisecond,
+		"the environment's only client must stay open across a rotation") {
 		t.FailNow()
 	}
 }
 
+// TestReanchorKeepsThePreviousKeyWhenTheSDKRejectsTheNewOne covers the one way a re-anchor can fail.
+// SetSDKKey rejects a key that is not valid in an HTTP header, which no retry would fix, so the
+// environment parks on the key it has rather than losing its upstream connection.
+func TestReanchorKeepsThePreviousKeyWhenTheSDKRejectsTheNewOne(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	readyCh := make(chan EnvContext, 1)
+	clientCh := make(chan *testclient.FakeLDClient, 1)
+
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil),
+		slog.Default(), readyCh)
+	defer env.Close()
+	requireEnvReady(t, readyCh)
+	client := requireClientReady(t, clientCh)
+
+	client.SetSDKKeyErr = errors.New("SDK key contains invalid characters")
+
+	rejected := config.SDKKey("bad key")
+	impl := env.(*envContextImpl)
+	impl.reconcileCredentials(mustAcceptedSet(t, rejected, "", ""), time.Unix(1000, 0))
+
+	assert.Equal(t, envConfig.SDKKey, env.GetAnchorKey(), "the anchor must not move")
+	assert.Same(t, client, env.GetClient())
+	assert.Contains(t, env.GetCredentials(), envConfig.SDKKey,
+		"the previous key must keep authenticating, since it is what the connection still uses")
+	assert.NotContains(t, env.GetCredentials(), rejected,
+		"a key the SDK refused must not be left accepted")
+}
+
+// mustAcceptedSet builds an accepted set with anchor as the designated SDK key. An undefined mobile
+// key or environment ID is omitted.
+func mustAcceptedSet(t *testing.T, anchor config.SDKKey, mobile config.MobileKey, envID config.EnvironmentID) credential.AcceptedSet {
+	t.Helper()
+	b := credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: anchor})
+	if mobile.Defined() {
+		b.WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobile})
+	}
+	if envID.Defined() {
+		b.WithEnvironmentID(envID)
+	}
+	set, err := b.Build()
+	require.NoError(t, err)
+	return set
+}
+
+// mustAcceptedSetWithExpiring builds an accepted set with anchor designated and expiring accepted
+// until the given instant, which is the shape of a key rotation with a grace period.
+func mustAcceptedSetWithExpiring(t *testing.T, anchor config.SDKKey, expiring config.SDKKey, expiry time.Time) credential.AcceptedSet {
+	t.Helper()
+	set, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: anchor}).
+		WithSDKKey(credential.SDKKeyParams{Value: expiring, Expiry: &expiry}).
+		Build()
+	require.NoError(t, err)
+	return set
+}
 func TestSDKClientCreationFails(t *testing.T) {
 	envConfig := st.EnvWithAllCredentials.Config
 	envConfig.TTL = configtypes.NewOptDuration(time.Hour)

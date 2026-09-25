@@ -68,12 +68,6 @@ func TestEnvironmentRepToParams(t *testing.T) {
 		},
 		SDKKey:    env2.SDKKey.Value,
 		MobileKey: env2.MobKey,
-		// ExpiringSDKKey is retained until ReconcileCredentials replaces UpdateCredential; ToParams
-		// keeps it and the accepted set populated from the same wire fields.
-		ExpiringSDKKey: ExpiringSDKKey{
-			Key:        env2.SDKKey.Expiring.Value,
-			Expiration: time.UnixMilli(int64(env2.SDKKey.Expiring.Timestamp)),
-		},
 		AcceptedSDKKeys: []AcceptedSDKKey{
 			{Value: env2.SDKKey.Value},
 			{Value: env2.SDKKey.Expiring.Value, Expiry: time.UnixMilli(int64(env2.SDKKey.Expiring.Timestamp))},

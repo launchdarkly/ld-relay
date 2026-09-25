@@ -131,10 +131,27 @@ func (h relayTestHelper) assertEndpointStatus(
 		expectedStatus, status, method, path, authValue)
 }
 
+// designatedCredentials is the set of an environment's DESIGNATED credentials: its anchor SDK key,
+// its primary mobile key and its environment ID.
+//
+// The helpers below compare against these rather than against GetCredentials, which reports the whole
+// accepted set. An environment accepts several SDK keys at once -- a key inside its grace period is
+// still accepted -- so GetCredentials is not a statement about which key is designated.
+func designatedCredentials(env relayenv.EnvContext) map[credential.SDKCredential]struct{} {
+	accepted := env.GetAcceptedKeys()
+	var envID config.EnvironmentID
+	for _, c := range env.GetCredentials() {
+		if id, ok := c.(config.EnvironmentID); ok {
+			envID = id
+		}
+	}
+	return credentialsAsSet(envID, accepted.PrimaryMobile, accepted.Anchor)
+}
+
 func (h relayTestHelper) awaitCredentialsUpdated(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
 	expectedCredentials := credentialsAsSet(expected.EnvID, expected.MobileKey, expected.SDKKey)
 	isChanged := func() bool {
-		return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
+		return reflect.DeepEqual(designatedCredentials(env), expectedCredentials)
 	}
 	require.Eventually(h.t, isChanged, time.Second, time.Millisecond*5)
 	h.assertEnvLookup(env, expected)
@@ -142,7 +159,7 @@ func (h relayTestHelper) awaitCredentialsUpdated(env relayenv.EnvContext, expect
 
 func assertEnvProps(t *testing.T, expected envfactory.EnvironmentParams, env relayenv.EnvContext) {
 	assert.Equal(t, credentialsAsSet(expected.EnvID, expected.MobileKey, expected.SDKKey),
-		credentialsAsSet(env.GetCredentials()...))
+		designatedCredentials(env))
 	assert.Equal(t, expected.Identifiers, env.GetIdentifiers())
 	assert.Equal(t, expected.Identifiers.ProjName+" "+expected.Identifiers.EnvName,
 		env.GetIdentifiers().GetDisplayName())

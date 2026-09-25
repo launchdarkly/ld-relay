@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"strings"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
@@ -44,10 +46,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return
 	}
 
-	if ae.Params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration))
-	}
+	a.reconcileCredentials(env, ae.Params)
 
 	// Store the synchronizer so we can update it later when the file changes
 	if a.envSynchronizers == nil {
@@ -75,16 +74,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 
-	if ae.Params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(ae.Params.MobileKey))
-	}
-	if ae.Params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		if ae.Params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration)
-		}
-		env.UpdateCredential(update)
-	}
+	a.reconcileCredentials(env, ae.Params)
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {
@@ -101,4 +91,26 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
 	a.r.removeEnvironment(id)
 	delete(a.envSynchronizers, id)
+}
+
+// reconcileCredentials converts an offline archive's environment parameters into the accepted
+// credential set and applies it.
+//
+// Offline mode has no live stream to reconnect, so a malformed payload keeps the previous credentials
+// and waits for the next archive reload.
+func (a *relayFileDataActions) reconcileCredentials(env relayenv.EnvContext, params envfactory.EnvironmentParams) {
+	name := params.Identifiers.GetDisplayName()
+
+	set, rejected, err := envfactory.BuildAcceptedSet(params)
+	if err != nil {
+		a.r.logger.Error("malformed credential payload for offline environment; keeping the previous credentials",
+			"env", name, "error", err)
+		return
+	}
+	if len(rejected) > 0 {
+		a.r.logger.Warn("rejecting credentials scoped to a view; the Relay Proxy serves an entire "+
+			"environment payload and cannot filter it to a view, so SDKs presenting these credentials are denied",
+			"env", name, "keys", strings.Join(rejected, ", "))
+	}
+	env.ReconcileCredentials(set)
 }
