@@ -26,7 +26,7 @@ func TestAcceptedSetBuilderValidation(t *testing.T) {
 	// WithAnchor adds the key and designates it as the anchor, so Build succeeds.
 	set, err := NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: "sdk"}).Build()
 	require.NoError(t, err)
-	assert.True(t, set.hasSDKKey(config.SDKKey("sdk")))
+	assert.Contains(t, set.sdkKeys, config.SDKKey("sdk"))
 	assert.Equal(t, config.SDKKey("sdk"), set.anchor)
 }
 
@@ -52,6 +52,57 @@ func TestAcceptedSetBuilderDeduplicates(t *testing.T) {
 	assert.Nil(t, set.mobileKeys[config.MobileKey("mob")].Expiry,
 		"the designated primary mobile key is always permanent, overwriting a prior entry's expiry")
 }
+
+func TestAcceptedSetBuilderKeepsTheEarlierExpiryForARepeatedValue(t *testing.T) {
+	// A payload that lists one credential value twice with different expiries must not let array order
+	// decide when the key dies. The shorter life wins, in either order, so a duplicate entry cannot
+	// extend a key the same payload says expires sooner.
+	soon, later := time.Unix(1000, 0), time.Unix(2000, 0)
+
+	for _, tc := range []struct {
+		name           string
+		first, second  *time.Time
+		expectedExpiry *time.Time
+	}{
+		{"later then soon", &later, &soon, &soon},
+		{"soon then later", &soon, &later, &soon},
+		{"permanent then expiring", nil, &soon, &soon},
+		{"expiring then permanent", &soon, nil, &soon},
+		{"both permanent", nil, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			set := mustBuild(t, NewAcceptedSetBuilder().
+				WithAnchor(SDKKeyParams{Value: "anchor"}).
+				WithSDKKey(SDKKeyParams{Value: "dupe", Expiry: tc.first}).
+				WithSDKKey(SDKKeyParams{Value: "dupe", Expiry: tc.second}).
+				WithMobileKey(MobileKeyParams{Value: "mob-dupe", Expiry: tc.first}).
+				WithMobileKey(MobileKeyParams{Value: "mob-dupe", Expiry: tc.second}))
+
+			assert.Equal(t, tc.expectedExpiry, set.sdkKeys[config.SDKKey("dupe")].Expiry)
+			assert.Equal(t, tc.expectedExpiry, set.mobileKeys[config.MobileKey("mob-dupe")].Expiry)
+		})
+	}
+}
+
+func TestAcceptedSetBuilderNeverGivesADesignatedKeyAnExpiry(t *testing.T) {
+	// The anchor and the primary mobile key are permanent. A later plain add for the same value must
+	// not demote either one, whatever expiry it carries, because the rotator will never expire a
+	// designated key and a reported expiry it cannot honour misleads an operator.
+	expiry := time.Unix(1000, 0)
+	set := mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: "sdk", Key: strPtr("anchor-name")}).
+		WithSDKKey(SDKKeyParams{Value: "sdk", Key: strPtr("other-name"), Expiry: &expiry}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: "mob", Key: strPtr("primary-name")}).
+		WithMobileKey(MobileKeyParams{Value: "mob", Key: strPtr("other-name"), Expiry: &expiry}))
+
+	assert.Nil(t, set.sdkKeys[config.SDKKey("sdk")].Expiry)
+	assert.Nil(t, set.mobileKeys[config.MobileKey("mob")].Expiry)
+	// The designation also keeps the name it was designated with.
+	assert.Equal(t, "anchor-name", *set.sdkKeys[config.SDKKey("sdk")].Key)
+	assert.Equal(t, "primary-name", *set.mobileKeys[config.MobileKey("mob")].Key)
+}
+
+func strPtr(s string) *string { return &s }
 
 // mustBuild builds the set and fails the test if validation rejects it. It is shared by the builder
 // tests and the Reconcile tests in rotator_test.go.

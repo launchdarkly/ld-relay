@@ -26,18 +26,6 @@ type AcceptedSet struct {
 	envID            config.EnvironmentID
 }
 
-// hasSDKKey reports whether key is one of the set's accepted SDK keys.
-func (s AcceptedSet) hasSDKKey(key config.SDKKey) bool {
-	_, ok := s.sdkKeys[key]
-	return ok
-}
-
-// hasMobileKey reports whether key is one of the set's accepted mobile keys.
-func (s AcceptedSet) hasMobileKey(key config.MobileKey) bool {
-	_, ok := s.mobileKeys[key]
-	return ok
-}
-
 // MalformedCredentialSetError is returned when a credential payload cannot produce a valid
 // AcceptedSet. Each constructor below documents one cause.
 //

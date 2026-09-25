@@ -37,10 +37,17 @@ type MobileKeyParams struct {
 	Expiry *time.Time
 }
 
-// WithSDKKey adds a server-side SDK key. It is a no-op if the value is undefined or already present
-// (the first metadata recorded for a value wins).
+// WithSDKKey adds a server-side SDK key. It is a no-op if the value is undefined, or if the value is
+// already the designated anchor. When the value is already present, the first wire name recorded for
+// it wins, and the entry keeps the earlier of the two expiries. A value a payload lists twice must not
+// outlive the soonest expiry that payload gives it.
 func (b *AcceptedSetBuilder) WithSDKKey(p SDKKeyParams) *AcceptedSetBuilder {
-	if !p.Value.Defined() || b.set.hasSDKKey(p.Value) {
+	if !p.Value.Defined() || p.Value == b.set.anchor {
+		return b
+	}
+	if existing, present := b.set.sdkKeys[p.Value]; present {
+		existing.Expiry = earlierExpiry(existing.Expiry, p.Expiry)
+		b.set.sdkKeys[p.Value] = existing
 		return b
 	}
 	b.set.sdkKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: p.Expiry}
@@ -59,9 +66,15 @@ func (b *AcceptedSetBuilder) WithAnchor(p SDKKeyParams) *AcceptedSetBuilder {
 	return b
 }
 
-// WithMobileKey adds a mobile key. It is a no-op if the value is undefined or already present.
+// WithMobileKey adds a mobile key. It resolves a repeated value the same way WithSDKKey does, and it
+// is a no-op for the value that is already the designated primary.
 func (b *AcceptedSetBuilder) WithMobileKey(p MobileKeyParams) *AcceptedSetBuilder {
-	if !p.Value.Defined() || b.set.hasMobileKey(p.Value) {
+	if !p.Value.Defined() || p.Value == b.set.primaryMobileKey {
+		return b
+	}
+	if existing, present := b.set.mobileKeys[p.Value]; present {
+		existing.Expiry = earlierExpiry(existing.Expiry, p.Expiry)
+		b.set.mobileKeys[p.Value] = existing
 		return b
 	}
 	b.set.mobileKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: p.Expiry}
@@ -97,4 +110,19 @@ func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
 		return AcceptedSet{}, newMissingAnchorError()
 	}
 	return b.set, nil
+}
+
+// earlierExpiry returns whichever of the two expiries comes first. A nil expiry means the key is
+// permanent, so it loses to any expiry that is set.
+func earlierExpiry(current, candidate *time.Time) *time.Time {
+	if current == nil {
+		return candidate
+	}
+	if candidate == nil {
+		return current
+	}
+	if candidate.Before(*current) {
+		return candidate
+	}
+	return current
 }
