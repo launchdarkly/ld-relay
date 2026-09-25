@@ -46,13 +46,19 @@ func marshalCachedItem(kind ModelKind, data interface{}) ([]byte, error) {
 
 // unmarshalCachedItem decodes the envelope. If the model version is not recognized,
 // it returns an error so the caller can skip the item gracefully.
+//
+// Any version up to the current one is readable: EnvironmentRep only ever gains fields, and ToParams
+// synthesizes the key arrays from sdkKey and mobKey when an older entry omits them. Refusing a lower
+// version would discard the whole cache on the first start after an upgrade, which is the outage the
+// cache exists to prevent. The check stays one-sided so an older relay still refuses an entry
+// written by a newer one, whose shape it cannot know.
 func unmarshalCachedItem(raw []byte) (CachedItem, error) {
 	var item CachedItem
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return CachedItem{}, fmt.Errorf("invalid cached item envelope: %w", err)
 	}
-	if item.ModelVersion != CurrentModelVersion {
-		return CachedItem{}, fmt.Errorf("unsupported model version %d (expected %d)", item.ModelVersion, CurrentModelVersion)
+	if item.ModelVersion < 1 || item.ModelVersion > CurrentModelVersion {
+		return CachedItem{}, fmt.Errorf("unsupported model version %d (expected 1 to %d)", item.ModelVersion, CurrentModelVersion)
 	}
 	return item, nil
 }
