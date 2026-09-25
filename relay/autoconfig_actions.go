@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"strings"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
@@ -22,12 +24,33 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.logger.Error("unable to initialize auto-configured environment", "env", params.Identifiers.GetDisplayName(), "error", err)
+		return
 	}
 
-	if params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+	a.reconcileCredentials(env, params)
+}
+
+// reconcileCredentials converts an auto-configuration payload into the environment's accepted
+// credential set and applies it.
+//
+// A payload that cannot produce a valid set leaves the environment's credentials alone. The stream
+// manager validates before it records the payload's version, so reaching this branch means a payload
+// got past that check; keeping the previous set is the safe response either way.
+func (a *relayAutoConfigActions) reconcileCredentials(env relayenv.EnvContext, params envfactory.EnvironmentParams) {
+	name := params.Identifiers.GetDisplayName()
+
+	set, rejected, err := envfactory.BuildAcceptedSet(params)
+	if err != nil {
+		a.r.logger.Error("malformed credential payload for auto-configured environment; keeping the previous credentials",
+			"env", name, "error", err)
+		return
 	}
+	if len(rejected) > 0 {
+		a.r.logger.Warn("rejecting credentials scoped to a view; the Relay Proxy serves an entire "+
+			"environment payload and cannot filter it to a view, so SDKs presenting these credentials are denied",
+			"env", name, "keys", strings.Join(rejected, ", "))
+	}
+	env.ReconcileCredentials(set)
 }
 
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
@@ -44,16 +67,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	if params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
-	}
-	if params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		if params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
-		}
-		env.UpdateCredential(update)
-	}
+	a.reconcileCredentials(env, params)
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
