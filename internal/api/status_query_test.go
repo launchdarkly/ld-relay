@@ -22,7 +22,11 @@ func statusRepBody(t *testing.T) []byte {
 		},
 		Environments: map[string]EnvironmentStatusRep{
 			"My Project my-env": {
-				SDKKey:  "sdk-***",
+				SDKKey: "sdk-***",
+				SDKKeys: []KeyStatus{
+					{Key: "production-default", Value: "sdk-***"},
+					{Key: "old-default", Value: "sdk-old-***", Expiry: &fixtureExpiryMillis},
+				},
 				EnvID:   "env-123",
 				EnvKey:  "my-env",
 				ProjKey: "my-proj",
@@ -47,6 +51,9 @@ func statusRepBody(t *testing.T) []byte {
 }
 
 // envRepBody marshals a representative single-environment body, as returned by the per-env routes.
+// fixtureExpiryMillis is the expiry on the fixture's non-anchor SDK key.
+var fixtureExpiryMillis = int64(1700000900000)
+
 func envRepBody(t *testing.T) []byte {
 	t.Helper()
 	rep := EnvironmentStatusRep{
@@ -162,7 +169,7 @@ func TestEvaluateExpectationsUnsatisfied(t *testing.T) {
 	// is a well-formed question with the answer "no".
 	for _, clause := range []string{
 		"environments.My Project my-env.envName=whatever",
-		"environments.My Project my-env.expiringSdkKey=sdk-***",
+		"environments.My Project my-env.mobileKey=mob-***",
 		"environments.My Project my-env.dataStoreStatus.dbServer=localhost",
 	} {
 		t.Run("omitted optional field is unsatisfied: "+clause, func(t *testing.T) {
@@ -289,19 +296,34 @@ func TestEvaluateExpectationsNotEvaluable(t *testing.T) {
 		assert.NotEmpty(t, res.Results[0].Problem)
 	})
 
-	// The path grammar supports arrays so that selectors survive the concurrent-keys change, but
-	// the current schema has no array fields, so addressing one is reported rather than silently
-	// answered "not in the state you asserted".
-	t.Run("array fields the schema does not have yet", func(t *testing.T) {
-		for _, clause := range []string{
-			"sdkKeys[0].key=x",
-			"environments.My Project my-env.sdkKeys[key=new-production-default].value=x",
-		} {
-			t.Run(clause, func(t *testing.T) {
+	// An array field the body does not have at this position is still reported rather than silently
+	// answered "not in the state you asserted". sdkKeys lives under an environment, not at the root of
+	// the all-environments body.
+	t.Run("array field addressed at the wrong level", func(t *testing.T) {
+		_, code := EvaluateExpectations(body, []string{"sdkKeys[0].key=x"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusUnprocessableEntity, code)
+	})
+
+	// The path grammar's array selectors exist so that a caller can assert on one key out of an
+	// environment's set. Now that the schema carries those arrays, they are evaluable.
+	t.Run("array selectors address the key set", func(t *testing.T) {
+		satisfied := []string{
+			"environments.My Project my-env.sdkKeys[key=production-default].value=sdk-***",
+			"environments.My Project my-env.sdkKeys[0].key=production-default",
+		}
+		for _, clause := range satisfied {
+			t.Run("satisfied: "+clause, func(t *testing.T) {
 				_, code := EvaluateExpectations(body, []string{clause}, SchemaAllEnvironments)
-				assert.Equal(t, http.StatusUnprocessableEntity, code)
+				assert.Equal(t, http.StatusOK, code)
 			})
 		}
+
+		t.Run("a selector that matches nothing is unsatisfied, not unprocessable", func(t *testing.T) {
+			_, code := EvaluateExpectations(body,
+				[]string{"environments.My Project my-env.sdkKeys[key=never-issued].value=x"},
+				SchemaAllEnvironments)
+			assert.Equal(t, http.StatusPreconditionFailed, code)
+		})
 	})
 
 	// Paths are relative to the body of the route that serves them, so the wrapper only exists on
