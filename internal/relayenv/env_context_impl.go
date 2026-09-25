@@ -606,10 +606,11 @@ func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now t
 // reanchor moves the environment's upstream connection to change.NewAnchor by re-keying the existing
 // SDK client. It reports whether the anchor moved.
 //
-// There is no client to build and so nothing to roll back on a transient failure: the only way
-// SetSDKKey fails is a key that is not valid in an HTTP header, which no retry will fix. That is a
-// configuration error, so the environment parks on its current anchor and says so loudly, and the
-// next auto-configuration payload supplies a new key.
+// There is no client to build and so nothing to roll back on a transient failure. The only way
+// SetSDKKey fails is a key that is not valid in an HTTP header, and BuildAcceptedSet refuses such a
+// key before it can reach a reconcile, so no payload can take this path. The rollback remains for a
+// caller that reconciles a set it did not build there. It parks the environment on its current
+// anchor and says so loudly, rather than moving the designation to a key that cannot serve.
 //
 // An offline environment has no upstream connection, so re-anchoring it is only the mapping and
 // designation changes.
