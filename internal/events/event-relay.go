@@ -243,6 +243,24 @@ func (r *EventDispatcher) Close() {
 	// goroutines or channels
 }
 
+// StopForwarding shuts down the analytics endpoint that forwards events with the given kind of
+// credential. Use it when the environment no longer has a credential of that kind, so the endpoint
+// does not keep a revoked credential and its goroutines alive for the life of the environment.
+//
+// It does not rescue whatever the endpoint has already queued. Closing runs a final flush, which
+// goes out on the credential that was just revoked and is refused. Nothing can deliver those events:
+// LaunchDarkly revoked the key before relay was told about it. The value here is bounding the
+// endpoint rather than saving the batch.
+//
+// Closing an endpoint is idempotent, so the environment's own Close still works afterwards. The
+// endpoint stays in the map because GetHandler reads the map without a lock, and an SDK cannot reach
+// it in any case: the credential's connection mapping comes down in the same reconcile.
+func (r *EventDispatcher) StopForwarding(sdkKind basictypes.SDKKind) {
+	if e, ok := r.analyticsEndpoints[sdkKind]; ok {
+		e.close()
+	}
+}
+
 func (r *EventDispatcher) flush() { //nolint:unused // used only in tests
 	for _, e := range r.analyticsEndpoints {
 		e.flush()

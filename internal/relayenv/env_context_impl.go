@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -578,12 +579,22 @@ func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now t
 		})
 	}
 
-	if result.MobilePrimaryRepoint != nil {
+	if result.MobilePrimaryRepoint != nil || result.MobilePrimaryRevoked {
 		c.mu.RLock()
 		dispatcher := c.eventDispatcher
 		c.mu.RUnlock()
-		if dispatcher != nil {
+		switch {
+		case dispatcher == nil:
+		case result.MobilePrimaryRepoint != nil:
 			dispatcher.ReplaceCredential(*result.MobilePrimaryRepoint)
+		default:
+			// The environment has no mobile key now, so there is nothing to repoint onto. Stop the
+			// endpoint instead of leaving it holding a revoked credential. Any mobile events already
+			// queued are lost: their key is gone, so the final flush is refused.
+			c.globalLogger.Warn("environment no longer has a mobile key; stopping mobile event "+
+				"forwarding, and any mobile events still queued cannot be delivered",
+				"env", c.identifiers.GetDisplayName())
+			dispatcher.StopForwarding(basictypes.MobileSDK)
 		}
 	}
 
