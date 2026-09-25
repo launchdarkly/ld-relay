@@ -742,11 +742,10 @@ func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvide
 // processed, so a request that authenticated before a revocation still found a working handler.
 // Building per request is what creates a place to ask the question again.
 //
-// The build is cheap enough to do per connect. Measured by the benchmarks in
-// env_context_stream_handler_bench_test.go: the client-side path costs 13ns with no allocations,
-// which is faster than the two-level map lookup it replaced, and the heaviest provider -- the
-// server-side V2 handler, which wraps an init deadline and a basis-header closure -- costs 105ns and
-// 96 bytes. Both are invisible next to the SSE handshake and payload send that follow.
+// The build is cheap enough to do per connect. Measured: the client-side path costs 13ns with no
+// allocations, which is faster than the two-level map lookup it replaced, and the heaviest provider
+// -- the server-side V2 handler, which wraps an init deadline and a basis-header closure -- costs
+// 105ns and 96 bytes. Both are invisible next to the SSE handshake and payload send that follow.
 //
 // The middleware authenticates the credential once, at the start of the request, and a credential can
 // be revoked while that request is still in flight: on the REPORT stream endpoints the client paces
