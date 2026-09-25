@@ -163,7 +163,12 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 				}
 			}
 			am.logger.Info("updated environment", "envID", envID, "envName", envName)
-			am.handler.UpdateEnvironment(ae)
+			if err := am.handler.UpdateEnvironment(ae); err != nil {
+				// Leave the previously recorded metadata in place. A corrected archive can carry the
+				// same version and data ID as the one just refused, and the check above would then
+				// skip it, so the fix would never land without a restart.
+				continue
+			}
 		} else {
 			// Adding a new environment
 			ae := ArchiveEnvironment{Params: envMetadata.params}
@@ -173,7 +178,10 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 				continue
 			}
 			am.logger.Info("added environment", "envID", envID, "envName", envName)
-			am.handler.AddEnvironment(ae)
+			if err := am.handler.AddEnvironment(ae); err != nil {
+				// Record nothing, so a corrected archive is treated as a new environment and applied.
+				continue
+			}
 		}
 		am.lastKnownEnvs[envID] = envMetadata
 	}

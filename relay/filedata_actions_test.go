@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
@@ -317,5 +318,55 @@ func TestOfflineModeSDKKeyCanExpire(t *testing.T) {
 			}, time.Second, 10*time.Millisecond, "deprecated credentials should be cleaned up after expiry")
 			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
 		}
+	})
+}
+
+func TestOfflineModeMalformedCredentialPayloadCreatesNoEnvironment(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		// mobKey is absent from mobileKeys[], which BuildAcceptedSet refuses. Relay must not create
+		// the environment at all: NewEnvContext seeds the rotator from these same params, so an
+		// environment created before validation would authenticate the anchor and primary mobile key
+		// of a payload just declared malformed, while refusing every key its arrays list.
+		bad := testFileDataEnv1
+		bad.Params.AcceptedMobileKeys = []envfactory.AcceptedMobileKey{
+			{Value: config.MobileKey("mobilekey-other")},
+		}
+
+		err := p.updateHandler.AddEnvironment(bad)
+		require.Error(t, err, "a malformed credential payload must be reported to the archive manager")
+
+		p.shouldNotCreateClient(time.Millisecond * 100)
+
+		_, lookupErr := p.relay.getEnvironment(testFileDataEnv1.Params.SDKKey)
+		assert.Error(t, lookupErr, "the payload's own SDK key must not authenticate")
+		_, mobileErr := p.relay.getEnvironment(testFileDataEnv1.Params.MobileKey)
+		assert.Error(t, mobileErr, "the payload's own mobile key must not authenticate")
+		_, arrayErr := p.relay.getEnvironment(config.MobileKey("mobilekey-other"))
+		assert.Error(t, arrayErr, "a key the refused payload listed must not authenticate either")
+	})
+}
+
+func TestOfflineModeMalformedUpdateLeavesTheEnvironmentUntouched(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		require.NoError(t, p.updateHandler.AddEnvironment(testFileDataEnv1))
+		p.awaitClient()
+		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+
+		// A later archive whose credential payload is malformed must not apply any part of the update.
+		// Validation runs before the identifiers, TTL and secure mode are written, so a refused
+		// environment is left exactly as it was and the retry is idempotent.
+		bad := testFileDataEnv1
+		bad.Params.Identifiers.EnvName = "Renamed"
+		bad.Params.AcceptedSDKKeys = []envfactory.AcceptedSDKKey{
+			{Value: config.SDKKey("sdkkey-unrelated")},
+		}
+
+		err := p.updateHandler.UpdateEnvironment(bad)
+		require.Error(t, err)
+
+		assert.Equal(t, "Env1", env.GetIdentifiers().EnvName,
+			"a refused update must not rename the environment")
+		_, lookupErr := p.relay.getEnvironment(testFileDataEnv1.Params.SDKKey)
+		assert.NoError(t, lookupErr, "the environment keeps the credentials it already had")
 	})
 }

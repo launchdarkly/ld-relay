@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,6 +88,11 @@ func (m testMessage) String() string {
 
 type testMessageHandler struct {
 	received chan testMessage
+	// refuse, when set, is returned by AddEnvironment and UpdateEnvironment for the named
+	// environment. It models a handler that declines a payload, such as one whose credentials are
+	// malformed. The message is still recorded, so a test can see that the call happened.
+	refuse map[config.EnvironmentID]error
+	lock   sync.Mutex
 }
 
 func newTestMessageHandler() *testMessageHandler {
@@ -95,12 +101,37 @@ func newTestMessageHandler() *testMessageHandler {
 	}
 }
 
-func (h *testMessageHandler) AddEnvironment(params ArchiveEnvironment) {
-	h.received <- testMessage{id: params.Params.EnvID, add: &params}
+// refuseEnvironment makes every later Add or Update for envID return err.
+func (h *testMessageHandler) refuseEnvironment(envID config.EnvironmentID, err error) {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	if h.refuse == nil {
+		h.refuse = make(map[config.EnvironmentID]error)
+	}
+	h.refuse[envID] = err
 }
 
-func (h *testMessageHandler) UpdateEnvironment(params ArchiveEnvironment) {
+// acceptEnvironment undoes refuseEnvironment, modelling an operator correcting the archive.
+func (h *testMessageHandler) acceptEnvironment(envID config.EnvironmentID) {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	delete(h.refuse, envID)
+}
+
+func (h *testMessageHandler) refusalFor(envID config.EnvironmentID) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	return h.refuse[envID]
+}
+
+func (h *testMessageHandler) AddEnvironment(params ArchiveEnvironment) error {
+	h.received <- testMessage{id: params.Params.EnvID, add: &params}
+	return h.refusalFor(params.Params.EnvID)
+}
+
+func (h *testMessageHandler) UpdateEnvironment(params ArchiveEnvironment) error {
 	h.received <- testMessage{id: params.Params.EnvID, update: &params}
+	return h.refusalFor(params.Params.EnvID)
 }
 
 func (h *testMessageHandler) EnvironmentFailed(id config.EnvironmentID, err error) {

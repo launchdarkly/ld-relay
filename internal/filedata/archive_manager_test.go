@@ -1,6 +1,7 @@
 package filedata
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -269,4 +270,33 @@ func requireLogMessage(t *testing.T, mockLog *logtest.MockHandler, level slog.Le
 		}
 		return false
 	}, time.Second*5, time.Millisecond*100, "wanted log message (%s) containing %q", level, expectedSubstring)
+}
+
+func TestRefusedEnvironmentIsRetriedWhenACorrectedFileKeepsTheSameVersion(t *testing.T) {
+	// An operator who hand-fixes an environment in the archive has no reason to bump its version, and
+	// the data file keeps the same data ID. Recording a refused archive's version would make the next
+	// pass treat the corrected file as unchanged and skip it, so the fix would never land without a
+	// restart. The version is recorded only once the handler accepts the environment.
+	archiveManagerTest(t, func(filePath string) {
+		writeArchive(t, filePath, false, nil, testEnv1, testEnv2)
+	}, func(p archiveManagerTestParams) {
+		require.NoError(t, p.archiveManagerError)
+		p.expectEnvironmentsAdded(testEnv1, testEnv2)
+
+		// The handler refuses testEnv1, standing in for a malformed credential payload.
+		p.messageHandler.refuseEnvironment(testEnv1.rep.EnvID, errors.New("malformed credential payload"))
+
+		testEnv1a := testEnv1.withMetadataChange()
+		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		p.expectEnvironmentsUpdated(testEnv1a.withoutSDKData())
+		p.expectReloaded()
+
+		// The operator corrects the archive. The content is the same shape as the refused one, so the
+		// environment's version and data ID are unchanged; only the file's mtime moves.
+		p.messageHandler.acceptEnvironment(testEnv1.rep.EnvID)
+		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+
+		p.expectEnvironmentsUpdated(testEnv1a.withoutSDKData())
+		p.expectReloaded()
+	})
 }
