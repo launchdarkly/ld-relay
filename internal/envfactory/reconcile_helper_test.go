@@ -140,6 +140,36 @@ func TestBuildAcceptedSet_MalformedPayloads(t *testing.T) {
 			wantMsgSubstring: "no usable SDK key in sdkKeys[]",
 		},
 		{
+			// Relay presents a credential in an Authorization header, and the SDK refuses to re-key a
+			// client with a value it cannot send. Catching it here means a re-anchor cannot fail after
+			// the rotator has already moved the anchor.
+			name: "sdkKeys[] value that cannot be an HTTP header",
+			params: makeParams(
+				"sdk-anchor",
+				[]AcceptedSDKKey{
+					{Key: "default", Value: "sdk-anchor"},
+					{Key: "trailing-newline", Value: "sdk-other\n"},
+				},
+				"mob-primary",
+			),
+			wantMsgSubstring: "not valid in an HTTP header",
+		},
+		{
+			// Mobile keys reach an outbound Authorization header too, by way of event forwarding.
+			name: "mobileKeys[] value that cannot be an HTTP header",
+			params: EnvironmentParams{
+				EnvID:           "env-abc",
+				SDKKey:          "sdk-anchor",
+				MobileKey:       "mob-primary",
+				AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+				AcceptedMobileKeys: []AcceptedMobileKey{
+					{Key: "primary", Value: "mob-primary"},
+					{Key: "smart-quote", Value: "mob-\u2019other"},
+				},
+			},
+			wantMsgSubstring: "not valid in an HTTP header",
+		},
+		{
 			// The same end state reached by filtering rather than by an empty payload. It is worth
 			// pinning separately: a filtered-to-empty array is a payload problem, not a caller mistake.
 			name: "no usable SDK key: every entry view-scoped",
@@ -449,4 +479,31 @@ func TestDuplicateValueMarkedViewScopedIsRejected(t *testing.T) {
 			WithAnchor(credential.SDKKeyParams{Value: "sdk-default", Key: util.PtrOrNil("default-sdk")}))
 		assert.Equal(t, expected, set)
 	})
+}
+
+func TestBuildAcceptedSetMatchesTheSDKsHeaderBoundaries(t *testing.T) {
+	// The header check exists to agree with the SDK, so pin the boundary characters the SDK allows
+	// rather than a comfortable subset. Space is the lowest legal character and DEL the highest. If
+	// relay were stricter than the SDK it would refuse payloads the SDK would have accepted.
+	params := makeParams(
+		"sdk-anchor",
+		[]AcceptedSDKKey{
+			{Key: "default", Value: "sdk-anchor"},
+			{Key: "has-space", Value: "sdk with space"},
+			{Key: "has-del", Value: "sdk-del\u007f"},
+		},
+		"mob-primary",
+	)
+
+	set, rejected, err := BuildAcceptedSet(params)
+	require.NoError(t, err, "every value here is legal in an HTTP header")
+	assert.Empty(t, rejected)
+
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithSDKKey(credential.SDKKeyParams{Value: "sdk with space", Key: util.PtrOrNil("has-space")}).
+		WithSDKKey(credential.SDKKeyParams{Value: "sdk-del\u007f", Key: util.PtrOrNil("has-del")}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
+	assert.Equal(t, expected, set)
 }

@@ -21,6 +21,10 @@ import (
 //
 // It filters out keys scoped to a view and names them in the second return value, so callers can log
 // what they dropped. An SDK presenting one gets a 401, because the key is absent from the lookup map.
+//
+// Every value must be legal in an HTTP header. Relay sends a credential in an Authorization header,
+// and the SDK refuses to re-key a client with a value it cannot send, which would fail a re-anchor
+// after the rotator had already moved. Refusing the payload here keeps that failure out of reach.
 func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []string, error) {
 	anchor := params.SDKKey
 	b := credential.NewAcceptedSetBuilder().WithEnvironmentID(params.EnvID)
@@ -40,11 +44,15 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 	// permanent, so a payload cannot demote it with an expiry on the anchor's own entry. An undefined
 	// anchor never matches an array value, so Build rejects the payload.
 	//
-	// An entry with an empty value can never authenticate any SDK, so reject it.
+	// An entry with an empty value can never authenticate any SDK, and neither can one relay cannot
+	// put in a header, so reject the payload for either.
 	anchorInArray := false
 	for _, k := range params.AcceptedSDKKeys {
 		if !k.Value.Defined() {
 			return credential.AcceptedSet{}, nil, credential.NewEmptyCredentialError("sdkKeys", k.Key)
+		}
+		if !isValidHTTPHeaderValue(string(k.Value)) {
+			return credential.AcceptedSet{}, nil, credential.NewInvalidCredentialCharactersError("sdkKeys", k.Key)
 		}
 		switch {
 		// A view marker on the anchor's own entry is disregarded: dropping the designated key would
@@ -81,6 +89,9 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 		if !k.Value.Defined() {
 			return credential.AcceptedSet{}, nil, credential.NewEmptyCredentialError("mobileKeys", k.Key)
 		}
+		if !isValidHTTPHeaderValue(string(k.Value)) {
+			return credential.AcceptedSet{}, nil, credential.NewInvalidCredentialCharactersError("mobileKeys", k.Key)
+		}
 		switch {
 		// Like the anchor, a marker on the primary's own entry is disregarded rather than honored.
 		case k.Value == params.MobileKey:
@@ -110,4 +121,17 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 		return credential.AcceptedSet{}, nil, err
 	}
 	return set, rejected, nil
+}
+
+// isValidHTTPHeaderValue reports whether s can be sent as an HTTP header value. It mirrors the check
+// the Go SDK applies to an SDK key, character for character, so a value this function accepts is one
+// the SDK also accepts. Both range over the string, so invalid UTF-8 yields the replacement rune and
+// is refused by the upper bound.
+func isValidHTTPHeaderValue(s string) bool {
+	for _, ch := range s {
+		if ch < 32 || ch > 127 {
+			return false
+		}
+	}
+	return true
 }
