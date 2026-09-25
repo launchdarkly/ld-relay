@@ -56,6 +56,9 @@ const (
 	// per environment. It is also an annotation unit, so it adds no suffix either.
 	environmentUnit = "{environment}"
 
+	// keyUnit counts credentials.
+	keyUnit = "{key}"
+
 	// timestampUnit is seconds, which Prometheus renders as a _seconds suffix.
 	timestampUnit = "s"
 )
@@ -160,7 +163,7 @@ func newStatusInstruments(meter otelmetric.Meter, perEnvironment bool) (*statusI
 		envStoreStateCount: b.gauge(envStoreStateCountMeasureName, environmentUnit,
 			"The number of environments whose data store is in each state"),
 		envExpiringKeyCount: b.gauge(envExpiringKeyCountMeasureName, environmentUnit,
-			"The number of environments with an expiring SDK key still in service"),
+			"The number of environments serving at least one SDK key that carries an expiry"),
 		bigSegmentsUnavailableCount: b.gauge(envBigSegmentsUnavailableCountMeasureName, environmentUnit,
 			"The number of environments whose big segment store could not be read"),
 		bigSegmentsStaleCount: b.gauge(envBigSegmentsStaleCountMeasureName, environmentUnit,
@@ -194,8 +197,8 @@ func newStatusInstruments(meter otelmetric.Meter, perEnvironment bool) (*statusI
 				"Whether an environment's big segment data is past the staleness threshold"),
 			bigSegmentsSyncedOn: b.timestamp(envBigSegmentsSyncedMeasureName,
 				"When an environment's big segment data was last synchronized, in Unix seconds"),
-			expiringKey: b.gauge(envExpiringKeyMeasureName, stateUnit,
-				"Whether an environment still serves an expiring SDK key"),
+			expiringKey: b.gauge(envExpiringKeyMeasureName, keyUnit,
+				"The number of the environment's SDK keys that carry an expiry"),
 			info: b.gauge(envInfoMeasureName, environmentUnit,
 				"Always 1. Carries the environment and project identity, to join the series above against"),
 			storeInfo: b.gauge(envStoreInfoMeasureName, environmentUnit,
@@ -267,6 +270,21 @@ func (si *statusInstruments) observe(o otelmetric.Observer, snapshot StatusSnaps
 }
 
 // observeCounts reports how many environments are in each state. These counts are what a Relay
+// countExpiringKeys counts the environment's SDK keys that carry an expiry.
+//
+// This replaced a boolean. An environment accepts a set of SDK keys now, so several can be expiring
+// at once and one bit cannot say how many. It also stopped meaning "a rotation is in progress": a key
+// set can hold an expiring key as a steady state rather than a transient.
+func countExpiringKeys(rep api.EnvironmentStatusRep) int64 {
+	var n int64
+	for _, k := range rep.SDKKeys {
+		if k.Expiry != nil {
+			n++
+		}
+	}
+	return n
+}
+
 // serving hundreds of environments alerts on, and they are the whole signal when the
 // per-environment instruments are not registered.
 func (si *statusInstruments) observeCounts(o otelmetric.Observer, snapshot StatusSnapshot) {
@@ -279,7 +297,7 @@ func (si *statusInstruments) observeCounts(o otelmetric.Observer, snapshot Statu
 		statuses[env.Rep.Status]++
 		connStates[env.Rep.ConnectionStatus.State]++
 		storeStateCounts[env.Rep.DataStoreStatus.State]++
-		if env.Rep.ExpiringSDKKey != "" {
+		if countExpiringKeys(env.Rep) > 0 {
 			expiringKeys++
 		}
 		if bs := env.Rep.BigSegmentStatus; bs != nil {
@@ -325,7 +343,7 @@ func (si *statusInstruments) observeEnvironment(o otelmetric.Observer, env Envir
 	observeState(o, pe.storeState, storeStates, rep.DataStoreStatus.State, name)
 	observeTimestamp(o, pe.storeStateSince, rep.DataStoreStatus.StateSince, name)
 
-	observeBool(o, pe.expiringKey, rep.ExpiringSDKKey != "", name)
+	o.ObserveInt64(pe.expiringKey, countExpiringKeys(rep), otelmetric.WithAttributes(name))
 
 	if bs := rep.BigSegmentStatus; bs != nil {
 		observeBool(o, pe.bigSegmentsAvail, bs.Available, name)

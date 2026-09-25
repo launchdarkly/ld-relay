@@ -30,13 +30,25 @@ Others are for functionality that is specific to the Relay Proxy.
 
 Making a `GET` request to the URL path `/status` provides JSON information about the Relay Proxy's configured environments. There is no authentication required for this request.
 
+`sdkKeys` and `mobileKeys` list every credential the environment accepts, because an environment can
+accept several SDK keys at once -- during a key rotation, for instance. Each entry carries the
+non-secret `key` identifier, the obscured `value`, and an `expiry` in Unix milliseconds when the key
+is due to stop working. The scalar `sdkKey` and `mobileKey` fields name which entry is the anchor
+that owns the connection to LaunchDarkly, and which mobile key is used where only one can be.
+
 ```json
 {
   "environments": {
     "environment1": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
+      "sdkKeys": [
+        { "key": "default", "value": "sdk-********-****-****-****-*******99999" }
+      ],
       "envId": "999999999999999999999999",
       "mobileKey": "mob-********-****-****-****-*******99999",
+      "mobileKeys": [
+        { "key": "default", "value": "mob-********-****-****-****-*******99999" }
+      ],
       "status": "connected",
       "connectionStatus": {
         "state": "VALID",
@@ -56,8 +68,14 @@ Making a `GET` request to the URL path `/status` provides JSON information about
     },
     "environment2": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
+      "sdkKeys": [
+        { "key": "default", "value": "sdk-********-****-****-****-*******99999" }
+      ],
       "envId": "999999999999999999999999",
       "mobileKey": "mob-********-****-****-****-*******99999",
+      "mobileKeys": [
+        { "key": "default", "value": "mob-********-****-****-****-*******99999" }
+      ],
       "status": "connected",
       "connectionStatus": {
         "state": "INTERRUPTED",
@@ -153,12 +171,19 @@ The response is a single environment status object (not wrapped in an `"environm
 ```json
 {
   "sdkKey": "sdk-********-****-****-****-*******99999",
+  "sdkKeys": [
+    { "key": "default", "value": "sdk-********-****-****-****-*******99999" },
+    { "key": "rotated-out", "value": "sdk-********-****-****-****-*******11111", "expiry": 1700000900000 }
+  ],
   "envId": "507f1f77bcf86cd799439011",
   "envKey": "production",
   "envName": "Production",
   "projKey": "my-app",
   "projName": "My Application",
   "mobileKey": "mob-********-****-****-****-*******99999",
+  "mobileKeys": [
+    { "key": "default", "value": "mob-********-****-****-****-*******99999" }
+  ],
   "status": "connected",
   "connectionStatus": {
     "state": "VALID",
@@ -259,7 +284,8 @@ On the per-environment routes, an unknown environment or filter (`404`) or an un
 
 - `connexionStatus.state=VALID` returns `422`: there is no such field, so the assertion can never be answered. This is almost always a typo.
 - `environments.my-env.status=connected` returns `412` when `my-env` is not a configured environment. Any environment key is addressable, so this is a well-formed question whose answer is "no".
-- `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `expiringSdkKey=...` returns `412` when no key is expiring. Both fields are real but are omitted when they have no value.
+- `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `mobileKey=...` returns `412` on an environment with no mobile key. Both fields are real but are omitted when they have no value.
+- `sdkKeys[key=some-name].value=...` returns `412` when the environment accepts no key by that name. The array is real and addressable, so a selector that matches nothing is a well-formed question rather than a caller error.
 
 When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging. Clauses appear in the order you supplied them. A clause that was evaluated reports `expected`, `actual`, and `ok`; a clause that could not be evaluated reports `problem` instead:
 

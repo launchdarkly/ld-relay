@@ -137,7 +137,7 @@ func testUpdatedSDKKeyWithoutExpiry(t *testing.T, manager *integrationTestManage
 		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
-				return last5(envStatus.SDKKey) == last5(string(newKey)) && envStatus.ExpiringSDKKey == ""
+				return last5(envStatus.SDKKey) == last5(string(newKey)) && expiringSDKKeyIn(envStatus) == ""
 			}
 			return false
 		})
@@ -168,7 +168,7 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 				return last5(envStatus.SDKKey) == last5(string(newKey)) &&
-					last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
+					last5(expiringSDKKeyIn(envStatus)) == last5(string(oldKey))
 			}
 			return false
 		})
@@ -212,7 +212,7 @@ func testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t *testing.T, manager *integ
 		if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 			verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 			return last5(envStatus.SDKKey) == last5(string(newKey)) &&
-				last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
+				last5(expiringSDKKeyIn(envStatus)) == last5(string(oldKey))
 		}
 		return false
 	})

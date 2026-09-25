@@ -496,9 +496,10 @@ func verifyEnvProperties(t *testing.T, project projectInfo, environment environm
 	}
 	if expectations.sdkKeys {
 		if !environment.expiringSdkKey.Defined() {
-			assert.Empty(t, envStatus.ExpiringSDKKey, "expected no expiring SDK key to be defined")
+			assert.Empty(t, expiringSDKKeyIn(envStatus), "expected no expiring SDK key to be defined")
 		} else {
-			assert.Equal(t, environment.expiringSdkKey.Masked(), config.SDKKey(envStatus.ExpiringSDKKey).Masked(), "expected expiring SDK key to match")
+			assert.Equal(t, environment.expiringSdkKey.Masked(),
+				config.SDKKey(expiringSDKKeyIn(envStatus)).Masked(), "expected expiring SDK key to match")
 		}
 		if !environment.sdkKey.Defined() {
 			assert.Empty(t, envStatus.SDKKey, "expected no SDK key to be defined")
@@ -514,4 +515,16 @@ func flagKeyForProj(proj projectInfo) string {
 
 func flagValueForEnv(env environmentInfo) ldvalue.Value {
 	return ldvalue.String("value-for-" + env.key)
+}
+
+// expiringSDKKeyIn returns the obscured value of the SDK key in the status document that carries an
+// expiry, or "" when none does. The status resource reports per-key expiry in the sdkKeys array,
+// which replaced the singular expiringSdkKey field.
+func expiringSDKKeyIn(envStatus api.EnvironmentStatusRep) string {
+	for _, k := range envStatus.SDKKeys {
+		if k.Expiry != nil {
+			return k.Value
+		}
+	}
+	return ""
 }
