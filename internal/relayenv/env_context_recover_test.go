@@ -27,10 +27,14 @@ import (
 // gives the error to return from the nth build, so a test can make the first client fail the way the
 // SDK does when it is handed a revoked key: a usable client value alongside ErrInitializationFailed.
 type recordingClientFactory struct {
-	mu       sync.Mutex
-	builds   int
-	errs     []error
-	clientCh chan *testclient.FakeLDClient
+	mu     sync.Mutex
+	builds int
+	errs   []error
+	// nilClientBuilds is how many of the first builds return no client at all, alongside their
+	// error. That is what the SDK does when it refuses the key at construction: MakeCustomClient
+	// returns a nil client, and relay's factory passes the nil straight through.
+	nilClientBuilds int
+	clientCh        chan *testclient.FakeLDClient
 }
 
 func newRecordingClientFactory(errs ...error) *recordingClientFactory {
@@ -48,11 +52,16 @@ func (f *recordingClientFactory) create(sdkKey config.SDKKey, cfg ld.Config, _ t
 
 	f.mu.Lock()
 	f.builds++
+	build := f.builds
 	var err error
-	if f.builds <= len(f.errs) {
-		err = f.errs[f.builds-1]
+	if build <= len(f.errs) {
+		err = f.errs[build-1]
 	}
 	f.mu.Unlock()
+
+	if build <= f.nilClientBuilds {
+		return nil, err
+	}
 
 	client := &testclient.FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{})}
 	f.clientCh <- client
@@ -216,4 +225,49 @@ func TestAClientBuiltAfterTheEnvironmentClosedIsDiscarded(t *testing.T) {
 	client := factory.awaitClient(t, "timed out waiting for the in-flight client")
 	client.AwaitClose(t, time.Second)
 	assert.Nil(t, env.GetClient(), "a closed environment must not acquire a client")
+}
+
+func TestReanchorBuildsAClientWhenTheEnvironmentNeverGotOne(t *testing.T) {
+	// The SDK refuses a key it cannot send in a header at construction too, not just on a re-key,
+	// and then MakeCustomClient returns no client at all. Phase 3 removed the path that used to
+	// build a client for a newly accepted key, so without this the environment would stay unserved
+	// for the life of the process even once auto-configuration delivered a usable key.
+	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
+	factory.nilClientBuilds = 1
+	env := newRecoverTestEnv(t, factory)
+
+	require.Eventually(t, func() bool {
+		return env.GetInitError() != nil && env.GetClient() == nil
+	}, time.Second, time.Millisecond, "the failed build must leave no client and record an error")
+
+	rotated := config.SDKKey("sdk-rotated")
+	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, rotated, "", ""), time.Unix(1000, 0))
+
+	built := factory.awaitClient(t, "timed out waiting for a client to be built on the new anchor")
+	assert.Equal(t, rotated, built.Key)
+	require.Eventually(t, func() bool {
+		return env.GetClient() == built && env.GetInitError() == nil
+	}, time.Second, time.Millisecond, "the environment must serve once it has a usable client")
+}
+
+func TestAnAnchorThatMovesTwiceDuringARebuildStartsOnlyOneClient(t *testing.T) {
+	// A reconcile landing while a rebuild is running must not start a second one: the environment
+	// would end up with two clients, each with its own store and upstream connection.
+	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
+	factory.nilClientBuilds = 1
+	env := newRecoverTestEnv(t, factory)
+
+	require.Eventually(t, func() bool {
+		return env.GetInitError() != nil && env.GetClient() == nil
+	}, time.Second, time.Millisecond, "the failed build must leave no client")
+
+	impl := env.(*envContextImpl)
+	impl.reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-first"), "", ""), time.Unix(1000, 0))
+	impl.reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-second"), "", ""), time.Unix(2000, 0))
+
+	_ = factory.awaitClient(t, "timed out waiting for the rebuilt client")
+	if !helpers.AssertNoMoreValues(t, factory.clientCh, 200*time.Millisecond,
+		"a second reconcile must not start a concurrent build") {
+		t.FailNow()
+	}
 }
