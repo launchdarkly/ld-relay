@@ -334,3 +334,64 @@ func TestAPartialRefusalKeepsTheStreamConnected(t *testing.T) {
 			"the connection itself is healthy, so the state must not say otherwise")
 	})
 }
+
+func TestAPutThatRefusesEveryEnvironmentDoesNotReportConfigured(t *testing.T) {
+	// Reporting the configuration as complete makes relay answer 401 for every credential it does
+	// not recognise. With nothing applied there is no environment to recognise, so 401 would claim
+	// the credentials are wrong when the truth is that relay has no configuration to serve. The 503
+	// that "not configured" produces is the honest answer, and a load balancer acts on it.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makeEnvPutEvent(
+			envWithUnusableCredentials(testEnv1),
+			envWithUnusableCredentials(testEnv2),
+		))
+
+		// ReceivedAllEnvironments arrives on the same channel as the environment messages, so this
+		// asserts both that nothing was applied and that the configuration was not declared complete.
+		p.requireNoMoreMessages()
+	})
+}
+
+func TestAStaleSuccessDoesNotOverwriteAConnectionFailure(t *testing.T) {
+	// The generation check exists so a success an event would report cannot bury a connection
+	// failure that landed while that event was being handled. Every status decision in
+	// handleStreamEvent goes through markValidWithError for that reason, including the partial
+	// refusal, which used to write its status directly and so reported VALID over a dead
+	// connection. The return value is what the retry logic reads: a success that did not apply must
+	// not put the stream back on the short retry curve while it is broken.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+		sm := p.streamManager
+
+		// Get out of INITIALIZING first, which setStatus holds an INTERRUPTED report down to.
+		require.True(t, sm.markValidWithError(sm.failureGeneration(), interfaces.DataSourceErrorInfo{}))
+		require.Equal(t, interfaces.DataSourceStateValid, sm.Status().State)
+
+		// An event is received, so its handler reads the generation here.
+		generation := sm.failureGeneration()
+
+		// The connection then fails while that event is still being handled.
+		sm.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
+			Kind: interfaces.DataSourceErrorKindNetworkError,
+			Time: time.Now(),
+		})
+		require.Equal(t, interfaces.DataSourceStateInterrupted, sm.Status().State)
+
+		// The event finishes and reports what it found, on the generation it started with.
+		applied := sm.markValidWithError(generation, interfaces.DataSourceErrorInfo{
+			Kind: interfaces.DataSourceErrorKindInvalidData,
+			Time: time.Now(),
+		})
+
+		assert.False(t, applied, "a stale success must not be recorded")
+		status := sm.Status()
+		assert.Equal(t, interfaces.DataSourceStateInterrupted, status.State,
+			"a stale success must not report the connection as working")
+		assert.Equal(t, interfaces.DataSourceErrorKindNetworkError, status.LastError.Kind,
+			"the connection failure must survive the event's report")
+	})
+}
