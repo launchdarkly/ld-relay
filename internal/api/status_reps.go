@@ -40,22 +40,22 @@ const (
 type StatusRep struct {
 	Environments     map[string]EnvironmentStatusRep `json:"environments"`
 	AutoConfigStatus *AutoConfigStatusRep            `json:"autoConfigStatus,omitempty"`
-	// RefusedEnvironments is every environment LaunchDarkly sent that Relay could not use, so it is
-	// absent from Environments and its credentials are not served. It is always present, and empty
-	// when there is nothing refused, so a monitor can address it without having to tell an empty
-	// list apart from a Relay too old to report one.
+	// RefusedEnvironments is every environment LaunchDarkly sent that Relay could not use. Read each
+	// entry's Serving field before treating one as an outage: a refused configuration for an
+	// environment Relay already had leaves that environment serving what it had before. The field is
+	// always present, and empty when there is nothing refused, so a monitor can address it without
+	// having to tell an empty list apart from a Relay too old to report one.
 	RefusedEnvironments []RefusedEnvironmentRep `json:"refusedEnvironments"`
 	Status              string                  `json:"status"`
 	Version             string                  `json:"version"`
 	ClientVersion       string                  `json:"clientVersion"`
 }
 
-// RefusedEnvironmentRep is an environment Relay was told about and would not serve.
+// RefusedEnvironmentRep is an environment whose configuration Relay would not accept.
 //
 // The top-level status stays healthy for one of these, and so does autoConfigStatus, because the
 // connection is working and the rest of the configuration applied. Without this list the only
-// lasting signal is a log line, and an SDK on the environment's credentials gets a 401 with nothing
-// in the status document to explain it.
+// lasting signal is a log line.
 //
 // This is exported for use in integration test code.
 type RefusedEnvironmentRep struct {
@@ -63,6 +63,16 @@ type RefusedEnvironmentRep struct {
 	// Reason is a short stable phrase. The detail is in Relay's log, because this resource needs no
 	// authentication.
 	Reason string `json:"reason"`
+	// Serving distinguishes the two ways an environment reaches this list, which need different
+	// responses.
+	//
+	// False means Relay has no configuration for the environment at all: it is absent from
+	// Environments and SDKs presenting its credentials get a 401. That is an outage for it.
+	//
+	// True means Relay refused an update for an environment it already had, so the environment
+	// appears in Environments as well and keeps serving the credentials it had before. Its flag data
+	// is current; only the configuration Relay refused is not applied.
+	Serving bool `json:"serving"`
 }
 
 // AutoConfigStatusRep is the status of the auto-configuration stream. It is present only when
