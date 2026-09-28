@@ -27,12 +27,16 @@ func statusHandler(relay *Relay) http.Handler {
 		}
 
 		envs, healthy := relay.collectEnvironmentStatuses()
+		servedEnvIDs := make(map[string]bool, len(envs))
 		for _, env := range envs {
 			resp.Environments[env.key] = env.rep
+			if env.rep.EnvID != "" {
+				servedEnvIDs[env.rep.EnvID] = true
+			}
 		}
 
 		resp.AutoConfigStatus = relay.buildAutoConfigStatus()
-		resp.RefusedEnvironments = relay.getRefusedEnvironments()
+		resp.RefusedEnvironments = relay.getRefusedEnvironments(servedEnvIDs)
 
 		if healthy {
 			resp.Status = api.StatusHealthy

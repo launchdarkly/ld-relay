@@ -103,12 +103,20 @@ func (r *Relay) clearRefusedEnvironment(id config.EnvironmentID) {
 
 // getRefusedEnvironments returns the refusals, sorted by environment ID so the status document is
 // stable between requests.
-func (r *Relay) getRefusedEnvironments() []api.RefusedEnvironmentRep {
+//
+// servedEnvIDs says which environments the same status document reports under its environments
+// block. Taking it from the caller rather than looking each one up again is what keeps the two
+// halves of the document from disagreeing about whether an environment is served.
+func (r *Relay) getRefusedEnvironments(servedEnvIDs map[string]bool) []api.RefusedEnvironmentRep {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	out := make([]api.RefusedEnvironmentRep, 0, len(r.refusedEnvironments))
 	for id, reason := range r.refusedEnvironments {
-		out = append(out, api.RefusedEnvironmentRep{EnvID: string(id), Reason: reason})
+		out = append(out, api.RefusedEnvironmentRep{
+			EnvID:   string(id),
+			Reason:  reason,
+			Serving: servedEnvIDs[string(id)],
+		})
 	}
 	slices.SortFunc(out, func(a, b api.RefusedEnvironmentRep) int {
 		return strings.Compare(a.EnvID, b.EnvID)

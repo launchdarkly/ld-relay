@@ -501,6 +501,8 @@ func TestStatusListsRefusedEnvironments(t *testing.T) {
 		assert.Equal(t, "env-zulu", refused.GetByIndex(1).GetByKey("envId").StringValue())
 		assert.Equal(t, "malformed credential payload",
 			refused.GetByIndex(0).GetByKey("reason").StringValue())
+		assert.False(t, refused.GetByIndex(0).GetByKey("serving").BoolValue(),
+			"an environment Relay has no configuration for is not being served")
 
 		assert.Equal(t, api.StatusHealthy, document.GetByKey("status").StringValue(),
 			"a refused environment must not make the whole relay report degraded")
@@ -546,5 +548,47 @@ func TestStatusReportsAnEmptyRefusedListWhenNothingIsRefused(t *testing.T) {
 		refused := document.GetByKey("refusedEnvironments")
 		assert.True(t, refused.IsDefined(), "refusedEnvironments must always be present")
 		assert.Equal(t, 0, refused.Count())
+	})
+}
+
+func TestARefusedUpdateForAServedEnvironmentSaysItIsStillServing(t *testing.T) {
+	// The two ways into this list need different responses. An environment Relay never managed to
+	// configure is an outage for it. An environment whose *update* was refused keeps serving the
+	// credentials it already had, and appears under environments as well, so a monitor that treats
+	// every entry as an outage would page for a working environment.
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvClientSide)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		actions := &relayAutoConfigActions{r: p.relay}
+		servedID := string(st.EnvClientSide.Config.EnvID)
+
+		actions.EnvironmentRefused(c.EnvironmentID(servedID), "malformed credential payload")
+		actions.EnvironmentRefused("env-never-configured", "malformed credential payload")
+
+		document := fetchStatusDocument(t, p.relay)
+		refused := document.GetByKey("refusedEnvironments")
+		require.Equal(t, 2, refused.Count())
+
+		byID := make(map[string]ldvalue.Value, refused.Count())
+		for i := 0; i < refused.Count(); i++ {
+			entry := refused.GetByIndex(i)
+			byID[entry.GetByKey("envId").StringValue()] = entry
+		}
+
+		assert.True(t, byID[servedID].GetByKey("serving").BoolValue(),
+			"an environment Relay still serves must not be reported as unserved")
+		assert.False(t, byID["env-never-configured"].GetByKey("serving").BoolValue(),
+			"an environment Relay has no configuration for is not being served")
+
+		// The serving one is in both blocks at once, which is the whole reason the field exists.
+		var alsoInEnvironments bool
+		for _, entry := range document.GetByKey("environments").AsValueMap().AsMap() {
+			if entry.GetByKey("envId").StringValue() == servedID {
+				alsoInEnvironments = true
+			}
+		}
+		assert.True(t, alsoInEnvironments,
+			"a refused update must not remove the environment from the document")
 	})
 }
