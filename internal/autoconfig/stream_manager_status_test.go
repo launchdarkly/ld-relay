@@ -361,11 +361,11 @@ func TestStreamStatusRules(t *testing.T) {
 		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
 			Kind: interfaces.DataSourceErrorKindNetworkError,
 		})
-		s.markValid(generation)
+		s.markValidWithError(generation, interfaces.DataSourceErrorInfo{})
 
 		assert.Equal(t, interfaces.DataSourceStateInterrupted, s.Status().State)
 		assert.Equal(t, interfaces.DataSourceStateValid, func() interfaces.DataSourceState {
-			s.markValid(s.failureGeneration())
+			s.markValidWithError(s.failureGeneration(), interfaces.DataSourceErrorInfo{})
 			return s.Status().State
 		}(), "a success read after the failure is accepted")
 	})

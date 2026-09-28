@@ -278,14 +278,24 @@ func (s *StreamManager) failureGeneration() uint64 {
 // the cache, and the connection can die while that runs. The event was delivered by a connection
 // that is now gone, so it is not evidence that the stream works. Without this check the stream
 // reports VALID until something else reports on it, and if the reconnect hangs, nothing ever does.
-func (s *StreamManager) markValid(generation uint64) {
+// markValidWithError records that the connection works while also recording a data-level error, for
+// an event that was delivered and partly usable. It reports whether it applied.
+//
+// The generation check is the same one markValid makes, and it is the whole point of routing this
+// through here: a connection failure recorded while this event was being handled must not be
+// overwritten by the success the event would otherwise report.
+func (s *StreamManager) markValidWithError(
+	generation uint64,
+	errorInfo interfaces.DataSourceErrorInfo,
+) bool {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
 	if s.failures != generation {
-		return
+		return false
 	}
-	s.setStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{})
+	s.setStatus(interfaces.DataSourceStateValid, errorInfo)
+	return true
 }
 
 // setStatus applies a state change. The caller must hold statusLock.
@@ -556,6 +566,9 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 
 	outcome := eventOutcome{}
 	malformed := false
+	// partiallyRefused means the event applied something and refused something. Its status is decided
+	// with every other status decision below, so it goes through the same generation check.
+	partiallyRefused := false
 	// The stream delivered an event, which is what proves the connection works. Only malformed data
 	// takes that back, the same as the SDK streaming data source.
 	processedEvent := true
@@ -613,10 +626,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 				"refusedCount", len(malformedEnvIDs),
 				"appliedCount", applied,
 			)
-			s.updateStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{
-				Kind: interfaces.DataSourceErrorKindInvalidData,
-				Time: time.Now(),
-			})
+			partiallyRefused = true
 		default:
 			// Nothing in the event was usable, so ask for it again.
 			malformed = true
@@ -709,8 +719,17 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		})
 	case processedEvent:
 		s.consecutiveMalformedEvents = 0
-		outcome.recovered = true
-		s.markValid(generation)
+		errorInfo := interfaces.DataSourceErrorInfo{}
+		if partiallyRefused {
+			errorInfo = interfaces.DataSourceErrorInfo{
+				Kind: interfaces.DataSourceErrorKindInvalidData,
+				Time: time.Now(),
+			}
+		}
+		// Only a success that still holds counts as recovery. When the connection has failed since
+		// this event arrived, markValidWithError declines, and dropping back to the short retry curve
+		// on the strength of this event would leave the stream retrying fast while it is broken.
+		outcome.recovered = s.markValidWithError(generation, errorInfo)
 	}
 
 	return outcome
@@ -863,7 +882,16 @@ func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]
 		s.dispatchEnvAction(config.EnvironmentID(deleted), envfactory.EnvironmentRep{}, ActionDelete)
 	}
 
-	s.handler.ReceivedAllEnvironments()
+	// A put that applied nothing must not report the configuration as complete. Relay would declare
+	// itself fully configured while serving no environments, and answer 401 for every credential
+	// instead of the 503 that says it is not ready. An empty put is a different thing: it refused
+	// nothing, so it really is a complete configuration of no environments.
+	if applied > 0 || len(malformedEnvIDs) == 0 {
+		s.handler.ReceivedAllEnvironments()
+	} else {
+		s.logger.Error("every environment in this configuration was refused; the Relay Proxy is "+
+			"not reporting itself as configured", "refusedCount", len(malformedEnvIDs))
+	}
 	if content.Persist {
 		s.persistPut(content, malformedEnvIDs)
 	}
