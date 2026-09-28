@@ -481,3 +481,37 @@ func TestStopForwardingDropsAPostThatRacesTheRevocation(t *testing.T) {
 			request.Request.Header.Get("Authorization"))
 	})
 }
+
+func TestRevokedEndpointRefusesToBuildRelays(t *testing.T) {
+	// The stopped gate and the lazy relay getter in dispatch are separate calls, so a revocation
+	// that lands between them would rebuild a relay on the revoked credential. That relay keeps
+	// its goroutines for the rest of the environment's life, which is what the gate aims to
+	// prevent, so the getters must decline while the endpoint is stopped. A live environment has
+	// relays to begin with, so one is built first.
+	summarizeEventsParams := makeBasicSummarizeEventsParams()
+
+	eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
+		req := st.BuildRequest("POST", "/", []byte(summarizeEventsParams.inputEventsJSON),
+			headersWithEventSchema(summarizeEventsParams.schemaVersion))
+		handler := p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, handler)
+		w := httptest.NewRecorder()
+		handler(w, req)
+		require.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+		p.dispatcher.flush()
+		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "expected the batch to be forwarded")
+
+		endpoint := p.dispatcher.analyticsEndpoints[basictypes.MobileSDK]
+		require.NotNil(t, endpoint.summarizingRelay, "relays live while traffic flows")
+
+		p.dispatcher.StopForwarding(basictypes.MobileSDK)
+		require.Nil(t, endpoint.summarizingRelay, "the revoked endpoint's relays must be released")
+		require.Nil(t, endpoint.verbatimRelay)
+
+		// While revoked, no relay may come back. A post that reached the endpoint before the
+		// revocation was processed stays dropped, rather than build a relay on the revoked key.
+		require.Nil(t, endpoint.getSummarizingRelay(),
+			"no relay on the revoked credential, even for a request already in flight")
+		require.Nil(t, endpoint.getVerbatimRelay())
+	})
+}

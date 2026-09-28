@@ -427,6 +427,13 @@ func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
 func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed {
+		// Close holds no reconcile lock, so a reconcile still applying its additions can finish
+		// after Close does. Nothing may reach a closed environment: the additions are refused,
+		// because a mapping made here would let a request select an environment that no longer
+		// has any validator or stream to serve it.
+		return
+	}
 	c.registerCredentialMappings(newCredential)
 
 	// Event forwarding collapses to one mobile key, so only the primary repoints the dispatcher. A
@@ -754,10 +761,11 @@ func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvide
 // processed, so a request that authenticated before a revocation still found a working handler.
 // Building per request is what creates a place to ask the question again.
 //
-// The build is cheap enough to do per connect. Measured: the client-side path costs 13ns with no
-// allocations, which is faster than the two-level map lookup it replaced, and the heaviest provider
-// -- the server-side V2 handler, which wraps an init deadline and a basis-header closure -- costs
-// 105ns and 96 bytes. Both are invisible next to the SSE handshake and payload send that follow.
+// The build is cheap enough to do per connect. Measured, in the per-connect benchmark that commit
+// e8c6166 removed: the client-side path costs 13ns with no allocations, which is faster than the
+// two-level map lookup it replaced, and the heaviest provider -- the server-side V2 handler, which
+// wraps an init deadline and a basis-header closure -- costs 105ns and 96 bytes. Both are invisible
+// next to the SSE handshake and payload send that follow.
 //
 // The middleware authenticates the credential once, at the start of the request, and a credential can
 // be revoked while that request is still in flight: on the REPORT stream endpoints the client paces

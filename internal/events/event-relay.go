@@ -49,8 +49,10 @@ type analyticsEventEndpointDispatcher struct {
 	eventMetrics              EventMetrics
 	logger                    *slog.Logger
 	// stopped means the environment has no credential of this endpoint's kind, so there is nothing
-	// to forward with. It keeps the lazy getters from building a relay on the credential that was
-	// just revoked, and replaceCredential clears it when a usable credential arrives.
+	// to forward with. The credential that was just revoked must not gain a live relay again, and
+	// the revocation check in dispatch and the lazy getter cannot do that atomically on their own,
+	// so the getters return nil while this is set. replaceCredential clears it when a usable
+	// credential arrives, so the getters build on that key from then on.
 	stopped bool
 	mu      sync.Mutex
 }
@@ -77,25 +79,8 @@ func (r *EventDispatcher) GetHandler(sdkKind basictypes.SDKKind, eventsKind ldev
 	return nil
 }
 
-// forwardingStopped reports whether this endpoint has no credential to forward with.
-func (r *analyticsEventEndpointDispatcher) forwardingStopped() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.stopped
-}
-
 func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *http.Request) {
 	consumeEvents(w, req, r.logger, func(body []byte) {
-		// The credential this endpoint forwards with was revoked. A request can still arrive: the
-		// middleware authenticates before the connection mapping comes down, and the body read that
-		// precedes this is paced by the client. Dropping it here is what keeps the post from
-		// rebuilding a relay on the revoked credential, which would then outlive the revocation.
-		if r.forwardingStopped() {
-			r.logger.Warn("discarding events for a credential that is no longer accepted",
-				"remotePath", r.remotePath)
-			return
-		}
-
 		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
@@ -106,18 +91,60 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 		metadata := GetEventPayloadMetadata(req)
 
 		r.logger.Debug("received events to be proxied", "count", len(evts), "schemaVersion", metadata.SchemaVersion, "remotePath", r.remotePath)
+
+		// The credential this endpoint forwards with may have been revoked. A request can still
+		// arrive: the middleware authenticates before the connection mapping comes down, and the
+		// body read that precedes this is paced by the client. The getters decline while stopped,
+		// and the revocation check and the relay lookup cannot interleave, so a dropped post is
+		// answered 202 by consumeEvents and never reaches LaunchDarkly.
 		if metadata.SchemaVersion < SummaryEventsSchemaVersion {
-			r.getSummarizingRelay().enqueue(metadata, evts)
+			r.enqueueWith(r.getSummarizingRelay(), metadata, evts)
 			return
 		}
 
 		if _, ok := req.Header[http.CanonicalHeaderKey(EventUnsummarizedHeader)]; ok {
-			r.getSummarizingRelay().enqueue(metadata, evts)
+			r.enqueueWith(r.getSummarizingRelay(), metadata, evts)
 			return
 		}
 
-		r.getVerbatimRelay().enqueue(metadata, evts)
+		r.forward(r.getVerbatimRelay(), metadata, evts)
 	})
+}
+
+// enqueueWith enqueues into a summarizing relay, or notes the drop when the endpoint is stopped
+// and forwarded nothing. The post was already answered 202 by consumeEvents.
+func (r *analyticsEventEndpointDispatcher) enqueueWith(
+	relay *eventSummarizingRelay,
+	metadata EventPayloadMetadata,
+	evts []json.RawMessage,
+) {
+	if relay == nil {
+		r.dropRevoked()
+		return
+	}
+	relay.enqueue(metadata, evts)
+}
+
+// forward enqueues into a verbatim relay, or notes the drop when the endpoint is stopped and
+// forwarded nothing. The post was already answered 202 by consumeEvents.
+func (r *analyticsEventEndpointDispatcher) forward(
+	relay *eventVerbatimRelay,
+	metadata EventPayloadMetadata,
+	evts []json.RawMessage,
+) {
+	if relay == nil {
+		r.dropRevoked()
+		return
+	}
+	relay.enqueue(metadata, evts)
+}
+
+// dropRevoked notes a post that reached the endpoint after forwarding stopped. Dropping it keeps
+// the post from rebuilding a relay on the revoked credential, which would then outlive the
+// revocation.
+func (r *analyticsEventEndpointDispatcher) dropRevoked() {
+	r.logger.Warn("discarding events for a credential that is no longer accepted",
+		"remotePath", r.remotePath)
 }
 
 func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential credential.SDKCredential) {
@@ -215,6 +242,9 @@ func consumeEvents(w http.ResponseWriter, req *http.Request, logger *slog.Logger
 func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.stopped {
+		return nil
+	}
 	if r.verbatimRelay == nil {
 		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.logger, r.remotePath,
 			OptionEventMetrics{EventMetrics: r.eventMetrics})
@@ -225,6 +255,9 @@ func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRela
 func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.stopped {
+		return nil
+	}
 	if r.summarizingRelay == nil {
 		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.wrapper,
 			r.logger, r.remotePath, r.eventQueueCleanupInterval, r.eventMetrics)

@@ -323,3 +323,35 @@ func TestAnAnchorThatMovesDuringTheClientBuildIsAppliedWhenTheBuildFinishes(t *t
 		return client.CurrentSDKKey() == rotated
 	}, time.Second, time.Millisecond, "the newly built client must be caught up to the current anchor")
 }
+
+func TestAddCredentialLeavesNoMappingOnAClosedEnvironment(t *testing.T) {
+	// Close takes none of the reconcile locks, so a reconcile driven by the RAC stream or by the
+	// cleanup ticker can still be applying its additions when Close finishes. A credential added
+	// then would map a key to an environment that is gone from every index, and a request that
+	// authenticates with that key would reach a torn-down environment. The additions must be
+	// refused on a closed environment.
+	envConfig := st.EnvMain.Config
+	mapper := &recordingConnectionMapper{}
+
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:        envConfig,
+		AllConfig:        config.Config{},
+		ClientFactory:    testclient.FakeLDClientFactory(true),
+		ConnectionMapper: mapper,
+		Logger:           slog.Default(),
+	}, nil)
+	require.NoError(t, err)
+	require.NoError(t, env.Close())
+
+	lateKey := config.SDKKey("sdk-late")
+	env.(*envContextImpl).addCredential(lateKey)
+	assert.NotContains(t, mapper.active(), lateKey,
+		"no credential may reach a closed environment")
+
+	// The ticker's drain is the other interleaving: a reconcile queued an addition before Close,
+	// and the next tick applies it after the environment is gone.
+	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-queued"), config.MobileKey(""), ""), time.Unix(1000, 0))
+	assert.NotContains(t, mapper.active(), config.SDKKey("sdk-queued"),
+		"the ticker's drain must refuse a closed environment too")
+}
