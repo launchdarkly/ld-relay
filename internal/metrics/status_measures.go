@@ -269,7 +269,6 @@ func (si *statusInstruments) observe(o otelmetric.Observer, snapshot StatusSnaps
 	}
 }
 
-// observeCounts reports how many environments are in each state. These counts are what a Relay
 // countExpiringKeys counts the environment's SDK keys that carry an expiry.
 //
 // This replaced a boolean. An environment accepts a set of SDK keys now, so several can be expiring
@@ -285,6 +284,7 @@ func countExpiringKeys(rep api.EnvironmentStatusRep) int64 {
 	return n
 }
 
+// observeCounts reports how many environments are in each state. These counts are what a Relay
 // serving hundreds of environments alerts on, and they are the whole signal when the
 // per-environment instruments are not registered.
 func (si *statusInstruments) observeCounts(o otelmetric.Observer, snapshot StatusSnapshot) {
