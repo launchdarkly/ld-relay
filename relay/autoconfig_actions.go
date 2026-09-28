@@ -91,6 +91,11 @@ func (a *relayAutoConfigActions) SetRefusedEnvironments(refused map[config.Envir
 	a.r.setRefusedEnvironments(refused)
 }
 
+// ClearEnvironmentRefusal retires a refusal for an environment that has been deleted.
+func (a *relayAutoConfigActions) ClearEnvironmentRefusal(id config.EnvironmentID) {
+	a.r.clearRefusedEnvironment(id)
+}
+
 func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
 	a.r.logger.Info("finished processing auto-configuration data")
 	a.r.setFullyConfigured(true)

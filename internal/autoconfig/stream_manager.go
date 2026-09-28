@@ -690,6 +690,11 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		case environmentPathPrefix:
 			action := s.envReceiver.Delete(id, deleteMessage.Version)
 			s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, action)
+			// An environment that was only ever refused was never handed to the receiver, so Delete
+			// reports a noop for it and no delete reaches the handler. Retire its refusal here,
+			// where the id is known whatever the receiver decided, or it would be reported as an
+			// unserved environment until the next put replaced the whole set.
+			s.handler.ClearEnvironmentRefusal(config.EnvironmentID(id))
 			if action == ActionDelete {
 				s.cacheDelete(CacheKindEnvironment, id)
 			}
