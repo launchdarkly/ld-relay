@@ -9,6 +9,7 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/api"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
@@ -473,4 +474,77 @@ func TestAutoConfigStatusReportsAnInterruptedStream(t *testing.T) {
 	envKey := string(envConfig.Config.EnvID)
 	st.AssertJSONPathMatch(t, "connected", status, "environments", envKey, "status")
 	st.AssertJSONPathMatch(t, "healthy", status, "status")
+}
+
+func TestStatusListsRefusedEnvironments(t *testing.T) {
+	// A refused environment is absent from `environments`, and both the top-level status and
+	// autoConfigStatus stay healthy, because the connection works and the rest of the configuration
+	// applied. This list is the only thing in the document that says an environment Relay was told
+	// about is not being served.
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		actions := &relayAutoConfigActions{r: p.relay}
+
+		actions.SetRefusedEnvironments(map[c.EnvironmentID]string{
+			"env-zulu":  "malformed credential payload",
+			"env-alpha": "malformed credential payload",
+		})
+
+		document := fetchStatusDocument(t, p.relay)
+		refused := document.GetByKey("refusedEnvironments")
+		require.Equal(t, 2, refused.Count())
+		// Sorted by environment ID, so a monitor comparing documents between requests sees a stable
+		// order rather than Go's map iteration.
+		assert.Equal(t, "env-alpha", refused.GetByIndex(0).GetByKey("envId").StringValue())
+		assert.Equal(t, "env-zulu", refused.GetByIndex(1).GetByKey("envId").StringValue())
+		assert.Equal(t, "malformed credential payload",
+			refused.GetByIndex(0).GetByKey("reason").StringValue())
+
+		assert.Equal(t, api.StatusHealthy, document.GetByKey("status").StringValue(),
+			"a refused environment must not make the whole relay report degraded")
+
+		// A put is the whole environment set, so its refusals replace the previous ones rather than
+		// adding to them. Without that, an environment refused once would stay listed after a later
+		// put stopped mentioning it at all.
+		actions.SetRefusedEnvironments(map[c.EnvironmentID]string{
+			"env-zulu": "malformed credential payload",
+		})
+
+		document = fetchStatusDocument(t, p.relay)
+		refused = document.GetByKey("refusedEnvironments")
+		require.Equal(t, 1, refused.Count(),
+			"a put that no longer refuses an environment must retire its entry")
+		assert.Equal(t, "env-zulu", refused.GetByIndex(0).GetByKey("envId").StringValue())
+
+		// A patch reports one environment, so it adds to the set rather than replacing it.
+		actions.EnvironmentRefused("env-bravo", "malformed credential payload")
+
+		document = fetchStatusDocument(t, p.relay)
+		require.Equal(t, 2, document.GetByKey("refusedEnvironments").Count(),
+			"a refused patch must not discard the refusals already reported")
+
+		// An environment that goes away entirely stops being reported as refused.
+		actions.DeleteEnvironment("env-bravo")
+
+		document = fetchStatusDocument(t, p.relay)
+		refused = document.GetByKey("refusedEnvironments")
+		require.Equal(t, 1, refused.Count())
+		assert.Equal(t, "env-zulu", refused.GetByIndex(0).GetByKey("envId").StringValue())
+	})
+}
+
+func TestStatusReportsAnEmptyRefusedListWhenNothingIsRefused(t *testing.T) {
+	// The field is always present, so a monitor can address it without having to tell an empty list
+	// apart from a Relay too old to report one.
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		document := fetchStatusDocument(t, p.relay)
+		refused := document.GetByKey("refusedEnvironments")
+		assert.True(t, refused.IsDefined(), "refusedEnvironments must always be present")
+		assert.Equal(t, 0, refused.Count())
+	})
 }

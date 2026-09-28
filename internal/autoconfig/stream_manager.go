@@ -40,6 +40,11 @@ const (
 	// rejecting every request.
 	streamExtendedRetryDelay    = 5 * time.Minute
 	streamExtendedMaxRetryDelay = 1 * time.Hour
+
+	// refusedReason is what Relay publishes for an environment it would not accept. It is a fixed
+	// phrase rather than the underlying error, because the status resource needs no authentication
+	// and the error text names the payload's own fields. The error itself is logged.
+	refusedReason = "malformed credential payload"
 )
 
 var (
@@ -590,6 +595,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 			"envID", envID,
 			"error", err,
 		)
+		s.handler.EnvironmentRefused(envID, refusedReason)
 		malformed = true
 		processedEvent = false
 		outcome.restart = true
@@ -914,6 +920,14 @@ func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]
 				"configuration refused", "recoveredCount", recovered)
 		}
 	}
+
+	// A put is the authoritative environment set, so this replaces the previous refusals. Report it
+	// before ReceivedAllEnvironments, so nothing observes the readiness bit with a stale refusal set.
+	refused := make(map[config.EnvironmentID]string, len(malformedEnvIDs))
+	for id := range malformedEnvIDs {
+		refused[id] = refusedReason
+	}
+	s.handler.SetRefusedEnvironments(refused)
 
 	// A put that left the Relay Proxy with nothing must not report the configuration as complete. It
 	// would declare itself fully configured while serving no environments, and answer 401 for every

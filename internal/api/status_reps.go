@@ -40,9 +40,29 @@ const (
 type StatusRep struct {
 	Environments     map[string]EnvironmentStatusRep `json:"environments"`
 	AutoConfigStatus *AutoConfigStatusRep            `json:"autoConfigStatus,omitempty"`
-	Status           string                          `json:"status"`
-	Version          string                          `json:"version"`
-	ClientVersion    string                          `json:"clientVersion"`
+	// RefusedEnvironments is every environment LaunchDarkly sent that Relay could not use, so it is
+	// absent from Environments and its credentials are not served. It is always present, and empty
+	// when there is nothing refused, so a monitor can address it without having to tell an empty
+	// list apart from a Relay too old to report one.
+	RefusedEnvironments []RefusedEnvironmentRep `json:"refusedEnvironments"`
+	Status              string                  `json:"status"`
+	Version             string                  `json:"version"`
+	ClientVersion       string                  `json:"clientVersion"`
+}
+
+// RefusedEnvironmentRep is an environment Relay was told about and would not serve.
+//
+// The top-level status stays healthy for one of these, and so does autoConfigStatus, because the
+// connection is working and the rest of the configuration applied. Without this list the only
+// lasting signal is a log line, and an SDK on the environment's credentials gets a 401 with nothing
+// in the status document to explain it.
+//
+// This is exported for use in integration test code.
+type RefusedEnvironmentRep struct {
+	EnvID string `json:"envId"`
+	// Reason is a short stable phrase. The detail is in Relay's log, because this resource needs no
+	// authentication.
+	Reason string `json:"reason"`
 }
 
 // AutoConfigStatusRep is the status of the auto-configuration stream. It is present only when

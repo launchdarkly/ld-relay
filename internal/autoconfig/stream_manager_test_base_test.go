@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,6 +138,37 @@ func (m testMessage) String() string {
 
 type testMessageHandler struct {
 	received chan testMessage
+
+	// refusedMu guards refused, which records the last refusal set the stream manager reported. The
+	// stream-consuming goroutine writes it and the test goroutine reads it.
+	refusedMu sync.Mutex
+	refused   map[config.EnvironmentID]string
+}
+
+func (h *testMessageHandler) EnvironmentRefused(id config.EnvironmentID, reason string) {
+	h.refusedMu.Lock()
+	defer h.refusedMu.Unlock()
+	if h.refused == nil {
+		h.refused = make(map[config.EnvironmentID]string)
+	}
+	h.refused[id] = reason
+}
+
+func (h *testMessageHandler) SetRefusedEnvironments(refused map[config.EnvironmentID]string) {
+	h.refusedMu.Lock()
+	defer h.refusedMu.Unlock()
+	h.refused = refused
+}
+
+// refusedEnvironments returns a copy of the current refusal set.
+func (h *testMessageHandler) refusedEnvironments() map[config.EnvironmentID]string {
+	h.refusedMu.Lock()
+	defer h.refusedMu.Unlock()
+	out := make(map[config.EnvironmentID]string, len(h.refused))
+	for id, reason := range h.refused {
+		out[id] = reason
+	}
+	return out
 }
 
 func streamManagerTest(t *testing.T, initialEvent *httphelpers.SSEEvent, action func(p streamManagerTestParams)) {

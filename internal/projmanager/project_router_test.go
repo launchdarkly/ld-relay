@@ -34,6 +34,10 @@ type noopActions struct {
 func (n *spyHandler) ReceivedAllEnvironments() {
 }
 
+func (n *spyHandler) EnvironmentRefused(config.EnvironmentID, string) {}
+
+func (n *spyHandler) SetRefusedEnvironments(map[config.EnvironmentID]string) {}
+
 func TestProjectRouter_NewIsEmpty(t *testing.T) {
 	logger, _ := logtest.NewMockLogger()
 

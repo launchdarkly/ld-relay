@@ -437,6 +437,68 @@ func TestAStaleSuccessDoesNotOverwriteAConnectionFailure(t *testing.T) {
 	})
 }
 
+func TestRefusedEnvironmentsAreReportedToTheHandler(t *testing.T) {
+	// A refused environment is never created, and the readiness bit is still set, so without this
+	// signal the only lasting record is a log line. An SDK on that environment's credentials gets a
+	// 401 and nothing in the status document explains why.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		// A put reports every environment in it that could not be used.
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, envWithUnusableCredentials(testEnv2)))
+		p.requireMessage()
+		p.requireReceivedAllMessage()
+
+		assert.Equal(t, map[config.EnvironmentID]string{testEnv2.EnvID: refusedReason},
+			p.messageHandler.refusedEnvironments())
+
+		// A later put that carries a usable payload for that environment retires the refusal. The
+		// put is authoritative, so the set is replaced rather than added to.
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, testEnv2))
+		p.requireMessage()
+		p.requireReceivedAllMessage()
+
+		assert.Empty(t, p.messageHandler.refusedEnvironments(),
+			"an environment Relay can now serve must not stay listed as refused")
+	})
+}
+
+func TestAPutThatDropsARefusedEnvironmentRetiresTheRefusal(t *testing.T) {
+	// The refused environment was never handed to the receiver, so it is not tracked there and the
+	// delete path never fires for it. Only replacing the set on each put retires this one.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, envWithUnusableCredentials(testEnv2)))
+		p.requireMessage()
+		p.requireReceivedAllMessage()
+		require.NotEmpty(t, p.messageHandler.refusedEnvironments())
+
+		// testEnv2 is gone from the configuration entirely.
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1))
+		p.requireReceivedAllMessage()
+
+		assert.Empty(t, p.messageHandler.refusedEnvironments(),
+			"an environment no longer in the configuration must not stay listed as refused")
+	})
+}
+
+func TestARefusedPatchIsReportedToTheHandler(t *testing.T) {
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
+
+		require.Eventually(t, func() bool {
+			return len(p.messageHandler.refusedEnvironments()) == 1
+		}, time.Second, 10*time.Millisecond, "a refused patch must be reported")
+		assert.Equal(t, refusedReason, p.messageHandler.refusedEnvironments()[testEnv1.EnvID])
+	})
+}
+
 func TestARefusedEnvironmentIsServedFromItsLastGoodCacheEntry(t *testing.T) {
 	// Writing the last-good entry back to the cache serves the next process start. This process has
 	// to serve it too, or Relay holds a usable configuration for an environment it answers nothing
