@@ -102,6 +102,7 @@ that owns the connection to LaunchDarkly, and which mobile key is used where onl
     "state": "VALID",
     "stateSince": 10000000
   },
+  "refusedEnvironments": [],
   "status": "healthy",
   "version": "5.11.1",
   "clientVersion": "4.17.2"
@@ -133,6 +134,10 @@ The status properties are defined as follows:
     - A non-`VALID` state does not stop flag serving: the environments the Relay Proxy already knows about keep their own connections to LaunchDarkly. What it means is that the Relay Proxy is no longer learning about *changes* to the environment list, so it may be serving a configuration that is out of date.
     - `"INITIALIZING"` with a `lastError` present means the Relay Proxy has never completed a connection to the configuration stream. If it is nonetheless serving environments, they came from the [persistent auto-config cache](configuration.md#file-section-autoconfig), so treat their configuration as potentially stale.
     - Because a broken configuration stream leaves flag serving intact, the top-level `status` does **not** become `"degraded"` for it. A monitor that cares about configuration freshness should check this property directly, for example with `?expect=autoConfigStatus.state=VALID`.
+- The `refusedEnvironments` property lists environments that LaunchDarkly told the Relay Proxy about and that it will not serve, because their configuration could not be used. Each entry has an `envId` and a short `reason`; the detail is in the Relay Proxy's log, because this endpoint is unauthenticated. Entries are sorted by `envId`.
+    - A refused environment is absent from `environments`, and SDKs presenting its credentials get `401`. Nothing else in this document reports it: the connection to LaunchDarkly is working, the rest of the configuration applied, and so both the top-level `status` and `autoConfigStatus.state` stay healthy. Check this property to detect the condition, for example with `?expect=refusedEnvironments[0].envId`, which returns `412` while the list is empty.
+    - The property is always present, and is an empty array when nothing is refused, so a monitor does not have to tell an empty list apart from a Relay Proxy too old to report one.
+    - The Relay Proxy retires an entry as soon as it receives a configuration for that environment that it can use, or when the environment is removed from the configuration.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
     - In [automatic configuration mode](configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
     - When Big Segments are enabled, this value will also be `"degraded"` if the Big Segments status has an `available` property of `false` (indicating a database error), or if `potentiallyStale` is `true` (meaning Big Segments are potentially not fully synchronized) _and_ the configuration setting `bigSegmentsStaleAsDegraded` is enabled.
@@ -262,7 +267,7 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 - Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`, `autoConfigStatus.lastError.kind`.
 - `autoConfigStatus` is only addressable on `/status`, since the per-environment routes return a single environment object. Outside automatic configuration mode the Relay Proxy omits the block, so a clause on it returns `412` (see the `422`-versus-`412` note below) rather than `422`.
 - For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
-- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). No field of the current status document is an array; this syntax exists so that selectors keep working when one becomes an array, and addressing a field that is not an array today returns `422`.
+- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). The array fields are `sdkKeys` and `mobileKeys` on an environment, and `refusedEnvironments` on `/status`. Addressing a field that is not an array returns `422`. Prefer the matching form over the index form for `sdkKeys` and `mobileKeys`: the order of their entries is unspecified, so an index addresses a different key from one request to the next.
 
 **Operators and comparison:**
 

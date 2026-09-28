@@ -32,6 +32,7 @@ func statusHandler(relay *Relay) http.Handler {
 		}
 
 		resp.AutoConfigStatus = relay.buildAutoConfigStatus()
+		resp.RefusedEnvironments = relay.getRefusedEnvironments()
 
 		if healthy {
 			resp.Status = api.StatusHealthy

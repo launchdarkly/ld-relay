@@ -28,6 +28,8 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	a.reconcileCredentials(env, params)
+	// The environment was created from this payload, so any earlier refusal for it is stale.
+	a.r.clearRefusedEnvironment(params.EnvID)
 }
 
 // reconcileCredentials converts an auto-configuration payload into the environment's accepted
@@ -68,13 +70,25 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetSecureMode(params.SecureMode)
 
 	a.reconcileCredentials(env, params)
+	a.r.clearRefusedEnvironment(params.EnvID)
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
+	a.r.clearRefusedEnvironment(id)
 	removed := a.r.removeEnvironment(id)
 	if !removed {
 		a.r.logger.Warn("got auto-configuration delete message for unknown environment, ignoring", "envID", id)
 	}
+}
+
+// EnvironmentRefused records that a patch gave an environment a configuration Relay cannot use.
+func (a *relayAutoConfigActions) EnvironmentRefused(id config.EnvironmentID, reason string) {
+	a.r.refuseEnvironment(id, reason)
+}
+
+// SetRefusedEnvironments replaces the refusal set from a put, which is authoritative.
+func (a *relayAutoConfigActions) SetRefusedEnvironments(refused map[config.EnvironmentID]string) {
+	a.r.setRefusedEnvironments(refused)
 }
 
 func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
