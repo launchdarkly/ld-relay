@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -188,4 +189,105 @@ func awaitStreamRequest(t *testing.T, p streamManagerTestParams) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for a stream request")
 	}
+}
+
+func TestRefusedCredentialPayloadRecordsAnInvalidDataError(t *testing.T) {
+	// The refusal path shares its status reporting with a parse failure, but no test drove it through
+	// a credential refusal, which is the case this change added. Without the status transition an
+	// operator watching autoConfigStatus has no signal that relay is refusing what it is being sent.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
+
+		// Only the error is asserted. The refusal restarts the stream, so State races back to VALID
+		// as soon as the new connection is up, and LastError is what survives for an operator to read.
+		status := requireStatusEventually(t, p, "expected an invalid-data error", func(s StreamStatus) bool {
+			return s.LastError.Kind == interfaces.DataSourceErrorKindInvalidData
+		})
+		assert.False(t, status.LastError.Time.IsZero(), "the error must carry when it happened")
+	})
+}
+
+func TestOneRefusalReconnectsAtOnceAndASecondSlowsDown(t *testing.T) {
+	// The threshold is the whole point of malformedBackoffThreshold: a single corrupt event is worth
+	// asking about again immediately, and a second identical one means asking faster will not help.
+	// Nothing asserted either half, so lowering the threshold to 1 or raising it left every test green.
+	const extendedBase = 300 * time.Millisecond
+
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = extendedBase
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
+		awaitStreamRequest(t, p)
+
+		// The first refusal reconnects on the short curve.
+		var afterFirst []time.Duration
+		require.Eventually(t, func() bool {
+			afterFirst = reconnectDelays(p.mockLog)
+			return len(afterFirst) >= 1
+		}, 2*time.Second, 10*time.Millisecond, "expected a logged reconnect delay")
+		assert.Less(t, afterFirst[0], extendedBase/2,
+			"the first unusable event must not engage the extended delays")
+
+		// The second consecutive refusal does engage them.
+		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
+
+		require.Eventually(t, func() bool {
+			delays := reconnectDelays(p.mockLog)
+			return len(delays) > len(afterFirst) && delays[len(delays)-1] >= extendedBase/2
+		}, 5*time.Second, 10*time.Millisecond,
+			"a second consecutive unusable event must move the stream to the extended delays")
+	})
+}
+
+func TestAUsableEventReturnsTheStreamToTheShortRetryCurve(t *testing.T) {
+	// eventsource clears an activated profile only after a stretch of healthy operation, and it
+	// measures that stretch from a timestamp stamped as the event was delivered, so its own reset
+	// never fires on an event-driven restart. Without an explicit revert the first pair of refused
+	// payloads leaves the stream on the extended delays for the life of the process, and every later
+	// reconnect waits minutes even though the stream has been healthy in between.
+	const extendedBase = 300 * time.Millisecond
+
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.streamManager.extendedRetryDelay = extendedBase
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		// Two refusals engage the extended profile.
+		for i := 0; i < 2; i++ {
+			p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
+			awaitStreamRequest(t, p)
+		}
+		require.Eventually(t, func() bool {
+			delays := reconnectDelays(p.mockLog)
+			return len(delays) > 0 && delays[len(delays)-1] >= extendedBase/2
+		}, 5*time.Second, 10*time.Millisecond, "expected the extended delays to be engaged")
+
+		// A usable event proves the stream works again.
+		p.stream.Enqueue(makePatchEnvEvent(testEnv1))
+		p.requireMessage()
+
+		before := len(reconnectDelays(p.mockLog))
+
+		// The next refusal is the first of a new run, so it restarts without asking for a backoff.
+		// The delay it waits is the one under test.
+		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv2)))
+
+		var latest time.Duration
+		require.Eventually(t, func() bool {
+			delays := reconnectDelays(p.mockLog)
+			if len(delays) <= before {
+				return false
+			}
+			latest = delays[len(delays)-1]
+			return true
+		}, 5*time.Second, 10*time.Millisecond, "expected another reconnect delay")
+
+		assert.Less(t, latest, extendedBase/2,
+			"a recovered stream must reconnect on the short curve, not the extended one")
+	})
 }

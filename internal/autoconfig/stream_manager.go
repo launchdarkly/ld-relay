@@ -463,10 +463,10 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	}
 
 	signalReady(nil)
-	s.consumeStream(stream, extendedProfile)
+	s.consumeStream(stream, normalProfile, extendedProfile)
 }
 
-func (s *StreamManager) consumeStream(stream *es.Stream, extendedProfile *es.RetryProfile) {
+func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile, extendedProfile *es.RetryProfile) {
 	// Consume remaining Events and Errors so we can garbage collect
 	defer func() {
 		for range stream.Events {
@@ -499,7 +499,16 @@ func (s *StreamManager) consumeStream(stream *es.Stream, extendedProfile *es.Ret
 				return
 			}
 
-			if outcome := s.handleStreamEvent(event); outcome.restart {
+			outcome := s.handleStreamEvent(event)
+			if outcome.recovered {
+				// Drop back to the short retry curve. eventsource clears an activated profile only
+				// after a stretch of healthy operation, and it measures that stretch from a timestamp
+				// stamped as this very event was delivered, so its own reset can never fire here.
+				// Without this the first refused payload leaves the stream on the extended delays for
+				// the life of the process, and a later unrelated reconnect waits minutes.
+				stream.ActivateProfile(normalProfile)
+			}
+			if outcome.restart {
 				if outcome.backOff {
 					// The service will probably keep sending what relay just refused, so reconnecting on
 					// the short curve would spin. Moving to the extended delays leaves the stream
@@ -530,6 +539,9 @@ func (s *StreamManager) consumeStream(stream *es.Stream, extendedProfile *es.Ret
 type eventOutcome struct {
 	restart bool
 	backOff bool
+	// recovered is true when the event was delivered and usable, which is the only proof the stream
+	// is working again. It returns the connection to the short retry curve.
+	recovered bool
 }
 
 // handleStreamEvent processes a single SSE event and reports what the stream should do next.
@@ -679,6 +691,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		})
 	case processedEvent:
 		s.consecutiveMalformedEvents = 0
+		outcome.recovered = true
 		s.markValid(generation)
 	}
 
