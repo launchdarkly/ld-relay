@@ -160,6 +160,12 @@ func (h *testMessageHandler) SetRefusedEnvironments(refused map[config.Environme
 	h.refused = refused
 }
 
+func (h *testMessageHandler) ClearEnvironmentRefusal(id config.EnvironmentID) {
+	h.refusedMu.Lock()
+	defer h.refusedMu.Unlock()
+	delete(h.refused, id)
+}
+
 // refusedEnvironments returns a copy of the current refusal set.
 func (h *testMessageHandler) refusedEnvironments() map[config.EnvironmentID]string {
 	h.refusedMu.Lock()

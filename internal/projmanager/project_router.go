@@ -16,6 +16,7 @@ type AutoConfigActions interface {
 	ReceivedAllEnvironments()
 	EnvironmentRefused(id config.EnvironmentID, reason string)
 	SetRefusedEnvironments(refused map[config.EnvironmentID]string)
+	ClearEnvironmentRefusal(id config.EnvironmentID)
 }
 
 // ProjectRouter is responsible for accepting commands relating to the creation, destruction, or modification of
@@ -99,4 +100,10 @@ func (e *ProjectRouter) EnvironmentRefused(id config.EnvironmentID, reason strin
 // SetRefusedEnvironments forwards the authoritative refusal set from a put. See EnvironmentRefused.
 func (e *ProjectRouter) SetRefusedEnvironments(refused map[config.EnvironmentID]string) {
 	e.actions.SetRefusedEnvironments(refused)
+}
+
+// ClearEnvironmentRefusal forwards the retirement of a refusal. Like EnvironmentRefused it is not
+// routed by project, because a refused environment has no manager to route it to.
+func (e *ProjectRouter) ClearEnvironmentRefusal(id config.EnvironmentID) {
+	e.actions.ClearEnvironmentRefusal(id)
 }

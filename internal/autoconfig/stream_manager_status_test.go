@@ -385,6 +385,8 @@ func (h *blockingMessageHandler) EnvironmentRefused(config.EnvironmentID, string
 
 func (h *blockingMessageHandler) SetRefusedEnvironments(map[config.EnvironmentID]string) {}
 
+func (h *blockingMessageHandler) ClearEnvironmentRefusal(config.EnvironmentID) {}
+
 func newBlockingMessageHandler() *blockingMessageHandler {
 	return &blockingMessageHandler{
 		entered: make(chan struct{}, 1),

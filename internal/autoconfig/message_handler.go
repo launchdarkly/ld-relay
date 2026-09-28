@@ -36,4 +36,10 @@ type MessageHandler interface {
 	// before rather than adding to it, which is what retires a refusal for an environment the "put"
 	// no longer mentions at all.
 	SetRefusedEnvironments(refused map[config.EnvironmentID]string)
+
+	// ClearEnvironmentRefusal is called for a "delete", to retire any refusal recorded against that
+	// environment. It is separate from DeleteEnvironment because an environment that was only ever
+	// refused was never applied, so nothing tracks it and no delete is dispatched for it. It is a
+	// no-op when nothing was refused.
+	ClearEnvironmentRefusal(id config.EnvironmentID)
 }
