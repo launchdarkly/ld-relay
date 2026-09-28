@@ -600,7 +600,25 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 			s.cacheCh = nil
 		}
 		putMessage.Data.Persist = true
-		if malformedEnvIDs := s.handlePut(putMessage.Data); len(malformedEnvIDs) > 0 {
+		malformedEnvIDs, applied := s.handlePut(putMessage.Data)
+		switch {
+		case len(malformedEnvIDs) == 0:
+		case applied > 0:
+			// A partial refusal. The environments that applied are fine, and the refused one would
+			// come back identical on a new connection, so a restart buys nothing and would take
+			// every healthy environment's updates down with it. Record the error and keep serving.
+			// The refused environment returns when the service sends a new version for it.
+			s.logger.Error("refused one or more environments in this configuration; "+
+				"the rest of the configuration was applied and the stream is still connected",
+				"refusedCount", len(malformedEnvIDs),
+				"appliedCount", applied,
+			)
+			s.updateStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{
+				Kind: interfaces.DataSourceErrorKindInvalidData,
+				Time: time.Now(),
+			})
+		default:
+			// Nothing in the event was usable, so ask for it again.
 			malformed = true
 			processedEvent = false
 			outcome.restart = true
@@ -806,12 +824,13 @@ func (s *StreamManager) applyCachedContent(content *PutContent) {
 // handlePut applies a full environment set, and returns the environments whose credential payload it
 // refused. A refused environment keeps the credentials it already had; every other environment in the
 // put is applied as usual.
-func (s *StreamManager) handlePut(content PutContent) map[config.EnvironmentID]bool {
+func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]bool, int) {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
 	// in the set.
 	var malformedEnvIDs map[config.EnvironmentID]bool
+	applied := 0
 	s.logger.Info("received configuration", "environmentCount", len(content.Environments))
 	for id, rep := range content.Environments {
 		if id != rep.EnvID {
@@ -833,6 +852,7 @@ func (s *StreamManager) handlePut(content PutContent) map[config.EnvironmentID]b
 			continue
 		}
 		s.dispatchEnvAction(id, rep, s.envReceiver.Upsert(string(id), rep, rep.Version))
+		applied++
 	}
 
 	// Retain only the environments that were added in the PUT.
@@ -847,7 +867,7 @@ func (s *StreamManager) handlePut(content PutContent) map[config.EnvironmentID]b
 	if content.Persist {
 		s.persistPut(content, malformedEnvIDs)
 	}
-	return malformedEnvIDs
+	return malformedEnvIDs, applied
 }
 
 // validateCredentialPayload reports whether an environment's credentials can produce a usable

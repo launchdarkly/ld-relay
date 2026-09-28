@@ -1,8 +1,12 @@
 package autoconfig
 
 // Tests for a payload that parses as JSON but whose credentials cannot produce a usable accepted set.
-// The environment keeps the credentials it already had, the stream reconnects to ask again, and the
-// cache keeps that environment's last-good entry.
+// The environment keeps the credentials it already had, and the cache keeps its last-good entry.
+//
+// Whether the stream reconnects depends on how much of the event was usable. An event relay could
+// not use at all is asked for again. A put that applied at least one environment is not, because the
+// refused environment would come back identical and the reconnect would interrupt every healthy
+// environment in the meantime.
 
 import (
 	"context"
@@ -11,6 +15,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -289,5 +294,43 @@ func TestAUsableEventReturnsTheStreamToTheShortRetryCurve(t *testing.T) {
 
 		assert.Less(t, latest, extendedBase/2,
 			"a recovered stream must reconnect on the short curve, not the extended one")
+	})
+}
+
+func TestAPartialRefusalKeepsTheStreamConnected(t *testing.T) {
+	// One environment's bad data must not take the connection down. The refused environment would
+	// come back identical on a new connection, so a reconnect achieves nothing, and two consecutive
+	// partial refusals used to walk the whole stream onto the extended delays. Every other
+	// environment then waited up to an hour for its own updates because of one environment's data.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, envWithUnusableCredentials(testEnv2)))
+		msg := p.requireMessage()
+		require.NotNil(t, msg.add, "the well-formed environment in the put must be applied")
+		p.requireReceivedAllMessage()
+
+		// A second consecutive partial refusal is what used to engage the extended delays. Bump the
+		// good environment so it is a real update rather than a version the receiver dedupes away.
+		updatedEnv1 := testEnv1
+		updatedEnv1.Version++
+		p.stream.Enqueue(makeEnvPutEvent(updatedEnv1, envWithUnusableCredentials(testEnv2)))
+		msg = p.requireMessage()
+		require.NotNil(t, msg.update, "the healthy environment must keep receiving updates")
+		p.requireReceivedAllMessage()
+
+		// The connection that delivered both puts is still the one in use.
+		if !helpers.AssertNoMoreValues(t, p.requestsCh, 300*time.Millisecond,
+			"the stream must not reconnect because one environment in a put was refused") {
+			t.FailNow()
+		}
+
+		// The refusal is still reported, without claiming the connection is broken.
+		status := p.streamManager.Status()
+		assert.Equal(t, interfaces.DataSourceErrorKindInvalidData, status.LastError.Kind,
+			"a refused environment must stay visible in the status")
+		assert.Equal(t, interfaces.DataSourceStateValid, status.State,
+			"the connection itself is healthy, so the state must not say otherwise")
 	})
 }
