@@ -113,6 +113,25 @@ func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential crede
 	}
 }
 
+// closeAndRelease shuts the relays down and drops them. The endpoint keeps its configuration and its
+// credential, so the lazy getters build live relays again if events start flowing.
+//
+// Use this, not close, when the environment has lost the credential this endpoint forwards with.
+// close leaves the closed relays in place, and a later event enqueues into a relay whose goroutine
+// has exited, so the post is accepted and nothing is ever sent.
+func (r *analyticsEventEndpointDispatcher) closeAndRelease() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.summarizingRelay != nil {
+		r.summarizingRelay.close()
+		r.summarizingRelay = nil
+	}
+	if r.verbatimRelay != nil {
+		r.verbatimRelay.close()
+		r.verbatimRelay = nil
+	}
+}
+
 func (r *analyticsEventEndpointDispatcher) close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -247,17 +266,18 @@ func (r *EventDispatcher) Close() {
 // credential. Use it when the environment no longer has a credential of that kind, so the endpoint
 // does not keep a revoked credential and its goroutines alive for the life of the environment.
 //
-// It does not rescue whatever the endpoint has already queued. Closing runs a final flush, which
-// goes out on the credential that was just revoked and is refused. Nothing can deliver those events:
-// LaunchDarkly revoked the key before relay was told about it. The value here is bounding the
+// It does not rescue whatever the endpoint has already queued. Shutting down runs a final flush,
+// which goes out on the credential that was just revoked and is refused. Nothing can deliver those
+// events: LaunchDarkly revoked the key before relay was told about it. The value here is bounding the
 // endpoint rather than saving the batch.
 //
-// Closing an endpoint is idempotent, so the environment's own Close still works afterwards. The
-// endpoint stays in the map because GetHandler reads the map without a lock, and an SDK cannot reach
-// it in any case: the credential's connection mapping comes down in the same reconcile.
+// The endpoint itself survives, and so does its configuration, so a later payload that restores a
+// credential of this kind makes it forward again: ReplaceCredential sets the new credential and the
+// next event builds live relays from it. The endpoint also stays in the map, because GetHandler reads
+// the map without a lock.
 func (r *EventDispatcher) StopForwarding(sdkKind basictypes.SDKKind) {
 	if e, ok := r.analyticsEndpoints[sdkKind]; ok {
-		e.close()
+		e.closeAndRelease()
 	}
 }
 

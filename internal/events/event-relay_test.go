@@ -402,3 +402,42 @@ func makeDataDestinationWrapper() (*datadestination.DataDestinationWrapper, chan
 
 	return wrapper, c
 }
+
+func TestStopForwardingLetsAnEnvironmentForwardAgainOnARestoredCredential(t *testing.T) {
+	// An environment can lose its mobile key and be given one again later. StopForwarding must not
+	// leave the endpoint permanently dead: a closed relay still accepts an enqueue and answers 202,
+	// so the post looks fine to the SDK while nothing reaches LaunchDarkly.
+	summarizeEventsParams := makeBasicSummarizeEventsParams()
+
+	postMobileEvents := func(t *testing.T, p eventRelayTestParams) {
+		t.Helper()
+		req := st.BuildRequest("POST", "/", []byte(summarizeEventsParams.inputEventsJSON),
+			headersWithEventSchema(summarizeEventsParams.schemaVersion))
+		handler := p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, handler)
+		w := httptest.NewRecorder()
+		handler(w, req)
+		require.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+	}
+
+	eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
+		// Post once so the endpoint's relays exist, the way an environment with live traffic has them.
+		postMobileEvents(t, p)
+		p.dispatcher.flush()
+		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "expected the first batch to be forwarded")
+
+		// The environment loses its mobile key.
+		p.dispatcher.StopForwarding(basictypes.MobileSDK)
+
+		// A later payload restores one.
+		p.dispatcher.ReplaceCredential(testMobileEndpointInfo.newCredential)
+
+		postMobileEvents(t, p)
+		p.dispatcher.flush()
+		request := helpers.RequireValue(t, p.requestsCh, time.Second,
+			"a restored mobile key must forward events again")
+		assert.Equal(t, string(testMobileEndpointInfo.newCredential.(config.MobileKey)),
+			request.Request.Header.Get("Authorization"),
+			"the forwarded batch must carry the restored key")
+	})
+}
