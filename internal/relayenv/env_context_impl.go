@@ -466,10 +466,53 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	c.envStreams.RemoveCredential(oldCredential)
 }
 
+// rebuildSDKClient replaces the environment's SDK client with one built on sdkKey. It is the
+// recovery path for a data system the SDK has shut down, which re-keying cannot reach.
+//
+// The outgoing client is closed before the replacement is built, so the environment never holds two
+// copies of its data. The cost is that it has nothing to serve until the new client has a store.
+// That is the right trade here and not in an ordinary rotation: the client being replaced has a dead
+// data system, so its store can only go on being stale.
+func (c *envContextImpl) rebuildSDKClient(sdkKey config.SDKKey) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	name := c.identifiers.GetDisplayName()
+	outgoing := c.client
+	c.client = nil
+	c.mu.Unlock()
+
+	if outgoing != nil {
+		if err := outgoing.Close(); err != nil {
+			c.globalLogger.Error("error closing the environment's previous SDK client",
+				"env", name, "error", err)
+		}
+	}
+
+	// Errors are suppressed: this is a recovery attempt for an environment that is already not
+	// serving, so a failure here is not a new startup failure to escalate.
+	c.startSDKClient(sdkKey, nil, true)
+}
+
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
+	if c.closed {
+		// Close ran while this build was in flight. Installing the client would leak its connection,
+		// its goroutines and its store, and leave GetClient answering for a deleted environment.
+		c.mu.Unlock()
+		if client != nil {
+			_ = client.Close()
+		}
+		c.globalLogger.Info("discarding an SDK client built for an environment that has closed", "env", name)
+		if readyCh != nil {
+			readyCh <- c
+		}
+		return
+	}
 	if client != nil {
 		c.client = client
 		// A reconcile can move the anchor while this build is in flight, and the build used the key it
@@ -640,14 +683,40 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	}
 
 	if !c.offline && c.client != nil {
-		if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
-			c.globalLogger.Error("could not move the environment to its new SDK key; "+
-				"keeping the previous key, which LaunchDarkly may already be invalidating",
+		// SetSDKKey only changes the key the client's requests carry. It cannot revive a data system
+		// the SDK has already shut down: an unrecoverable authorization error removes every
+		// synchronizer permanently, and the data system then reports Off and stops. Re-keying that
+		// client would report a move that did not happen and leave the environment serving whatever
+		// its store still held, with nothing to refresh it.
+		if c.client.GetDataSourceStatus().State == interfaces.DataSourceStateOff {
+			c.globalLogger.Warn("the environment's data system has shut down, so its new SDK key "+
+				"cannot be applied to the existing client; rebuilding the client on the new key",
 				"env", c.identifiers.GetDisplayName(),
 				"previous", change.PreviousAnchor.Masked(),
-				"new", change.NewAnchor.Masked(),
-				"error", err)
-			return false
+				"new", change.NewAnchor.Masked())
+			// rebuildSDKClient takes c.mu, so it cannot run here.
+			go c.rebuildSDKClient(change.NewAnchor)
+		} else {
+			if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
+				c.globalLogger.Error("could not move the environment to its new SDK key; "+
+					"keeping the previous key, which LaunchDarkly may already be invalidating",
+					"env", c.identifiers.GetDisplayName(),
+					"previous", change.PreviousAnchor.Masked(),
+					"new", change.NewAnchor.Masked(),
+					"error", err)
+				return false
+			}
+			// A build error recorded earlier describes a client that is now re-keyed and receiving
+			// data, so it is no longer the truth. Clearing it matters because the middleware rejects
+			// every request for an environment whose initialization failed, which would otherwise
+			// outlast the key that caused it. The Valid test is deliberate: a client that has not
+			// yet received data must keep the error rather than start serving an empty store.
+			if c.initErr != nil && c.client.GetDataSourceStatus().State == interfaces.DataSourceStateValid {
+				c.globalLogger.Info("the environment recovered on its new SDK key; clearing the "+
+					"initialization error recorded against the previous one",
+					"env", c.identifiers.GetDisplayName())
+				c.initErr = nil
+			}
 		}
 	}
 
