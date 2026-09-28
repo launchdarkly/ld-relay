@@ -29,9 +29,13 @@ type AcceptedSet struct {
 // MalformedCredentialSetError is returned when a credential payload cannot produce a valid
 // AcceptedSet. Each constructor below documents one cause.
 //
-// Validation runs before Reconcile, so the environment keeps its previous accepted set. The caller
-// must also reconnect the RAC stream with jitter: RAC is one-way push with no NAK channel, so
-// without a reconnect the backend assumes the patch was applied and sends nothing new.
+// Validation runs before Reconcile, so the environment keeps its previous accepted set.
+//
+// A caller reading a one-way push stream with no NAK channel, such as RAC, must also decide whether
+// to reconnect: without one the service assumes the payload was applied and sends nothing new. It is
+// worth reconnecting only when the whole event was unusable. When the event carried other
+// environments that applied, the refused one would be identical on a new connection, and the
+// reconnect would interrupt the environments that are working.
 type MalformedCredentialSetError struct {
 	// msg is the human-readable description set by the constructor.
 	msg string
