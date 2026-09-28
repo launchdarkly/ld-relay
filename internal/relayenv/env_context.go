@@ -42,6 +42,14 @@ type EnvContext interface {
 	// registers the new keys' mappings, the re-anchor then moves the upstream connection while the
 	// outgoing key still authenticates downstream traffic, and revoked mappings come down last.
 	//
+	// An environment accepts many SDK keys but talks to LaunchDarkly with exactly one of them, the
+	// anchor. Re-anchoring is moving that designation to a different accepted key. It no longer
+	// builds a replacement client, which is what it meant before: the existing client is re-keyed in
+	// place, so the environment keeps its data store rather than refilling a new one. What remains
+	// to be moved is everything that does not follow the client's key on its own -- the big segment
+	// synchronizer, which bakes its key in at construction, the event dispatcher, and the usage
+	// metrics publisher -- plus the rotator's own record of which key is the anchor.
+	//
 	// newSet is assumed well-formed, because envfactory.BuildAcceptedSet validated it.
 	ReconcileCredentials(newSet credential.AcceptedSet)
 

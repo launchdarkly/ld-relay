@@ -164,9 +164,17 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 			}
 			am.logger.Info("updated environment", "envID", envID, "envName", envName)
 			if err := am.handler.UpdateEnvironment(ae); err != nil {
-				// Leave the previously recorded metadata in place. A corrected archive can carry the
-				// same version and data ID as the one just refused, and the check above would then
-				// skip it, so the fix would never land without a restart.
+				// The handler would not apply this environment, so do not advance what we have
+				// recorded for it. lastKnownEnvs is the only thing that decides whether a reload
+				// counts as a change: the check at the top of this loop compares each environment's
+				// version and data ID against the entry recorded here and skips it when both match.
+				//
+				// An operator correcting a refused environment by hand has no reason to bump its
+				// version, and the flag data it points at need not change either. Recording the
+				// refused archive's metadata would make the corrected file compare equal, so it
+				// would be skipped and the correction would never be applied. Leaving the previous
+				// entry in place means the corrected file still differs from it, so it is offered to
+				// the handler again.
 				continue
 			}
 		} else {
@@ -179,7 +187,11 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 			}
 			am.logger.Info("added environment", "envID", envID, "envName", envName)
 			if err := am.handler.AddEnvironment(ae); err != nil {
-				// Record nothing, so a corrected archive is treated as a new environment and applied.
+				// The handler refused the environment, so it does not exist as far as Relay is
+				// concerned. Recording its metadata would leave lastKnownEnvs claiming we have an
+				// environment we never created, and the next reload would take the update branch
+				// above and compare versions rather than trying to add it again. Recording nothing
+				// keeps it absent, so a corrected archive arrives here as a new environment.
 				continue
 			}
 		}
