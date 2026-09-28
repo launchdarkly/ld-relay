@@ -26,7 +26,7 @@ func TestImmediateKeyExpiration(t *testing.T) {
 		{
 			name:   "sdk keys",
 			keys:   []SDKCredential{config.SDKKey("key1"), config.SDKKey("key2"), config.SDKKey("key3")},
-			getKey: func(r *Rotator) SDKCredential { return r.SDKKey() },
+			getKey: func(r *Rotator) SDKCredential { return r.AnchorKey() },
 		},
 		{
 			name:   "mobile keys",
@@ -77,7 +77,7 @@ func TestManyImmediateKeyExpirations(t *testing.T) {
 		{
 			name:    "sdk keys",
 			makeKey: func(s string) SDKCredential { return config.SDKKey(s) },
-			getKey:  func(r *Rotator) SDKCredential { return r.SDKKey() },
+			getKey:  func(r *Rotator) SDKCredential { return r.AnchorKey() },
 		},
 		{
 			name:    "mobile keys",
@@ -119,7 +119,7 @@ func TestImmediateSDKKeyDeprecationEvenIfGracePeriodIsPresent(t *testing.T) {
 	key1 := config.SDKKey("key1")
 	key2 := config.SDKKey("key2")
 
-	rotator.Initialize([]SDKCredential{key0})
+	rotator.Initialize(key0, "", "")
 
 	start := time.Unix(1000, 0)
 	halftime := start.Add(30 * time.Minute)
@@ -159,7 +159,7 @@ func TestSDKKeyDeprecation(t *testing.T) {
 	halfTime := start.Add(30 * time.Second)
 	deprecationTime := start.Add(1 * time.Minute)
 
-	rotator.Initialize([]SDKCredential{key1})
+	rotator.Initialize(key1, "", "")
 
 	rotator.RotateWithGrace(key2, NewGracePeriod(key1, deprecationTime, halfTime))
 	additions, expirations := rotator.StepTime(halfTime)
@@ -183,7 +183,7 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 		return config.SDKKey(fmt.Sprintf("key%v", i))
 	}
 
-	rotator.Initialize([]SDKCredential{config.SDKKey("key0")})
+	rotator.Initialize(config.SDKKey("key0"), "", "")
 
 	const numKeys = 250
 	now := time.Unix(10000, 0)
@@ -203,7 +203,7 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 	}
 
 	// The last key added should be the current primary key.
-	assert.Equal(t, keysAdded[len(keysAdded)-1], rotator.SDKKey())
+	assert.Equal(t, keysAdded[len(keysAdded)-1], rotator.AnchorKey())
 
 	// Until and including the exact expiry timestamp, there should be no expirations.
 	additions, expirations := rotator.StepTime(expiryTime)
@@ -230,4 +230,35 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	additions, expirations := rotator.StepTime(now)
 	assert.ElementsMatch(t, []SDKCredential{primaryKey}, additions)
 	assert.Empty(t, expirations)
+}
+
+// TestAlreadyExpiredGracePeriodStillRevokesThePreviousKey pins a fix made while porting this path
+// onto the accepted-set model. The rotator used to track only the primary SDK key, so a rotation
+// carrying an already-expired deprecation notice for some third key dropped the previous primary
+// without queueing its expiration. The environment therefore never removed that key's credential
+// mapping, and the replaced key kept authenticating for the life of the process.
+func TestAlreadyExpiredGracePeriodStillRevokesThePreviousKey(t *testing.T) {
+	logger, _ := logtest.NewMockLogger()
+	rotator := NewRotator(logger)
+
+	replaced := config.SDKKey("replaced")
+	incoming := config.SDKKey("incoming")
+	unrelated := config.SDKKey("unrelated")
+
+	rotator.Initialize(replaced, "", "")
+
+	staleExpiry := time.Unix(1000000, 0)
+	now := staleExpiry.Add(1 * time.Hour)
+
+	rotator.RotateWithGrace(incoming, NewGracePeriod(unrelated, staleExpiry, now))
+
+	additions, expirations := rotator.StepTime(now)
+	assert.ElementsMatch(t, []SDKCredential{incoming}, additions)
+	assert.ElementsMatch(t, []SDKCredential{replaced}, expirations)
+
+	// The already-expired key is never admitted, and the replaced key no longer authenticates.
+	assert.False(t, rotator.IsAccepted(unrelated))
+	assert.False(t, rotator.IsAccepted(replaced))
+	assert.True(t, rotator.IsAccepted(incoming))
+	assert.Equal(t, incoming, rotator.AnchorKey())
 }
