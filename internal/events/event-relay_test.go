@@ -441,3 +441,43 @@ func TestStopForwardingLetsAnEnvironmentForwardAgainOnARestoredCredential(t *tes
 			"the forwarded batch must carry the restored key")
 	})
 }
+
+func TestStopForwardingDropsAPostThatRacesTheRevocation(t *testing.T) {
+	// The middleware authenticates before the revoked credential's connection mapping comes down,
+	// and the body read is paced by the client, so a post can reach the endpoint after forwarding
+	// has stopped. It must be dropped rather than rebuild a relay on the revoked credential, which
+	// would then keep its goroutines for the rest of the environment's life.
+	summarizeEventsParams := makeBasicSummarizeEventsParams()
+
+	postMobileEvents := func(t *testing.T, p eventRelayTestParams) {
+		t.Helper()
+		req := st.BuildRequest("POST", "/", []byte(summarizeEventsParams.inputEventsJSON),
+			headersWithEventSchema(summarizeEventsParams.schemaVersion))
+		handler := p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, handler)
+		w := httptest.NewRecorder()
+		handler(w, req)
+		require.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+	}
+
+	eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
+		p.dispatcher.StopForwarding(basictypes.MobileSDK)
+
+		// A post that got past the middleware before the mapping was removed.
+		postMobileEvents(t, p)
+		p.dispatcher.flush()
+		if !helpers.AssertNoMoreValues(t, p.requestsCh, 200*time.Millisecond,
+			"a revoked credential must not forward anything, even for a request already in flight") {
+			t.FailNow()
+		}
+
+		// Once a credential is restored, the same endpoint forwards again.
+		p.dispatcher.ReplaceCredential(testMobileEndpointInfo.newCredential)
+		postMobileEvents(t, p)
+		p.dispatcher.flush()
+		request := helpers.RequireValue(t, p.requestsCh, time.Second,
+			"a restored mobile key must forward events again")
+		assert.Equal(t, string(testMobileEndpointInfo.newCredential.(config.MobileKey)),
+			request.Request.Header.Get("Authorization"))
+	})
+}

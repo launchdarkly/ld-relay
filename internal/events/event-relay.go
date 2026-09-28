@@ -48,7 +48,11 @@ type analyticsEventEndpointDispatcher struct {
 	eventQueueCleanupInterval time.Duration
 	eventMetrics              EventMetrics
 	logger                    *slog.Logger
-	mu                        sync.Mutex
+	// stopped means the environment has no credential of this endpoint's kind, so there is nothing
+	// to forward with. It keeps the lazy getters from building a relay on the credential that was
+	// just revoked, and replaceCredential clears it when a usable credential arrives.
+	stopped bool
+	mu      sync.Mutex
 }
 
 type diagnosticEventEndpointDispatcher struct {
@@ -73,8 +77,25 @@ func (r *EventDispatcher) GetHandler(sdkKind basictypes.SDKKind, eventsKind ldev
 	return nil
 }
 
+// forwardingStopped reports whether this endpoint has no credential to forward with.
+func (r *analyticsEventEndpointDispatcher) forwardingStopped() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stopped
+}
+
 func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *http.Request) {
 	consumeEvents(w, req, r.logger, func(body []byte) {
+		// The credential this endpoint forwards with was revoked. A request can still arrive: the
+		// middleware authenticates before the connection mapping comes down, and the body read that
+		// precedes this is paced by the client. Dropping it here is what keeps the post from
+		// rebuilding a relay on the revoked credential, which would then outlive the revocation.
+		if r.forwardingStopped() {
+			r.logger.Warn("discarding events for a credential that is no longer accepted",
+				"remotePath", r.remotePath)
+			return
+		}
+
 		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
@@ -104,6 +125,9 @@ func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential crede
 	defer r.mu.Unlock()
 	if reflect.TypeOf(r.authKey) == reflect.TypeOf(newCredential) {
 		r.authKey = newCredential
+		// A usable credential of this kind is back, so forwarding resumes. The relays are nil after
+		// closeAndRelease, so the next event builds them on this credential.
+		r.stopped = false
 		if r.summarizingRelay != nil {
 			r.summarizingRelay.replaceCredential(newCredential)
 		}
@@ -122,6 +146,7 @@ func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential crede
 func (r *analyticsEventEndpointDispatcher) closeAndRelease() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.stopped = true
 	if r.summarizingRelay != nil {
 		r.summarizingRelay.close()
 		r.summarizingRelay = nil
