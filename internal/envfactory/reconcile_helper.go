@@ -84,11 +84,6 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 
 	// Add every accepted mobile key, designating the primary on the way. WithPrimaryMobileKey forces
 	// the primary permanent, as WithAnchor does for the anchor.
-	//
-	// The two designated keys are named differently -- the SDK one is the anchor, the mobile one is
-	// the primary -- which reads as an inconsistency here, because these two loops are otherwise
-	// mirror images. The names come from v8 and are due to be unified in v10. Renaming either one now
-	// would reach well beyond this function, so they stay as they are.
 	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
