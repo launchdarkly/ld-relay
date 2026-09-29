@@ -899,14 +899,17 @@ func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]
 }
 
 // validateCredentialPayload reports whether an environment's credentials can produce a usable
-// accepted set. It runs at the stream parse boundary, before MessageReceiver.Upsert records the
-// payload's version.
+// accepted set.
 //
-// The ordering is the whole point. Upsert deduplicates by version, so a rejected payload that had
-// already advanced the version would make LaunchDarkly's replay of that same payload a no-op: the
-// environment would keep serving credentials it should have replaced, with no path back short of
-// restarting the process. Validating first leaves the version where it was, so the replay that
-// follows the reconnect is applied.
+// Call it before MessageReceiver.Upsert, never after. Upsert records the payload's version, and it
+// deduplicates by that version: a later payload carrying the same version is treated as already
+// applied and dropped.
+//
+// So if a refused payload had already been through Upsert, the version would be recorded even
+// though nothing was applied. LaunchDarkly replays the same payload on the next connection, Upsert
+// would discard it as a duplicate, and the environment would go on serving the credentials that
+// payload was meant to replace -- with no way back short of restarting the process. Validating
+// first leaves the version untouched, so that replay is applied.
 func validateCredentialPayload(rep envfactory.EnvironmentRep) error {
 	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
 	return err
