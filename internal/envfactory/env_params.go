@@ -28,13 +28,46 @@ type EnvironmentParams struct {
 
 	// ExpiringSDKKey is an additional SDK key that should also be allowed (but not surfaced as
 	// the canonical one).
+	//
+	// Superseded by AcceptedSDKKeys, which carries the same key as one entry of the full set. It is
+	// retained only until EnvContext.ReconcileCredentials replaces UpdateCredential, and ToParams
+	// keeps both populated from the same source in the meantime.
 	ExpiringSDKKey ExpiringSDKKey
+
+	// AcceptedSDKKeys is the full accepted set of SDK keys, including the anchor. ToParams always
+	// leaves it non-nil, synthesizing from the singular sdkKey field when the payload has no
+	// sdkKeys array.
+	AcceptedSDKKeys []AcceptedSDKKey
+
+	// AcceptedMobileKeys is the full accepted set of mobile keys. ToParams always leaves it non-nil,
+	// synthesizing from the singular mobKey field when the payload has no mobileKeys array.
+	AcceptedMobileKeys []AcceptedMobileKey
 
 	// TTL is the cache TTL for PHP clients.
 	TTL time.Duration
 
 	// SecureMode is true if secure mode is required for this environment.
 	SecureMode bool
+}
+
+// AcceptedSDKKey is one entry in the accepted SDK key set for an environment.
+// Expiry is zero if the key is permanent.
+// HasViews is true if the SDK key is associated with a view.
+type AcceptedSDKKey struct {
+	Key      string
+	Value    config.SDKKey
+	Expiry   time.Time
+	HasViews bool
+}
+
+// AcceptedMobileKey is one entry in the accepted mobile key set for an environment.
+// Expiry is zero if the key is permanent.
+// HasViews is true if the mobile key is associated with a view.
+type AcceptedMobileKey struct {
+	Key      string
+	Value    config.MobileKey
+	Expiry   time.Time
+	HasViews bool
 }
 
 type ExpiringSDKKey struct {

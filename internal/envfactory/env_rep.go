@@ -15,7 +15,19 @@ import (
 // file data source archive are deliberately the same. Any properties that are only used in one
 // or the other of those contexts should be in the appropriate package instead of here.
 
-// EnvironmentRep is a representation of an environment that is being added or updated.
+// EnvironmentRep is the wire shape of an environment, shared by RAC and the offline archive.
+//
+// Wire vocabulary: "key" is the non-secret human-readable identifier; "value" is the credential
+// secret. Relay's own SDKKey, MobileKey, and SDKCredential types hold what the wire calls "value".
+// Do not rename them.
+//
+// sdkKey and mobKey are the singular default credentials. sdkKey is an object because it also carries
+// the legacy sdkKey.expiring slot; mobKey is a plain string because mobile keys never had one.
+// sdkKeys and mobileKeys are the authoritative full accepted set, with entries of the form
+// { key, value, expiry?, hasViews? }.
+//
+// This parse path never sets DisallowUnknownFields, so a relay predating concurrent keys ignores
+// sdkKeys and mobileKeys and keeps using sdkKey and mobKey.
 type EnvironmentRep struct {
 	EnvID      config.EnvironmentID `json:"envID"`
 	EnvKey     string               `json:"envKey"`
@@ -24,9 +36,21 @@ type EnvironmentRep struct {
 	ProjKey    string               `json:"projKey"`
 	ProjName   string               `json:"projName"`
 	SDKKey     SDKKeyRep            `json:"sdkKey"`
+	SDKKeys    []ConcurrentKeyRep   `json:"sdkKeys,omitempty"`
+	MobileKeys []ConcurrentKeyRep   `json:"mobileKeys,omitempty"`
 	DefaultTTL int                  `json:"defaultTtl"`
 	SecureMode bool                 `json:"secureMode"`
 	Version    int                  `json:"version"`
+}
+
+// ConcurrentKeyRep is an entry in the sdkKeys or mobileKeys array on EnvironmentRep. It represents one
+// accepted credential in an environment's concurrent key set. Refer to EnvironmentRep for the wire
+// vocabulary.
+type ConcurrentKeyRep struct {
+	Key      string `json:"key"`
+	Value    string `json:"value"`
+	Expiry   *int64 `json:"expiry,omitempty"` // Unix-ms; nil = permanent
+	HasViews bool   `json:"hasViews"`
 }
 
 // SDKKeyRep describes an SDK key optionally accompanied by an old expiring key.
@@ -71,6 +95,66 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		MobileKey:      r.MobKey,
 		TTL:            time.Duration(r.DefaultTTL) * time.Minute,
 		SecureMode:     r.SecureMode,
+	}
+
+	if len(r.SDKKeys) > 0 {
+		// New-format payload: populate directly from the array.
+		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
+		for _, k := range r.SDKKeys {
+			entry := AcceptedSDKKey{
+				Key:      k.Key,
+				Value:    config.SDKKey(k.Value),
+				HasViews: k.HasViews,
+			}
+			if k.Expiry != nil {
+				entry.Expiry = time.UnixMilli(*k.Expiry)
+			}
+			params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, entry)
+		}
+	} else {
+		// Old-format payload: synthesize AcceptedSDKKeys from the singular sdkKey fields, so the model
+		// is always non-nil. The old format carried no identifier, so Key stays empty.
+		//
+		// A present-but-empty array cannot be told from an absent one here, and does not need to be:
+		// every LaunchDarkly environment has at least one global key of each kind, so the new format
+		// never states "this environment has no SDK keys". An empty array therefore means the payload
+		// predates the arrays, which is what this branch handles.
+		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, 2)
+		params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{Value: r.SDKKey.Value})
+		if r.SDKKey.Expiring.Value.Defined() {
+			params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{
+				Value:  r.SDKKey.Expiring.Value,
+				Expiry: ToTime(r.SDKKey.Expiring.Timestamp),
+			})
+		}
+	}
+
+	if len(r.MobileKeys) > 0 {
+		// New-format payload: populate directly from the array.
+		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
+		for _, k := range r.MobileKeys {
+			entry := AcceptedMobileKey{
+				Key:      k.Key,
+				Value:    config.MobileKey(k.Value),
+				HasViews: k.HasViews,
+			}
+			if k.Expiry != nil {
+				entry.Expiry = time.UnixMilli(*k.Expiry)
+			}
+			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, entry)
+		}
+	} else {
+		// Old-format payload: synthesize from the singular mobKey field. An empty array means the same
+		// thing it does for SDK keys above: the payload predates the arrays, not that the environment
+		// has no mobile keys, which LaunchDarkly does not produce.
+		//
+		// An undefined mobKey leaves the set empty rather than adding a phantom empty-value entry,
+		// which BuildAcceptedSet would refuse the whole payload for. That combination reaches here
+		// from an offline archive rather than from the stream.
+		params.AcceptedMobileKeys = []AcceptedMobileKey{}
+		if r.MobKey.Defined() {
+			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, AcceptedMobileKey{Value: r.MobKey})
+		}
 	}
 
 	return params

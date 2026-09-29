@@ -70,6 +70,21 @@ func NewPrimaryMobileKeyMissingError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: mobileKeys[] is non-empty but no primary mobile key is designated"}
 }
 
+// NewInvalidCredentialCharactersError reports a key-array entry whose value cannot be sent as an HTTP
+// header value. Relay presents a credential in an Authorization header, so such a value can never
+// authenticate anything upstream. kind is "sdkKeys" or "mobileKeys"; key is the entry's wire
+// identifier. No message here includes a credential value.
+func NewInvalidCredentialCharactersError(kind, key string) *MalformedCredentialSetError {
+	if key == "" {
+		return &MalformedCredentialSetError{
+			msg: fmt.Sprintf("malformed credential set: %s entry has a value that is not valid in an HTTP header", kind),
+		}
+	}
+	return &MalformedCredentialSetError{
+		msg: fmt.Sprintf("malformed credential set: %s entry %q has a value that is not valid in an HTTP header", kind, key),
+	}
+}
+
 // NewEmptyCredentialError reports a key-array entry whose value field is empty. kind is "sdkKeys" or
 // "mobileKeys"; key is the entry's wire identifier, which old-format payloads leave empty.
 func NewEmptyCredentialError(kind, key string) *MalformedCredentialSetError {
