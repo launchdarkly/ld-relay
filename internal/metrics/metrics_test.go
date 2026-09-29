@@ -314,6 +314,39 @@ func TestRequestCounterAccumulatesAcrossRequests(t *testing.T) {
 	})
 }
 
+// A client deploy changes launchdarkly.application.version. On the active-request UpDownCounter that
+// would leave a series behind per version for the life of the process, so the view drops it there and
+// both versions share one series. The request counter keeps it.
+func TestActiveRequestsDropApplicationVersion(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(append(viewOptions(), sdkmetric.WithReader(reader))...)
+	instruments, err := NewInstrumentsForTest(meterProvider.Meter("ld-relay"))
+	require.NoError(t, err)
+
+	env := &EnvironmentManager{envKVs: []attribute.KeyValue{envNameAttrKey.String("testenv")}}
+	for _, version := range []string{"1.0.0", "1.0.1"} {
+		ri := RequestInfo{Route: "/sdk/stream", Method: "GET", ApplicationID: "my-app",
+			ApplicationVersion: version, EndpointType: EndpointTypeStream}
+		t.Cleanup(StartActiveRequest(instruments, env, ri))
+	}
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	m := findMetric(&rm, connMeasureName)
+	require.NotNil(t, m, "active requests metric not found")
+	points := m.Data.(metricdata.Sum[int64]).DataPoints
+	require.Len(t, points, 1, "both versions should share one series")
+	assert.Equal(t, int64(2), points[0].Value)
+	_, ok := points[0].Attributes.Value(applicationVersionAttrKey)
+	assert.False(t, ok, "%s should not carry %s", connMeasureName, applicationVersionAttrKey)
+	assertHasAttribute(t, m, applicationIDAttrKey, "my-app")
+
+	m = findMetric(&rm, requestsMeasureName)
+	require.NotNil(t, m, "requests metric not found")
+	assert.Len(t, m.Data.(metricdata.Sum[int64]).DataPoints, 2, "the request counter keeps the version")
+}
+
 func assertHasAttribute(t *testing.T, m *metricdata.Metrics, key attribute.Key, expected string) {
 	t.Helper()
 	sum, ok := m.Data.(metricdata.Sum[int64])
