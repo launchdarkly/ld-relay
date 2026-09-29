@@ -85,10 +85,7 @@ func NewManager(
 			return nil, err
 		}
 		opts = append(opts, sdkmetric.WithResource(res))
-		opts = append(opts, sdkmetric.WithView(sdkmetric.NewView(
-			sdkmetric.Instrument{Name: requestDurationMeasureName},
-			sdkmetric.Stream{Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}},
-		)))
+		opts = append(opts, viewOptions()...)
 		opts = append(opts, cardinalityLimitOptions(otlpConfig, logger)...)
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
@@ -124,6 +121,27 @@ func NewManager(
 	go m.consumeUsageStats()
 
 	return m, nil
+}
+
+// viewOptions returns the views Relay applies to its own instruments.
+//
+// http.server.active_requests drops launchdarkly.application.version. It is an UpDownCounter, which
+// stays cumulative even under the delta temporality preference, so the SDK keeps every attribute set
+// it has seen until the process exits. Client versions change with every client deploy, so on a
+// long-running Relay that set grows until it reaches the cardinality limit and new requests fall into
+// the attribute-less overflow series. The other request instruments keep the version: under the delta
+// preference their attribute sets reset every collection cycle.
+func viewOptions() []sdkmetric.Option {
+	return []sdkmetric.Option{
+		sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{Name: requestDurationMeasureName},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}},
+		)),
+		sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{Name: connMeasureName},
+			sdkmetric.Stream{AttributeFilter: attribute.NewDenyKeysFilter(applicationVersionAttrKey)},
+		)),
+	}
 }
 
 // cardinalityLimitOptions returns the MeterProvider options implied by the configured cardinality

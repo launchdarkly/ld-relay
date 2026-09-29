@@ -229,8 +229,12 @@ following:
 | `launchdarkly.application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
 | `launchdarkly.relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
-`http.server.active_requests` and `launchdarkly.relay.requests` carry exactly the attributes above, so
-the two can be joined. Neither can report anything that is only known once the handler has finished,
+`launchdarkly.relay.requests` carries exactly the attributes above. `http.server.active_requests`
+carries all of them except `launchdarkly.application.version`: it is an UpDownCounter, which stays
+cumulative under every temporality preference, so it would hold a series for every client version it
+had ever seen until the process restarted, and on a long-running Relay Proxy those series would fill
+the [cardinality limit](#cardinality-limit). The two can still be joined on every other attribute.
+Neither can report anything that is only known once the handler has finished,
 because both are recorded when the request starts: `http.server.active_requests` would leak a
 permanently non-zero series if its increment and decrement disagreed on the attributes.
 `http.server.request.duration` is recorded at the end of the request, so it additionally carries
