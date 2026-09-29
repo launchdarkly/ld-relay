@@ -114,6 +114,11 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 	} else {
 		// Old-format payload: synthesize AcceptedSDKKeys from the singular sdkKey fields, so the model
 		// is always non-nil. The old format carried no identifier, so Key stays empty.
+		//
+		// A present-but-empty array cannot be told from an absent one here, and does not need to be:
+		// every LaunchDarkly environment has at least one global key of each kind, so the new format
+		// never states "this environment has no SDK keys". An empty array therefore means the payload
+		// predates the arrays, which is what this branch handles.
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, 2)
 		params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{Value: r.SDKKey.Value})
 		if r.SDKKey.Expiring.Value.Defined() {
@@ -139,9 +144,13 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, entry)
 		}
 	} else {
-		// Old-format payload: synthesize from the singular mobKey field. An undefined mobKey means the
-		// environment has no mobile key, so leave the set empty. A phantom empty-value entry would make
-		// BuildAcceptedSet reject the payload.
+		// Old-format payload: synthesize from the singular mobKey field. An empty array means the same
+		// thing it does for SDK keys above: the payload predates the arrays, not that the environment
+		// has no mobile keys, which LaunchDarkly does not produce.
+		//
+		// An undefined mobKey leaves the set empty rather than adding a phantom empty-value entry,
+		// which BuildAcceptedSet would refuse the whole payload for. That combination reaches here
+		// from an offline archive rather than from the stream.
 		params.AcceptedMobileKeys = []AcceptedMobileKey{}
 		if r.MobKey.Defined() {
 			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, AcceptedMobileKey{Value: r.MobKey})

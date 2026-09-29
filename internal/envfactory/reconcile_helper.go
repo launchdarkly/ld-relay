@@ -20,7 +20,7 @@ import (
 // the stream with jitter.
 //
 // It filters out keys scoped to a view and names them in the second return value, so callers can log
-// what they dropped. An SDK presenting one gets a 401, because the key is absent from the lookup map.
+// what they dropped.
 //
 // Every value must be legal in an HTTP header. Relay sends a credential in an Authorization header,
 // and the SDK refuses to re-key a client with a value it cannot send, which would fail a re-anchor
@@ -84,6 +84,11 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 
 	// Add every accepted mobile key, designating the primary on the way. WithPrimaryMobileKey forces
 	// the primary permanent, as WithAnchor does for the anchor.
+	//
+	// The two designated keys are named differently -- the SDK one is the anchor, the mobile one is
+	// the primary -- which reads as an inconsistency here, because these two loops are otherwise
+	// mirror images. The names come from v8 and are due to be unified in v10. Renaming either one now
+	// would reach well beyond this function, so they stay as they are.
 	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
@@ -111,16 +116,19 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 	}
 
 	// mobileKeys[] with no designated primary is malformed. Refer to NewPrimaryMobileKeyMissingError.
-	// An empty array with an undefined mobKey stays valid: a server-side-only environment.
+	//
+	// An empty array with an undefined mobKey is accepted, as a server-side-only environment. That
+	// shape does not come from LaunchDarkly: every environment there has at least one global key of
+	// each kind, so the stream always names a mobile key. It can come from an offline archive that
+	// was assembled by hand, and relay can serve such an environment, so it is not refused.
 	if len(params.AcceptedMobileKeys) > 0 && !params.MobileKey.Defined() {
 		return credential.AcceptedSet{}, nil, credential.NewPrimaryMobileKeyMissingError()
 	}
 
+	// Build returns a zero set with its error, and callers stop at a non-nil error without reading
+	// the rest, so there is nothing to unpack here.
 	set, err := b.Build()
-	if err != nil {
-		return credential.AcceptedSet{}, nil, err
-	}
-	return set, rejected, nil
+	return set, rejected, err
 }
 
 // isValidHTTPHeaderValue reports whether s can be sent as an HTTP header value. It mirrors the check
