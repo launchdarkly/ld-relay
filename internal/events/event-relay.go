@@ -48,13 +48,7 @@ type analyticsEventEndpointDispatcher struct {
 	eventQueueCleanupInterval time.Duration
 	eventMetrics              EventMetrics
 	logger                    *slog.Logger
-	// stopped means the environment has no credential of this endpoint's kind, so there is nothing
-	// to forward with. The credential that was just revoked must not gain a live relay again, and
-	// the revocation check in dispatch and the lazy getter cannot do that atomically on their own,
-	// so the getters return nil while this is set. replaceCredential clears it when a usable
-	// credential arrives, so the getters build on that key from then on.
-	stopped bool
-	mu      sync.Mutex
+	mu                        sync.Mutex
 }
 
 type diagnosticEventEndpointDispatcher struct {
@@ -92,59 +86,18 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 
 		r.logger.Debug("received events to be proxied", "count", len(evts), "schemaVersion", metadata.SchemaVersion, "remotePath", r.remotePath)
 
-		// The credential this endpoint forwards with may have been revoked. A request can still
-		// arrive: the middleware authenticates before the connection mapping comes down, and the
-		// body read that precedes this is paced by the client. The getters decline while stopped,
-		// and the revocation check and the relay lookup cannot interleave, so a dropped post is
-		// answered 202 by consumeEvents and never reaches LaunchDarkly.
 		if metadata.SchemaVersion < SummaryEventsSchemaVersion {
-			r.enqueueWith(r.getSummarizingRelay(), metadata, evts)
+			r.getSummarizingRelay().enqueue(metadata, evts)
 			return
 		}
 
 		if _, ok := req.Header[http.CanonicalHeaderKey(EventUnsummarizedHeader)]; ok {
-			r.enqueueWith(r.getSummarizingRelay(), metadata, evts)
+			r.getSummarizingRelay().enqueue(metadata, evts)
 			return
 		}
 
-		r.forward(r.getVerbatimRelay(), metadata, evts)
+		r.getVerbatimRelay().enqueue(metadata, evts)
 	})
-}
-
-// enqueueWith enqueues into a summarizing relay, or notes the drop when the endpoint is stopped
-// and forwarded nothing. The post was already answered 202 by consumeEvents.
-func (r *analyticsEventEndpointDispatcher) enqueueWith(
-	relay *eventSummarizingRelay,
-	metadata EventPayloadMetadata,
-	evts []json.RawMessage,
-) {
-	if relay == nil {
-		r.dropRevoked()
-		return
-	}
-	relay.enqueue(metadata, evts)
-}
-
-// forward enqueues into a verbatim relay, or notes the drop when the endpoint is stopped and
-// forwarded nothing. The post was already answered 202 by consumeEvents.
-func (r *analyticsEventEndpointDispatcher) forward(
-	relay *eventVerbatimRelay,
-	metadata EventPayloadMetadata,
-	evts []json.RawMessage,
-) {
-	if relay == nil {
-		r.dropRevoked()
-		return
-	}
-	relay.enqueue(metadata, evts)
-}
-
-// dropRevoked notes a post that reached the endpoint after forwarding stopped. Dropping it keeps
-// the post from rebuilding a relay on the revoked credential, which would then outlive the
-// revocation.
-func (r *analyticsEventEndpointDispatcher) dropRevoked() {
-	r.logger.Warn("discarding events for a credential that is no longer accepted",
-		"remotePath", r.remotePath)
 }
 
 func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential credential.SDKCredential) {
@@ -152,35 +105,12 @@ func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential crede
 	defer r.mu.Unlock()
 	if reflect.TypeOf(r.authKey) == reflect.TypeOf(newCredential) {
 		r.authKey = newCredential
-		// A usable credential of this kind is back, so forwarding resumes. The relays are nil after
-		// closeAndRelease, so the next event builds them on this credential.
-		r.stopped = false
 		if r.summarizingRelay != nil {
 			r.summarizingRelay.replaceCredential(newCredential)
 		}
 		if r.verbatimRelay != nil {
 			r.verbatimRelay.publisher.ReplaceCredential(newCredential)
 		}
-	}
-}
-
-// closeAndRelease shuts the relays down and drops them. The endpoint keeps its configuration and its
-// credential, so the lazy getters build live relays again if events start flowing.
-//
-// Use this, not close, when the environment has lost the credential this endpoint forwards with.
-// close leaves the closed relays in place, and a later event enqueues into a relay whose goroutine
-// has exited, so the post is accepted and nothing is ever sent.
-func (r *analyticsEventEndpointDispatcher) closeAndRelease() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.stopped = true
-	if r.summarizingRelay != nil {
-		r.summarizingRelay.close()
-		r.summarizingRelay = nil
-	}
-	if r.verbatimRelay != nil {
-		r.verbatimRelay.close()
-		r.verbatimRelay = nil
 	}
 }
 
@@ -242,9 +172,6 @@ func consumeEvents(w http.ResponseWriter, req *http.Request, logger *slog.Logger
 func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.stopped {
-		return nil
-	}
 	if r.verbatimRelay == nil {
 		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.logger, r.remotePath,
 			OptionEventMetrics{EventMetrics: r.eventMetrics})
@@ -255,9 +182,6 @@ func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRela
 func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.stopped {
-		return nil
-	}
 	if r.summarizingRelay == nil {
 		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.wrapper,
 			r.logger, r.remotePath, r.eventQueueCleanupInterval, r.eventMetrics)
@@ -318,25 +242,6 @@ func (r *EventDispatcher) Close() {
 	}
 	// diagnosticEventEndpointDispatcher doesn't currently need to be closed, because it doesn't maintain any
 	// goroutines or channels
-}
-
-// StopForwarding shuts down the analytics endpoint that forwards events with the given kind of
-// credential. Use it when the environment no longer has a credential of that kind, so the endpoint
-// does not keep a revoked credential and its goroutines alive for the life of the environment.
-//
-// It does not rescue whatever the endpoint has already queued. Shutting down runs a final flush,
-// which goes out on the credential that was just revoked and is refused. Nothing can deliver those
-// events: LaunchDarkly revoked the key before relay was told about it. The value here is bounding the
-// endpoint rather than saving the batch.
-//
-// The endpoint itself survives, and so does its configuration, so a later payload that restores a
-// credential of this kind makes it forward again: ReplaceCredential sets the new credential and the
-// next event builds live relays from it. The endpoint also stays in the map, because GetHandler reads
-// the map without a lock.
-func (r *EventDispatcher) StopForwarding(sdkKind basictypes.SDKKind) {
-	if e, ok := r.analyticsEndpoints[sdkKind]; ok {
-		e.closeAndRelease()
-	}
 }
 
 func (r *EventDispatcher) flush() { //nolint:unused // used only in tests

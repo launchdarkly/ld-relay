@@ -233,10 +233,6 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 type ReconcileResult struct {
 	AnchorChange         *AnchorChange
 	MobilePrimaryRepoint *config.MobileKey
-	// MobilePrimaryRevoked is true when the environment had a primary mobile key and the new set has
-	// none. There is nothing to repoint to, so the caller must stop forwarding mobile events rather
-	// than leave them going out on the revoked key.
-	MobilePrimaryRevoked bool
 }
 
 // AnchorChange describes an SDK anchor transition produced by Reconcile.
@@ -305,9 +301,6 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 		m := newMobile
 		result.MobilePrimaryRepoint = &m
 	}
-	// A server-side-only payload leaves no mobile key to repoint onto, so say so explicitly. Without
-	// this the caller has no signal and keeps forwarding on a key the payload revoked.
-	result.MobilePrimaryRevoked = previousMobile.Defined() && !newMobile.Defined()
 
 	r.reconcileEnvironmentID(set)
 
