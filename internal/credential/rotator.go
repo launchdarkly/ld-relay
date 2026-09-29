@@ -72,11 +72,18 @@ func NewRotator(logger *slog.Logger) *Rotator {
 }
 
 // Initialize sets an environment's initial credentials: the anchor SDK key, the primary mobile key and
-// the environment ID. Each is stored only if it is defined, because an environment legitimately runs
-// without a mobile key or without an environment ID.
+// the environment ID. It runs for every environment as it is constructed, seeded from that
+// environment's configuration.
+//
+// Each credential is stored only if it is defined, and manual configuration is the reason: an
+// environment configured by hand can legitimately have no mobile key and no environment ID, so those
+// two checks are load-bearing rather than defensive. An environment that came from the
+// auto-configuration stream or an offline archive always has all three, because every LaunchDarkly
+// environment has at least one global key of each kind.
 //
 // It takes one credential of each kind rather than a set: an environment starts from a single
-// configured SDK key, and any further accepted keys arrive later, through Reconcile.
+// configured SDK key, and any further accepted keys arrive later, through Reconcile. Manually
+// configured environments are never reconciled, so for them this is the whole credential set.
 func (r *Rotator) Initialize(sdkKey config.SDKKey, mobileKey config.MobileKey, envID config.EnvironmentID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
