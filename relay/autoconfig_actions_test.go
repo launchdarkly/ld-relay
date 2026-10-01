@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -167,13 +168,11 @@ func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
 	}
 	initialEvent := makeAutoConfPutEvent(envWithKeys)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-		client2 := p.awaitClient()
-		if client1.Key == oldKey {
-			client1, client2 = client2, client1
-		}
-		assert.Equal(t, newKey, client1.Key)
-		assert.Equal(t, oldKey, client2.Key)
+		// An environment gets one client, built on its anchor. The expiring key authenticates
+		// downstream traffic but opens no upstream connection of its own.
+		client := p.awaitClient()
+		assert.Equal(t, newKey, client.Key)
+		p.shouldNotCreateClient(time.Millisecond * 100)
 
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
@@ -251,25 +250,28 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		p.stream.Enqueue(makeAutoConfPatchEvent(envWithKeys))
 
-		client1 := p.awaitClient()
-		client2 := p.awaitClient()
-		if client1.Key == oldKey {
-			client1, client2 = client2, client1
-		}
-		assert.Equal(t, newKey, client1.Key)
-		assert.Equal(t, oldKey, client2.Key)
+		// An environment gets one client, built on its anchor. The expiring key authenticates
+		// downstream traffic but opens no upstream connection of its own.
+		client := p.awaitClient()
+		assert.Equal(t, newKey, client.Key)
+		p.shouldNotCreateClient(time.Millisecond * 100)
 
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
 
-		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.SDKKey())
-		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
+		// The designated credentials are the new key, the mobile key and the environment ID. The whole
+		// accepted set additionally carries the expiring key, which is what keeps SDKs on it working.
+		assert.Equal(t, credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.SDKKey()),
+			designatedCredentials(env))
+		assert.Equal(t, credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.SDKKey(), oldKey),
+			credentialsAsSet(env.GetCredentials()...))
+		assert.Equal(t, []credential.SDKCredential{oldKey}, env.GetDeprecatedCredentials())
 
 		paramsWithOldKey := envWithKeys.params()
 		paramsWithOldKey.SDKKey = oldKey
 		p.assertEnvLookup(env, paramsWithOldKey)
 
-		if !helpers.AssertChannelNotClosed(t, client2.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
+		if !helpers.AssertChannelNotClosed(t, client.CloseCh, time.Millisecond*300, "should not have closed the environment's client") {
 			t.FailNow()
 		}
 	})

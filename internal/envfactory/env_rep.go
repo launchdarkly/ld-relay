@@ -65,17 +65,6 @@ type ExpiringKeyRep struct {
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
 }
 
-func (e ExpiringKeyRep) ToParams() ExpiringSDKKey {
-	if e.Value.Defined() {
-		return ExpiringSDKKey{
-			Key:        e.Value,
-			Expiration: ToTime(e.Timestamp),
-		}
-	} else {
-		return ExpiringSDKKey{}
-	}
-}
-
 func ToTime(millisecondTime ldtime.UnixMillisecondTime) time.Time {
 	return time.UnixMilli(int64(millisecondTime)) //nolint: gosec
 }
@@ -90,11 +79,10 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			ProjKey:  r.ProjKey,
 			ProjName: r.ProjName,
 		},
-		SDKKey:         r.SDKKey.Value,
-		ExpiringSDKKey: r.SDKKey.Expiring.ToParams(),
-		MobileKey:      r.MobKey,
-		TTL:            time.Duration(r.DefaultTTL) * time.Minute,
-		SecureMode:     r.SecureMode,
+		SDKKey:     r.SDKKey.Value,
+		MobileKey:  r.MobKey,
+		TTL:        time.Duration(r.DefaultTTL) * time.Minute,
+		SecureMode: r.SecureMode,
 	}
 
 	if len(r.SDKKeys) > 0 {
