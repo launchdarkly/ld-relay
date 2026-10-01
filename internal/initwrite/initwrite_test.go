@@ -208,13 +208,47 @@ func TestWriteReArmsEachChunk(t *testing.T) {
 
 func TestWriteRatchetSuppressesSameValueReArm(t *testing.T) {
 	base := newDeadlineConn()
-	// No clock advance: every chunk computes the same deadline, so the ratchet should arm once
-	// and suppress the rest. (A removed ratchet would arm on every chunk.)
-	w, _ := wrapClocked(base, 5*time.Minute, false)
+	// The cap clamps every chunk to the same deadline, so the ratchet should arm once and
+	// suppress the rest. (A removed ratchet would arm on every chunk.)
+	w, _ := wrapClocked(base, 10*time.Second, false)
 
 	_, err := w.Write(make([]byte, 3*chunkSize))
 	require.NoError(t, err)
 	assert.Len(t, base.armed(), 1, "identical deadlines must not be re-armed")
+}
+
+func TestWriteDeadlineIsCumulativeAcrossChunks(t *testing.T) {
+	base := newDeadlineConn()
+	w, c := wrapClocked(base, 5*time.Minute, false)
+
+	// No clock advance. Each chunk extends the deadline by its own 16s at the floor, counted
+	// from the unit's start, so the third chunk's deadline is 3 x 16s + 5s.
+	start := c.now()
+	_, err := w.Write(make([]byte, 3*chunkSize))
+	require.NoError(t, err)
+	armed := base.armed()
+	require.Len(t, armed, 3)
+	assert.Equal(t, 21*time.Second, armed[0].Sub(start))
+	assert.Equal(t, 37*time.Second, armed[1].Sub(start))
+	assert.Equal(t, 53*time.Second, armed[2].Sub(start))
+}
+
+func TestCumulativeDeadlineFallsBehindSlowClient(t *testing.T) {
+	base := newDeadlineConn()
+	// Each 1 KiB write takes 31.25ms, which is half the 64 KiB/s floor. A per-write budget
+	// would give every write a fresh 5s slack, so the client would never fall behind.
+	base.advancePerWrite = 31250 * time.Microsecond
+	w, c := wrapClocked(base, 0, false)
+
+	for i := 0; i < 400; i++ {
+		_, err := w.Write(make([]byte, 1024))
+		require.NoError(t, err)
+	}
+	armed := base.armed()
+	// After 400 writes the client has used 12.5s for 400 KiB, which the floor allows 6.25s
+	// plus the 5s slack. The connection's deadline has passed.
+	assert.True(t, armed[len(armed)-1].Before(c.now()),
+		"the deadline %v should be before now %v", armed[len(armed)-1], c.now())
 }
 
 func TestWriteCapsDeadlineAtMaxHold(t *testing.T) {
@@ -974,18 +1008,20 @@ func TestMaxHoldAnchoredToDeliveryStartNotPerWrite(t *testing.T) {
 
 func TestMinExtensionSkipsTrivialReArms(t *testing.T) {
 	base := newDeadlineConn()
-	base.advancePerWrite = 50 * time.Millisecond // half of minExtension per chunk
 	w, c := wrapClocked(base, 5*time.Minute, false)
 
-	// Chunk 1 arms start+21s. Chunk 2's deadline is only 50ms later -- below minExtension, so it
-	// is skipped. Chunk 3's is 100ms later than the armed one -- at the threshold, so it arms.
+	// Each 1 KiB write adds 15.625ms at the floor. The first write arms start+5.015625s. The
+	// next six writes each move the deadline by less than minExtension in total, so they are
+	// skipped. The eighth is 109.375ms past the armed deadline, so it arms.
 	start := c.now()
-	_, err := w.Write(make([]byte, 3*chunkSize))
-	require.NoError(t, err)
+	for i := 0; i < 8; i++ {
+		_, err := w.Write(make([]byte, 1024))
+		require.NoError(t, err)
+	}
 	armed := base.armed()
 	require.Len(t, armed, 2, "sub-minExtension re-arms must be skipped")
-	assert.Equal(t, 21*time.Second, armed[0].Sub(start))
-	assert.Equal(t, 21*time.Second+100*time.Millisecond, armed[1].Sub(start))
+	assert.Equal(t, 5*time.Second+15625*time.Microsecond, armed[0].Sub(start))
+	assert.Equal(t, 5*time.Second+125*time.Millisecond, armed[1].Sub(start))
 }
 
 func TestArmIsNoOpAfterDeliveryEnds(t *testing.T) {
