@@ -75,14 +75,21 @@ func AcquireInitSlot(limiter *concurrency.Limiter, recorder InitShedRecorder, w 
 // is acquired on entry and held until the handler returns, and the response is written through
 // a progress-aware writer (see initwrite) so a slow or stalled client cannot park the slot. On
 // shed it responds 503 and does not invoke the wrapped handler. A disabled or nil limiter is a
-// pass-through with zero overhead. Handlers that have a cheap no-payload branch (the FDv2
+// pass-through to WriteDeadline(unit). Handlers that have a cheap no-payload branch (the FDv2
 // polls) should instead call AcquireInitSlot directly, after that branch, so the cheap reply
-// is not charged.
-func LimitConcurrency(limiter *concurrency.Limiter, maxHold time.Duration, recorder InitShedRecorder) func(http.Handler) http.Handler {
+// is not charged. When the limiter is enabled, the response uses the initialization-delivery
+// limits, with the floor of unit if that is higher (see initwrite.DeliveryLimits).
+func LimitConcurrency(
+	limiter *concurrency.Limiter,
+	maxHold time.Duration,
+	recorder InitShedRecorder,
+	unit *initwrite.Limits,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if !limiter.Enabled() {
-			return next
+			return WriteDeadline(unit)(next)
 		}
+		limits := initwrite.DeliveryLimits(maxHold, unit)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			release, ok := AcquireInitSlot(limiter, recorder, w, r)
 			if !ok {
@@ -90,7 +97,24 @@ func LimitConcurrency(limiter *concurrency.Limiter, maxHold time.Duration, recor
 			}
 			defer release()
 			defer clearWriteDeadline(w)
-			next.ServeHTTP(initwrite.Wrap(w, maxHold), r)
+			next.ServeHTTP(initwrite.WrapResponse(w, limits), r)
+		})
+	}
+}
+
+// WriteDeadline wraps a handler whose whole response is one unit of output, such as a poll or
+// an evaluation, in a write deadline with the given limits (see initwrite). A client that stops
+// reading has its write fail and its connection closed. With unit nil, the handler is returned
+// as it is.
+func WriteDeadline(unit *initwrite.Limits) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if unit == nil {
+			return next
+		}
+		limits := *unit
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer clearWriteDeadline(w)
+			next.ServeHTTP(initwrite.WrapResponse(w, limits), r)
 		})
 	}
 }
@@ -106,16 +130,24 @@ func clearWriteDeadline(w http.ResponseWriter) {
 // downstream handler via the request context, without acquiring a slot, and wraps the response
 // in the progress-aware writer. It is used for the FDv2 poll endpoints, whose handlers acquire
 // lazily (via AcquireInitSlotFromContext) only on the full-basis branch, so a cheap up-to-date
-// reply is never charged. A disabled or nil limiter is a pass-through with zero overhead.
-func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration, recorder InitShedRecorder) func(http.Handler) http.Handler {
+// reply is never charged. A disabled or nil limiter is a pass-through to WriteDeadline(unit).
+// When the limiter is enabled, the response uses the initialization-delivery limits, with the
+// floor of unit if that is higher (see initwrite.DeliveryLimits).
+func ProvideInitLimiter(
+	limiter *concurrency.Limiter,
+	maxHold time.Duration,
+	recorder InitShedRecorder,
+	unit *initwrite.Limits,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if !limiter.Enabled() {
-			return next
+			return WriteDeadline(unit)(next)
 		}
+		limits := initwrite.DeliveryLimits(maxHold, unit)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer clearWriteDeadline(w)
 			ctx := context.WithValue(r.Context(), initLimiterCtxKey{}, initLimiterHolder{limiter: limiter, maxHold: maxHold, recorder: recorder})
-			next.ServeHTTP(initwrite.Wrap(w, maxHold), r.WithContext(ctx))
+			next.ServeHTTP(initwrite.WrapResponse(w, limits), r.WithContext(ctx))
 		})
 	}
 }

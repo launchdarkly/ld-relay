@@ -96,12 +96,17 @@ func (r *Relay) makeRouter() *mux.Router {
 		)
 	}
 
+	// writeDeadline puts a write deadline on a poll or evaluation response when the
+	// Main.ClientWrite* options are set (see initwrite). A response whose route has an init
+	// limiter wrapper gets the deadline from that wrapper instead, so no response has two.
+	writeDeadline := middleware.WriteDeadline(r.clientWriteLimits)
+
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
-	goalsRouter.Use(jsClientSideMiddlewareStack(goalsRouter, metrics.EndpointTypeGoals))
+	goalsRouter.Use(jsClientSideMiddlewareStack(goalsRouter, metrics.EndpointTypeGoals), writeDeadline)
 	goalsRouter.HandleFunc("/{envId}", getGoals).Methods("GET", "OPTIONS")
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
-	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter, metrics.EndpointTypePoll))
+	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter, metrics.EndpointTypePoll), writeDeadline)
 	clientSideSdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("GET", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/context", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("REPORT", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("GET", "OPTIONS")
@@ -124,8 +129,8 @@ func (r *Relay) makeRouter() *mux.Router {
 	// handler instead. The handler takes a slot only on its full-basis branch, and a cheap
 	// up-to-date reply never uses one. Both wrappers are disabled by default and then do
 	// nothing.
-	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
-	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
+	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments(), r.clientWriteLimits)
+	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments(), r.clientWriteLimits)
 
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
@@ -169,19 +174,19 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSidePollStack := serverSideMiddlewareStack(metrics.EndpointTypePoll)
 
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/contexts/{context}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/context", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/contexts/{context}", serverSidePollStack(writeDeadline(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize)))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/context", serverSidePollStack(writeDeadline(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize)))))).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
-	serverSideEvalXRouter.Handle("/users/{context}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{context}", serverSidePollStack(writeDeadline(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize)))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSidePollStack(writeDeadline(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize)))))).Methods("REPORT")
 
 	// PHP SDK endpoints
 	sdkRouter.Handle("/flags", serverSidePollStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler))))).Methods("GET")
 	// The single-flag and single-segment endpoints return one item, and the PHP SDK requests
 	// them for each evaluation. They are not initialization deliveries, so they have no gate.
-	sdkRouter.Handle("/flags/{key}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
-	sdkRouter.Handle("/segments/{key}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags/{key}", serverSidePollStack(writeDeadline(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler))))).Methods("GET")
+	sdkRouter.Handle("/segments/{key}", serverSidePollStack(writeDeadline(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler))))).Methods("GET")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := func(endpointType metrics.EndpointType) mux.MiddlewareFunc {
@@ -192,7 +197,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	}
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
-	msdkRouter.Use(mobileMiddlewareStack(metrics.EndpointTypePoll))
+	msdkRouter.Use(mobileMiddlewareStack(metrics.EndpointTypePoll), writeDeadline)
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
 	msdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("GET")

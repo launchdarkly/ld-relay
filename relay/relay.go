@@ -20,6 +20,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
@@ -68,6 +69,9 @@ type Relay struct {
 	config                        config.Config
 	logger                        *slog.Logger
 	initConcurrency               initConcurrency
+	// clientWriteLimits puts a write deadline on every SDK stream write and poll response. It is
+	// nil unless Main.ClientWriteMinBytesPerSecond is set.
+	clientWriteLimits *initwrite.Limits
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -165,15 +169,20 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		}
 	}
 
+	clientWriteLimits := newClientWriteLimits(c.Main)
+	writeDeadline := streams.WithWriteDeadline(clientWriteLimits)
+
 	r := &Relay{
 		envsByCredential: NewEnvironmentLookup(),
 		serverSideStreamProvider: streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0,
 			streams.WithInitLimiter(initConc.limiter, initConc.sendTimeout),
 			streams.WithInitObserver(metricsManager.InitInstruments()),
-			streams.WithLogger(logger)),
-		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
-		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),
-		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime),
+			streams.WithLogger(logger),
+			writeDeadline),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0, writeDeadline),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime, writeDeadline),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime, writeDeadline),
+		clientWriteLimits:             clientWriteLimits,
 		metricsManager:                metricsManager,
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,

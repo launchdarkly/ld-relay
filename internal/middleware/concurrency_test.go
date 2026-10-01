@@ -17,7 +17,7 @@ import (
 func TestLimitConcurrencyDisabledIsPassThrough(t *testing.T) {
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 0}) // disabled
 	called := false
-	h := LimitConcurrency(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -35,7 +35,7 @@ func TestLimitConcurrencyShedsWhenBudgetFull(t *testing.T) {
 	defer release()
 
 	called := false
-	h := LimitConcurrency(limiter, time.Second, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, nil, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		called = true
 	}))
 	rr := httptest.NewRecorder()
@@ -53,7 +53,7 @@ func TestLimitConcurrencyShedsWhenBudgetFull(t *testing.T) {
 
 func TestLimitConcurrencyReleasesSlotWhenHandlerReturns(t *testing.T) {
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
-	h := LimitConcurrency(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	// Two sequential requests both succeed, which is only possible if the single slot is
@@ -78,7 +78,7 @@ func TestAcquireInitSlotFromContextChargesOnlyWhenProvided(t *testing.T) {
 	assert.Equal(t, int64(0), limiter.Stats().Admitted, "absent limiter must not charge a slot")
 
 	// When ProvideInitLimiter installed the limiter, a full-basis handler charges a slot.
-	provided := ProvideInitLimiter(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	provided := ProvideInitLimiter(limiter, time.Second, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel, ok := AcquireInitSlotFromContext(w, r)
 		require.True(t, ok)
 		defer rel()
@@ -97,7 +97,7 @@ func TestAcquireInitSlotFromContextShedsWhenBudgetFull(t *testing.T) {
 	defer release()
 
 	handlerRan := false
-	provided := ProvideInitLimiter(limiter, time.Second, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	provided := ProvideInitLimiter(limiter, time.Second, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel, ok := AcquireInitSlotFromContext(w, r)
 		if !ok {
 			return
@@ -131,7 +131,7 @@ func TestAcquireInitSlotRecordsAPollShed(t *testing.T) {
 	defer hold()
 
 	rec := &fakePollShedRecorder{}
-	h := LimitConcurrency(limiter, time.Second, rec)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := LimitConcurrency(limiter, time.Second, rec, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("the shed request must not reach the handler")
 	}))
 	w := httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestAcquireInitSlotRecordsAPollShed(t *testing.T) {
 	// An admitted request records nothing.
 	hold()
 	served := false
-	h2 := LimitConcurrency(limiter, time.Second, rec)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served = true }))
+	h2 := LimitConcurrency(limiter, time.Second, rec, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served = true }))
 	h2.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
 	require.True(t, served)
 	require.Len(t, rec.sheds, 1)

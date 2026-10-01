@@ -104,6 +104,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPUnrecognizedSignalExporter(),
 		makeValidConfigOTLPNoEnvironmentStatus(),
 		makeValidConfigProxy(),
+		makeValidConfigClientWriteFloorOnly(),
 	}
 }
 
@@ -131,6 +132,9 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			BigSegmentsStaleThreshold:        ct.NewOptDuration(10 * time.Minute),
 			ExpiredCredentialCleanupInterval: ct.NewOptDuration(1 * time.Minute),
 			PingStreamJitterTime:             ct.NewOptDuration(5 * time.Minute),
+			ClientWriteMinBytesPerSecond:     mustOptIntGreaterThanZero(65536),
+			ClientWriteSlack:                 ct.NewOptDuration(10 * time.Second),
+			ClientWriteMaxTime:               ct.NewOptDuration(2 * time.Minute),
 		}
 		c.Events = EventsConfig{
 			SendEvents:            true,
@@ -203,6 +207,9 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"LD_TTL_krypton":                      "5m",
 		"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "1m",
 		"PING_STREAM_JITTER_TIME":             "5m",
+		"CLIENT_WRITE_MIN_BYTES_PER_SECOND":   "65536",
+		"CLIENT_WRITE_SLACK":                  "10s",
+		"CLIENT_WRITE_MAX_TIME":               "2m",
 	}
 	c.fileContent = `
 [Main]
@@ -217,6 +224,9 @@ HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
 MaxClientRequestBodySize = "5MiB"
 PingStreamJitterTime = 5m
+ClientWriteMinBytesPerSecond = 65536
+ClientWriteSlack = 10s
+ClientWriteMaxTime = 2m
 DisconnectedStatusTime = 3m
 TLSEnabled = 1
 TLSCert = "cert"
@@ -964,6 +974,19 @@ Password = "pass"
 Domain = "domain"
 NTLMAuth = true
 CaCertFiles = "cert"
+`
+	return c
+}
+
+func makeValidConfigClientWriteFloorOnly() testDataValidConfig {
+	c := testDataValidConfig{name: "client write floor only"}
+	c.makeConfig = func(c *Config) {
+		c.Main.ClientWriteMinBytesPerSecond = mustOptIntGreaterThanZero(65536)
+	}
+	c.envVars = map[string]string{"CLIENT_WRITE_MIN_BYTES_PER_SECOND": "65536"}
+	c.fileContent = `
+[Main]
+ClientWriteMinBytesPerSecond = 65536
 `
 	return c
 }

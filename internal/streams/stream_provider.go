@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -75,6 +76,7 @@ type providerOptions struct {
 	sendTimeout  time.Duration
 	logger       *slog.Logger
 	initObserver InitObserver
+	unitLimits   *initwrite.Limits
 }
 
 // InitObserver receives the initialization-delivery measurements the stream provider makes:
@@ -125,6 +127,15 @@ func WithInitLimiter(limiter *concurrency.Limiter, sendTimeout time.Duration) Op
 	}
 }
 
+// WithWriteDeadline puts a write deadline on every write of the stream, with the given unit
+// limits (see the stream shape of initwrite). Every stream kind obeys it. With limits nil, the
+// option does nothing.
+func WithWriteDeadline(limits *initwrite.Limits) Option {
+	return func(o *providerOptions) {
+		o.unitLimits = limits
+	}
+}
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
 // opts adjust the provider, for example WithInitLimiter for the server-side stream. The
 // stream kinds that do not deliver a full basis ignore them.
@@ -138,18 +149,21 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 		return &serverSideFlagsOnlyStreamProvider{
 			fdv1Server: newSSEServer(maxConnTime),
 			fdv2Server: newSSEServer(maxConnTime),
+			unitLimits: o.unitLimits,
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
 			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			isJSClient: false,
+			unitLimits: o.unitLimits,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
 			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			isJSClient: true,
+			unitLimits: o.unitLimits,
 		}
 	default:
 		fdv1, fdv2 := newSSEServer(maxConnTime), newSSEServer(maxConnTime)
@@ -164,6 +178,7 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 			initLimiter:  o.initLimiter,
 			sendTimeout:  o.sendTimeout,
 			initObserver: o.initObserver,
+			unitLimits:   o.unitLimits,
 		}
 	}
 }

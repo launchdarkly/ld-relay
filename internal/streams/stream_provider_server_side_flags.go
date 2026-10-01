@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"golang.org/x/sync/singleflight"
@@ -24,6 +25,7 @@ import (
 type serverSideFlagsOnlyStreamProvider struct {
 	fdv1Server *eventsource.Server
 	fdv2Server *eventsource.Server
+	unitLimits *initwrite.Limits
 	closeOnce  sync.Once
 }
 
@@ -43,14 +45,14 @@ func (s *serverSideFlagsOnlyStreamProvider) HandlerV1(params credential.SDKCrede
 	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
-	return withCloseConnection(s.fdv1Server.Handler(params.String()))
+	return withCloseConnection(withWriteDeadline(s.fdv1Server.Handler(params.String()), s.unitLimits))
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) HandlerV2(params credential.SDKCredential) http.HandlerFunc {
 	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
-	return withCloseConnection(s.fdv2Server.Handler(params.String()))
+	return withCloseConnection(withWriteDeadline(s.fdv2Server.Handler(params.String()), s.unitLimits))
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(

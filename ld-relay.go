@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"time"
 
 	_ "github.com/kardianos/minwinsvc"
 
@@ -115,6 +116,7 @@ func run() int {
 		c.Main.TLSKey,
 		c.Main.TLSMinVersion.Get(),
 		c.Main.GracefulShutdownTimeout.GetOrElse(config.DefaultGracefulShutdownTimeout),
+		http2WriteByteTimeout(c.Main),
 		logger,
 	)
 
@@ -124,4 +126,13 @@ func run() int {
 	}
 
 	return 0
+}
+
+// http2WriteByteTimeout returns the HTTP/2 connection write timeout: the client write slack when
+// the Main.ClientWrite* options are set, and zero otherwise.
+func http2WriteByteTimeout(c config.MainConfig) time.Duration {
+	if !c.ClientWriteMinBytesPerSecond.IsDefined() {
+		return 0
+	}
+	return c.ClientWriteSlack.GetOrElse(config.DefaultClientWriteSlack)
 }

@@ -49,6 +49,16 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
 		makeInvalidConfigRedisTimeout("ConnectTimeout", "REDIS_CONNECT_TIMEOUT", errRedisConnectTimeout),
 		makeInvalidConfigRedisTimeout("ReadTimeout", "REDIS_READ_TIMEOUT", errRedisReadTimeout),
+		makeInvalidConfigClientWrite("slack without floor", errClientWriteWithoutFloor,
+			map[string]string{"CLIENT_WRITE_SLACK": "5s"}),
+		makeInvalidConfigClientWrite("max time without floor", errClientWriteWithoutFloor,
+			map[string]string{"CLIENT_WRITE_MAX_TIME": "1m"}),
+		makeInvalidConfigClientWrite("zero slack", errClientWriteSlack,
+			map[string]string{"CLIENT_WRITE_MIN_BYTES_PER_SECOND": "1024", "CLIENT_WRITE_SLACK": "0s"}),
+		makeInvalidConfigClientWrite("max time below explicit slack", errClientWriteMaxTime,
+			map[string]string{"CLIENT_WRITE_MIN_BYTES_PER_SECOND": "1024", "CLIENT_WRITE_SLACK": "10s", "CLIENT_WRITE_MAX_TIME": "9s"}),
+		makeInvalidConfigClientWrite("max time below default slack", errClientWriteMaxTime,
+			map[string]string{"CLIENT_WRITE_MIN_BYTES_PER_SECOND": "1024", "CLIENT_WRITE_MAX_TIME": "1s"}),
 	}
 }
 
@@ -61,6 +71,26 @@ func makeInvalidConfigRedisTimeout(fileKey, envVar string, err error) testDataIn
 Host = "localhost"
 ` + fileKey + ` = 0s
 `
+	return c
+}
+
+// clientWriteFileKeys maps the client write environment variables to their file keys.
+var clientWriteFileKeys = map[string]string{ //nolint:gochecknoglobals // test-only lookup table
+	"CLIENT_WRITE_MIN_BYTES_PER_SECOND": "ClientWriteMinBytesPerSecond",
+	"CLIENT_WRITE_SLACK":                "ClientWriteSlack",
+	"CLIENT_WRITE_MAX_TIME":             "ClientWriteMaxTime",
+}
+
+func makeInvalidConfigClientWrite(name string, err error, vars map[string]string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "client write " + name}
+	c.envVarsError = err.Error()
+	c.envVars = vars
+	c.fileContent = "\n[Main]\n"
+	for _, k := range []string{"CLIENT_WRITE_MIN_BYTES_PER_SECOND", "CLIENT_WRITE_SLACK", "CLIENT_WRITE_MAX_TIME"} {
+		if v, ok := vars[k]; ok {
+			c.fileContent += clientWriteFileKeys[k] + " = " + v + "\n"
+		}
+	}
 	return c
 }
 

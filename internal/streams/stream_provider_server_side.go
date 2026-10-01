@@ -46,6 +46,9 @@ type serverSideStreamProvider struct {
 	sendTimeout time.Duration
 	// initObserver receives the delivery measurements; nil records nothing.
 	initObserver InitObserver
+	// unitLimits, when not nil, puts a write deadline on every write of the stream, not only
+	// the gated initial delivery (see withInitDeadline).
+	unitLimits *initwrite.Limits
 
 	closeOnce sync.Once
 }
@@ -131,46 +134,41 @@ func closeConnection(ctx context.Context) {
 }
 
 // withInitDeadline wraps an SSE handler. It makes sure a client that holds a budget slot
-// cannot keep it without limit. When the init limiter is enabled, the wrapper does two
+// cannot keep it without limit, and, with unit limits, that no write to a client that stops
+// reading can block without limit. When the init limiter is enabled, the wrapper does two
 // things. First, it wraps the response in a progress-aware write deadline (see initwrite):
 // a client that reads at the throughput floor or faster keeps its connection, and a client
 // that stalls or reads too slowly has its write fail and its connection closed, which frees
 // the slot and causes a clean reconnect. Second, it makes the request context cancelable
-// and supplies a close function, so a shed replay can close the connection. When the
-// limiter is disabled, the wrapper does nothing, and the base behavior applies.
+// and supplies a close function, so a shed replay can close the connection. With unit
+// limits, every write carries a deadline (the stream shape of initwrite), and the gated
+// delivery uses the delivery limits on top. When the limiter is disabled, the wrapper only
+// supplies the close function (see withCloseConnection) and, with unit limits, the write
+// deadline of every write (see withWriteDeadline).
 func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.initLimiter.Enabled() {
-			withCloseConnection(h).ServeHTTP(w, r)
+		limited := s.initLimiter.Enabled()
+		if !limited {
+			withCloseConnection(withWriteDeadline(h.ServeHTTP, s.unitLimits)).ServeHTTP(w, r)
 			return
 		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
 		timeout := s.sendTimeout
 		if timeout <= 0 {
 			timeout = defaultStreamSendTimeout
 		}
-		iw := initwrite.WrapGated(w, timeout)
-		ctx, cancel := context.WithCancel(r.Context())
-		defer cancel()
+		var iw *initwrite.Writer
+		if s.unitLimits != nil {
+			iw = initwrite.WrapStream(w, *s.unitLimits, initwrite.DeliveryLimits(timeout, s.unitLimits))
+		} else {
+			iw = initwrite.WrapGated(w, timeout)
+		}
 		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
 		ctx = context.WithValue(ctx, initWriterKey{}, iw)
-
-		// When the client goes away in the middle of a delivery, the producer releases its
-		// budget slot at once. But a write blocked on the dead socket would continue until
-		// its per-chunk deadline, which can be tens of seconds. This watcher cuts that write
-		// when the context ends, so the memory and the egress of the payload end together
-		// with the slot. The watcher lives strictly inside this handler: the deferred close
-		// below stops it before ServeHTTP returns to net/http, and that is what makes its
-		// deadline call safe. A cut at a normal handler return causes no harm: the
-		// connection is ending, and Cut does nothing unless a delivery is in progress.
-		watcherDone := make(chan struct{})
-		defer func() { cancel(); <-watcherDone }()
-		go func() {
-			defer close(watcherDone)
-			<-ctx.Done()
-			iw.Cut()
-		}()
-
-		h.ServeHTTP(iw, r.WithContext(ctx))
+		// The exit deadline comes with the unit limits. Without them, the limiter alone keeps
+		// its original behavior.
+		serveWithCut(h, iw, r.WithContext(ctx), cancel, s.unitLimits != nil)
 	}
 }
 

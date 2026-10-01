@@ -49,7 +49,7 @@ func withSelfSignedCert(t *testing.T, action func(certFilePath, keyFilePath stri
 func TestStartHTTPServerInsecure(t *testing.T) {
 	port := st.GetAvailablePort(t)
 	logger, handler := logtest.NewMockLogger()
-	server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK), false, "", "", 0, 30*time.Second, logger)
+	server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK), false, "", "", 0, 30*time.Second, 0, logger)
 	require.NotNil(t, server)
 	require.NotNil(t, errCh)
 	require.Eventually(t, func() bool {
@@ -69,7 +69,7 @@ func TestStartHTTPServerSecure(t *testing.T) {
 
 	withSelfSignedCert(t, func(certFilePath, keyFilePath string, certPool *x509.CertPool) {
 		server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK),
-			true, certFilePath, keyFilePath, 0, 30*time.Second, logger)
+			true, certFilePath, keyFilePath, 0, 30*time.Second, 0, logger)
 		require.NotNil(t, server)
 		require.NotNil(t, errCh)
 
@@ -97,7 +97,7 @@ func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 
 	withSelfSignedCert(t, func(certFilePath, keyFilePath string, certPool *x509.CertPool) {
 		server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK),
-			true, certFilePath, keyFilePath, tls.VersionTLS12, 30*time.Second, logger)
+			true, certFilePath, keyFilePath, tls.VersionTLS12, 30*time.Second, 0, logger)
 		require.NotNil(t, server)
 		require.NotNil(t, errCh)
 
@@ -132,7 +132,7 @@ func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 
 func TestStartHTTPServerPortAlreadyUsed(t *testing.T) {
 	st.WithListenerForAnyPort(t, func(l net.Listener, port int) {
-		_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, 30*time.Second, slog.New(slog.DiscardHandler))
+		_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, 30*time.Second, 0, slog.New(slog.DiscardHandler))
 		require.NotNil(t, errCh)
 		err := helpers.RequireValue(t, errCh, time.Second, "timed out waiting for error")
 		assert.NotNil(t, err)
@@ -149,7 +149,7 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	server, errCh := StartHTTPServer(port, slowHandler, false, "", "", 0, 30*time.Second, logger)
+	server, errCh := StartHTTPServer(port, slowHandler, false, "", "", 0, 30*time.Second, 0, logger)
 	require.NotNil(t, server)
 	require.NotNil(t, errCh)
 
@@ -238,6 +238,7 @@ func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 		"",    // No key file
 		0,     // No min TLS version
 		1*time.Second,
+		0, // No HTTP/2 write timeout
 		logger,
 	)
 	require.NotNil(t, server)

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
@@ -20,6 +21,7 @@ type clientSidePingStreamProvider struct {
 	fdv1Server *eventsource.Server
 	fdv2Server *eventsource.Server
 	isJSClient bool
+	unitLimits *initwrite.Limits
 	closeOnce  sync.Once
 }
 
@@ -49,14 +51,14 @@ func (s *clientSidePingStreamProvider) HandlerV1(credential credential.SDKCreden
 	if !s.validateCredential(credential) {
 		return nil
 	}
-	return s.fdv1Server.Handler(credential.String())
+	return withWriteDeadline(s.fdv1Server.Handler(credential.String()), s.unitLimits)
 }
 
 func (s *clientSidePingStreamProvider) HandlerV2(credential credential.SDKCredential) http.HandlerFunc {
 	if !s.validateCredential(credential) {
 		return nil
 	}
-	return s.fdv2Server.Handler(credential.String())
+	return withWriteDeadline(s.fdv2Server.Handler(credential.String()), s.unitLimits)
 }
 
 func (s *clientSidePingStreamProvider) RegisterV1(

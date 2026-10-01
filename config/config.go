@@ -37,6 +37,10 @@ const (
 	// DefaultGracefulShutdownTimeout is the default value for MainConfig.GracefulShutdownTimeout if not specified.
 	DefaultGracefulShutdownTimeout = time.Second * 30
 
+	// DefaultClientWriteSlack is the default value for MainConfig.ClientWriteSlack when
+	// MainConfig.ClientWriteMinBytesPerSecond is set.
+	DefaultClientWriteSlack = time.Second * 5
+
 	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
 	DefaultEventCapacity = 1000
 
@@ -200,6 +204,18 @@ type MainConfig struct {
 	BigSegmentsStaleAsDegraded       bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
 	BigSegmentsStaleThreshold        ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
 	ExpiredCredentialCleanupInterval ct.OptDuration           `conf:"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL"`
+	// ClientWriteMinBytesPerSecond, when set, puts a write deadline on every SDK stream write
+	// and SDK poll response, so a client that stops reading cannot hold a connection open
+	// forever. A client must accept each unit of output at this average rate, plus
+	// ClientWriteSlack, or its connection is closed. It is unset by default.
+	ClientWriteMinBytesPerSecond ct.OptIntGreaterThanZero `conf:"CLIENT_WRITE_MIN_BYTES_PER_SECOND"`
+	// ClientWriteSlack is the fixed allowance that each unit of output gets on top of the
+	// throughput floor. It defaults to DefaultClientWriteSlack. It requires
+	// ClientWriteMinBytesPerSecond.
+	ClientWriteSlack ct.OptDuration `conf:"CLIENT_WRITE_SLACK"`
+	// ClientWriteMaxTime, when set, caps how long one unit of output may take, whatever its
+	// size. It must be at least ClientWriteSlack. It requires ClientWriteMinBytesPerSecond.
+	ClientWriteMaxTime ct.OptDuration `conf:"CLIENT_WRITE_MAX_TIME"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.

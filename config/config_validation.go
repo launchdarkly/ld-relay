@@ -20,6 +20,9 @@ var (
 	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
 	errRedisConnectTimeout             = errors.New("connect timeout for Redis must be greater than zero")
 	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
+	errClientWriteWithoutFloor         = errors.New("CLIENT_WRITE_SLACK and CLIENT_WRITE_MAX_TIME require CLIENT_WRITE_MIN_BYTES_PER_SECOND")
+	errClientWriteSlack                = errors.New("client write slack must be greater than zero")
+	errClientWriteMaxTime              = errors.New("client write max time must be at least the client write slack")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
@@ -89,6 +92,7 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
 	validateMaxClientRequestBodySize(&result, c)
+	validateClientWrite(&result, c)
 	validateConfigMetrics(&result, c, logger)
 	validateMetricsCapacity(c, logger)
 
@@ -208,6 +212,24 @@ func validateMetricsCapacity(c *Config, logger *slog.Logger) {
 		// This value is a constant known to be greater than zero, so the constructor cannot fail.
 		clamped, _ := ct.NewOptIntGreaterThanZero(minimumMetricsCapacity)
 		c.Events.MetricsCapacity = clamped
+	}
+}
+
+func validateClientWrite(result *ct.ValidationResult, c *Config) {
+	m := c.Main
+	if !m.ClientWriteMinBytesPerSecond.IsDefined() {
+		if m.ClientWriteSlack.IsDefined() || m.ClientWriteMaxTime.IsDefined() {
+			result.AddError(nil, errClientWriteWithoutFloor)
+		}
+		return
+	}
+	slack := m.ClientWriteSlack.GetOrElse(DefaultClientWriteSlack)
+	if slack <= 0 {
+		result.AddError(nil, errClientWriteSlack)
+		return
+	}
+	if m.ClientWriteMaxTime.IsDefined() && m.ClientWriteMaxTime.GetOrElse(0) < slack {
+		result.AddError(nil, errClientWriteMaxTime)
 	}
 }
 
