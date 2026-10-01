@@ -83,6 +83,94 @@ func withStartedAutoConfigRelay(t *testing.T, configWithEnvs c.Config, action fu
 	})
 }
 
+// withAutoConfigRelayAndStream is withStartedAutoConfigRelay with the stream handed to the action,
+// so a test can deliver further events after start-up. The plain version keeps the stream private
+// because most tests only need the initial configuration.
+func withAutoConfigRelayAndStream(
+	t *testing.T,
+	configWithEnvs c.Config,
+	action func(relayTestParams, httphelpers.SSEStreamControl),
+) {
+	autoConfigEvent := transformEnvConfigsToAutoConfig(configWithEnvs)
+	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
+	defer autoConfigStream.Close()
+
+	server := httptest.NewServer(autoConfigHandler)
+	defer server.Close()
+
+	fullConfig := configWithEnvs
+	fullConfig.AutoConfig.Key = testAutoConfKey
+	fullConfig.Environment = nil
+	fullConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+
+	withStartedRelayCustom(t, fullConfig, relayTestBehavior{skipWaitForEnvironments: true}, func(p relayTestParams) {
+		waitForAutoConfigInit(t, p.relay, configWithEnvs)
+		action(p, autoConfigStream)
+	})
+}
+
+// makeRefusedPatch builds a patch for env whose sdkKeys array omits the designated key, which
+// BuildAcceptedSet refuses. The JSON is well formed, so this exercises the credential check rather
+// than the parse.
+func makeRefusedPatch(env st.TestEnv, version int) httphelpers.SSEEvent {
+	rep := envfactory.EnvironmentRep{
+		EnvID:    env.Config.EnvID,
+		EnvKey:   env.EnvKey,
+		EnvName:  env.EnvName,
+		ProjKey:  env.ProjKey,
+		ProjName: env.ProjName,
+		MobKey:   env.Config.MobileKey,
+		SDKKey:   envfactory.SDKKeyRep{Value: env.Config.SDKKey},
+		SDKKeys: []envfactory.ConcurrentKeyRep{
+			{Key: "some-other-key", Value: "a-key-that-is-not-the-designated-one"},
+		},
+		Version: version,
+	}
+	data, _ := json.Marshal(autoconfig.PatchMessageData{
+		Path: "/environments/" + string(env.Config.EnvID),
+		Data: mustMarshalJSON(rep),
+	})
+	return httphelpers.SSEEvent{Event: autoconfig.PatchEvent, Data: string(data)}
+}
+
+func mustMarshalJSON(v interface{}) json.RawMessage {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func TestAutoConfigRefusedPatchLeavesTheEnvironmentServingItsPreviousCredentials(t *testing.T) {
+	// The stream manager validates a credential payload before the message receiver records its
+	// version, so a refused patch never reaches the relay at all. This asserts the consequence that
+	// matters to an operator, which no test covered end to end: the environment stays in the
+	// document and its existing credentials keep working, rather than being torn down or replaced
+	// by the unusable ones the patch carried.
+	basic := testEnvBasic.Config
+	config := c.Config{Environment: map[string]*c.EnvConfig{"basic": &basic}}
+
+	withAutoConfigRelayAndStream(t, config, func(p relayTestParams, stream httphelpers.SSEStreamControl) {
+		_, err := p.relay.getEnvironment(testEnvBasic.Config.SDKKey)
+		require.NoError(t, err, "the environment must be serving before the refused patch")
+
+		stream.Enqueue(makeRefusedPatch(testEnvBasic, 1))
+
+		// The refusal is reported on the auto-config status, which is the signal an operator has.
+		require.Eventually(t, func() bool {
+			document := fetchStatusDocument(t, p.relay)
+			return document.GetByKey("autoConfigStatus").GetByKey("lastError").
+				GetByKey("kind").StringValue() == "INVALID_DATA"
+		}, 2*time.Second, 20*time.Millisecond, "the refusal must be reported on autoConfigStatus")
+
+		// The environment is untouched: still served, still on the credentials it had.
+		_, err = p.relay.getEnvironment(testEnvBasic.Config.SDKKey)
+		assert.NoError(t, err, "a refused patch must not revoke the credentials that were working")
+		_, err = p.relay.getEnvironment(c.SDKKey("a-key-that-is-not-the-designated-one"))
+		assert.Error(t, err, "a key from a refused patch must not authenticate")
+	})
+}
+
 func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
 		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep),
