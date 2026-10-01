@@ -52,7 +52,7 @@ whatever the environment count.
 | `launchdarkly.relay.environment.status.count` | Gauge | `{environment}` | Environments that are `connected` or `disconnected`. |
 | `launchdarkly.relay.environment.connection.state.count` | Gauge | `{environment}` | Environments whose data source is in each state: `VALID`, `INITIALIZING`, `INTERRUPTED`, `OFF`. |
 | `launchdarkly.relay.environment.datastore.state.count` | Gauge | `{environment}` | Environments whose data store is in each state: `VALID`, `INITIALIZING`, `INTERRUPTED`. |
-| `launchdarkly.relay.environment.expiring_key.count` | Gauge | `{environment}` | Environments still serving an expiring SDK key. |
+| `launchdarkly.relay.environment.expiring_key.count` | Gauge | `{environment}` | Environments serving at least one SDK key that carries an expiry. |
 | `launchdarkly.relay.environment.big_segments.unavailable.count` | Gauge | `{environment}` | Environments whose big segment store could not be read. |
 | `launchdarkly.relay.environment.big_segments.stale.count` | Gauge | `{environment}` | Environments whose big segment data is past `bigSegmentsStaleThreshold`. |
 
@@ -84,7 +84,7 @@ series join.
 | `launchdarkly.relay.environment.big_segments.available` | Gauge | `{state}` | Whether the big segment store could be read. Absent without a big segment store. |
 | `launchdarkly.relay.environment.big_segments.stale` | Gauge | `{state}` | Whether the big segment data is past the staleness threshold. |
 | `launchdarkly.relay.environment.big_segments.last_synchronized` | Gauge | `s` | When the big segment data last synchronized, in Unix seconds. Absent until it does. |
-| `launchdarkly.relay.environment.expiring_key` | Gauge | `{state}` | Whether the environment still serves an expiring SDK key. |
+| `launchdarkly.relay.environment.expiring_keys` | Gauge | `{key}` | How many of the environment's SDK keys carry an expiry. |
 | `launchdarkly.relay.environment.info` | Gauge | `{environment}` | Always 1. Carries `launchdarkly.environment.id`, `launchdarkly.environment.key`, `launchdarkly.project.key`, and `launchdarkly.project.name`. |
 | `launchdarkly.relay.environment.datastore.info` | Gauge | `{environment}` | Always 1. Carries `db.system.name`, `server.address`, `launchdarkly.relay.store.prefix`, and `db.collection.name`. Absent for an in-memory store. |
 

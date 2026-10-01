@@ -64,7 +64,7 @@ const (
 	envBigSegmentsAvailMeasureName  = "launchdarkly.relay.environment.big_segments.available"
 	envBigSegmentsStaleMeasureName  = "launchdarkly.relay.environment.big_segments.stale"
 	envBigSegmentsSyncedMeasureName = "launchdarkly.relay.environment.big_segments.last_synchronized"
-	envExpiringKeyMeasureName       = "launchdarkly.relay.environment.expiring_key"
+	envExpiringKeyMeasureName       = "launchdarkly.relay.environment.expiring_keys"
 	envInfoMeasureName              = "launchdarkly.relay.environment.info"
 	envStoreInfoMeasureName         = "launchdarkly.relay.environment.datastore.info"
 

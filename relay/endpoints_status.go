@@ -27,11 +27,16 @@ func statusHandler(relay *Relay) http.Handler {
 		}
 
 		envs, healthy := relay.collectEnvironmentStatuses()
+		servedEnvIDs := make(map[string]bool, len(envs))
 		for _, env := range envs {
 			resp.Environments[env.key] = env.rep
+			if env.rep.EnvID != "" {
+				servedEnvIDs[env.rep.EnvID] = true
+			}
 		}
 
 		resp.AutoConfigStatus = relay.buildAutoConfigStatus()
+		resp.RefusedEnvironments = relay.getRefusedEnvironments(servedEnvIDs)
 
 		if healthy {
 			resp.Status = api.StatusHealthy
@@ -188,23 +193,17 @@ func (r *Relay) buildAutoConfigStatus() *api.AutoConfigStatusRep {
 	return rep
 }
 
-// soonestExpiringSDKKey picks the value for the status resource's expiringSdkKey field: the
-// non-anchor SDK key whose expiry comes first. The field is singular while an environment can accept
-// several expiring keys, so a rule is needed; the value comparison breaks ties, because map iteration
-// order is not stable and both this field and the metrics derived from it must be deterministic.
-func soonestExpiringSDKKey(accepted credential.AcceptedKeySet) (string, bool) {
-	var best string
-	var bestExpiry time.Time
-	for value, info := range accepted.Server {
-		if value == accepted.Anchor || info.Expiry == nil {
-			continue
-		}
-		if best == "" || info.Expiry.Before(bestExpiry) ||
-			(info.Expiry.Equal(bestExpiry) && string(value) < best) {
-			best, bestExpiry = string(value), *info.Expiry
-		}
+// keyStatus converts one accepted credential into its status representation.
+func keyStatus(value string, info credential.AcceptedKey) api.KeyStatus {
+	ks := api.KeyStatus{Value: sdks.ObscureKey(value)}
+	if info.Key != nil {
+		ks.Key = *info.Key
 	}
-	return best, best != ""
+	if info.Expiry != nil {
+		ms := info.Expiry.UnixMilli()
+		ks.Expiry = &ms
+	}
+	return ks
 }
 
 // buildEnvironmentStatus constructs an EnvironmentStatusRep for a single environment.
@@ -237,8 +236,15 @@ func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.Envir
 			status.EnvID = string(envID)
 		}
 	}
-	if expiring, ok := soonestExpiringSDKKey(accepted); ok {
-		status.ExpiringSDKKey = sdks.ObscureKey(expiring)
+	// The arrays are always present, never null: an environment with no mobile key reports an empty
+	// mobileKeys rather than omitting it.
+	status.SDKKeys = make([]api.KeyStatus, 0, len(accepted.Server))
+	for value, info := range accepted.Server {
+		status.SDKKeys = append(status.SDKKeys, keyStatus(string(value), info))
+	}
+	status.MobileKeys = make([]api.KeyStatus, 0, len(accepted.Mobile))
+	for value, info := range accepted.Mobile {
+		status.MobileKeys = append(status.MobileKeys, keyStatus(string(value), info))
 	}
 
 	healthy := true

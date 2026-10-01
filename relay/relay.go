@@ -7,6 +7,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/projmanager"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/api"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfigcache"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
@@ -68,6 +70,58 @@ type Relay struct {
 	config                        config.Config
 	logger                        *slog.Logger
 	initConcurrency               initConcurrency
+	// refusedEnvironments maps an environment Relay would not serve to the reason. It is guarded by
+	// lock, because the auto-configuration goroutine writes it and the status handler reads it.
+	refusedEnvironments map[config.EnvironmentID]string
+}
+
+// setRefusedEnvironments replaces the refusal set. A put is the full environment set, so a refusal
+// for an environment it no longer mentions is retired here rather than kept forever.
+func (r *Relay) setRefusedEnvironments(refused map[config.EnvironmentID]string) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.refusedEnvironments = refused
+}
+
+// refuseEnvironment adds one refusal, for a patch that concerns a single environment.
+func (r *Relay) refuseEnvironment(id config.EnvironmentID, reason string) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if r.refusedEnvironments == nil {
+		r.refusedEnvironments = make(map[config.EnvironmentID]string)
+	}
+	r.refusedEnvironments[id] = reason
+}
+
+// clearRefusedEnvironment retires a refusal, because a later payload for that environment was one
+// Relay could use, or because the environment is gone.
+func (r *Relay) clearRefusedEnvironment(id config.EnvironmentID) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	delete(r.refusedEnvironments, id)
+}
+
+// getRefusedEnvironments returns the refusals, sorted by environment ID so the status document is
+// stable between requests.
+//
+// servedEnvIDs says which environments the same status document reports under its environments
+// block. Taking it from the caller rather than looking each one up again is what keeps the two
+// halves of the document from disagreeing about whether an environment is served.
+func (r *Relay) getRefusedEnvironments(servedEnvIDs map[string]bool) []api.RefusedEnvironmentRep {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	out := make([]api.RefusedEnvironmentRep, 0, len(r.refusedEnvironments))
+	for id, reason := range r.refusedEnvironments {
+		out = append(out, api.RefusedEnvironmentRep{
+			EnvID:   string(id),
+			Reason:  reason,
+			Serving: servedEnvIDs[string(id)],
+		})
+	}
+	slices.SortFunc(out, func(a, b api.RefusedEnvironmentRep) int {
+		return strings.Compare(a.EnvID, b.EnvID)
+	})
+	return out
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
