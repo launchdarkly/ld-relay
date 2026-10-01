@@ -39,16 +39,22 @@ type EnvContext interface {
 
 	// ReconcileCredentials updates the environment's accepted credentials to match newSet. Calls are
 	// serialized. The method owns the order of operations: add, re-anchor, remove. Adding first
-	// registers the new keys' mappings, the re-anchor then moves the upstream connection while the
-	// outgoing key still authenticates downstream traffic, and revoked mappings come down last.
+	// registers the incoming keys' mappings, the re-anchor then re-keys the client, and removals come
+	// last so that the outgoing anchor keeps authenticating downstream traffic until then.
 	//
 	// An environment accepts many SDK keys but talks to LaunchDarkly with exactly one of them, the
-	// anchor. Re-anchoring is moving that designation to a different accepted key. It no longer
-	// builds a replacement client, which is what it meant before: the existing client is re-keyed in
-	// place, so the environment keeps its data store rather than refilling a new one. What remains
-	// to be moved is everything that does not follow the client's key on its own -- the big segment
-	// synchronizer, which bakes its key in at construction, the event dispatcher, and the usage
-	// metrics publisher -- plus the rotator's own record of which key is the anchor.
+	// anchor. Re-anchoring moves that designation to a different accepted key. It no longer builds a
+	// replacement client, which is what it meant before: the existing client is re-keyed in place, so
+	// the environment keeps its data store rather than refilling a new one. What remains to be moved
+	// is everything that does not follow the client's key on its own -- the big segment synchronizer,
+	// which bakes its key in at construction, the event dispatcher, and the usage metrics publisher --
+	// plus the rotator's own record of which key is the anchor.
+	//
+	// It does not move the environment's upstream connection. SetSDKKey changes the credential future
+	// requests carry, and a stream that is already open keeps the previous key until it reconnects.
+	// During a graceful rotation that matters: the outgoing key is kept alive for its grace period
+	// precisely so it stays usable, and a healthy stream can outlast that window, so Relay may go on
+	// consuming flag data on the deprecated key well after reporting the rotation applied.
 	//
 	// newSet is assumed well-formed, because envfactory.BuildAcceptedSet validated it.
 	ReconcileCredentials(newSet credential.AcceptedSet)

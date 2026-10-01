@@ -605,8 +605,17 @@ func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now t
 	}
 }
 
-// reanchor moves the environment's upstream connection to change.NewAnchor by re-keying the existing
-// SDK client. It reports whether the anchor moved.
+// reanchor re-keys the environment's existing SDK client onto change.NewAnchor and moves the
+// designation to it. It reports whether the anchor moved.
+//
+// It does not move the upstream connection, despite what "re-anchor" suggests. SetSDKKey changes the
+// credential that future requests carry; a stream that is already open is not closed, and goes on
+// running on the previous key until LaunchDarkly or the network ends it, at which point the client
+// reconnects with the new one. Polling, event delivery and the next stream connect pick the new key
+// up immediately. Refer to sdks.LDClientContext.SetSDKKey.
+//
+// A nil return from SetSDKKey also means only that the value is a legal HTTP header. No request is
+// made here, so it is not evidence that LaunchDarkly accepts the key.
 //
 // There is no client to build and so nothing to roll back on a transient failure. The only way
 // SetSDKKey fails is a key that is not valid in an HTTP header, and BuildAcceptedSet refuses such a
@@ -654,7 +663,10 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	// Big-segment requests authenticate with the anchor, so the synchronizer follows it.
 	c.reanchorBigSegmentSync(change.NewAnchor)
 
-	c.globalLogger.Info("moved the environment to a new SDK key",
+	// Says the key was changed, not that the environment has moved: the connection this client
+	// already holds is still running on the previous key.
+	c.globalLogger.Info("changed the environment's SDK key; an open upstream connection keeps the "+
+		"previous key until it reconnects",
 		"env", c.identifiers.GetDisplayName(),
 		"previous", change.PreviousAnchor.Masked(),
 		"new", change.NewAnchor.Masked())
