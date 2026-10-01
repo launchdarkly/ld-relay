@@ -33,9 +33,9 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 // reconcileCredentials converts an auto-configuration payload into the environment's accepted
 // credential set and applies it.
 //
-// A payload that cannot produce a valid set leaves the environment's credentials alone. The stream
-// manager validates before it records the payload's version, so reaching this branch means a payload
-// got past that check; keeping the previous set is the safe response either way.
+// A payload that cannot produce a valid set leaves the environment's credentials alone, which is the
+// safe response: the environment goes on serving what it already had rather than losing credentials
+// to a payload Relay could not read.
 func (a *relayAutoConfigActions) reconcileCredentials(env relayenv.EnvContext, params envfactory.EnvironmentParams) {
 	name := params.Identifiers.GetDisplayName()
 

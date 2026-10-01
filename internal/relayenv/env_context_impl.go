@@ -108,8 +108,8 @@ type envContextImpl struct {
 	// the synchronizer, because the synchronizer takes its key at construction and exposes no way to
 	// change it. Its HTTP requests already set Authorization per request rather than relying on baked
 	// in headers, so re-keying it in place is within reach; what stands in the way is coordinating a
-	// backoff reset and a reconnect with the goroutine that owns its retry strategy. Refer to
-	// SDK-3200. It is nil when big segments are not configured.
+	// backoff reset and a reconnect with the goroutine that owns its retry strategy. It is nil when
+	// big segments are not configured.
 	makeBigSegmentSync        func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer
 	bigSegmentStore           bigsegments.BigSegmentStore
 	bigSegmentsExist          bool
@@ -552,8 +552,14 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 // reconcileMu.
 //
 // Adding first registers the incoming keys' mappings. The re-anchor then moves the upstream
-// connection while the outgoing anchor still authenticates downstream traffic. Removal comes last,
-// so a revoked key keeps working until the connection has moved.
+// connection while the outgoing anchor still authenticates downstream traffic. Removal comes last so
+// that the outgoing anchor keeps working until the connection has moved off it.
+//
+// That rationale covers the outgoing anchor specifically. Every other revoked key is removed in the
+// same final pass, which is not wrong but is later than it needs to be: those keys have nothing to
+// wait for, and the delay scales with the number of additions ahead of them. How long a revoked key
+// authenticates is governed by its expiry rather than by this ordering, so the window here is one
+// reconcile either way.
 func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now time.Time) {
 	c.mu.RLock()
 	closed := c.closed
@@ -750,11 +756,11 @@ func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvide
 // processed, so a request that authenticated before a revocation still found a working handler.
 // Building per request is what creates a place to ask the question again.
 //
-// The build is cheap enough to do per connect. Measured, in the per-connect benchmark that commit
-// e8c6166 removed: the client-side path costs 13ns with no allocations, which is faster than the
-// two-level map lookup it replaced, and the heaviest provider -- the server-side V2 handler, which
-// wraps an init deadline and a basis-header closure -- costs 105ns and 96 bytes. Both are invisible
-// next to the SSE handshake and payload send that follow.
+// The build is cheap enough to do per connect. Measured once with a throwaway benchmark, not kept in
+// the tree: the client-side path costs 13ns with no allocations, which is faster than the two-level
+// map lookup it replaced, and the heaviest provider -- the server-side V2 handler, which wraps an
+// init deadline and a basis-header closure -- costs 105ns and 96 bytes. Both are invisible next to
+// the SSE handshake and payload send that follow.
 //
 // The middleware authenticates the credential once, at the start of the request, and a credential can
 // be revoked while that request is still in flight: on the REPORT stream endpoints the client paces
