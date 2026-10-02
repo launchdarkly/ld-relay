@@ -130,7 +130,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
+			verifyHandlerEndsStream(t, sp, validCredential)
 		})
 	})
 
@@ -148,7 +148,30 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
+			verifyHandlerEndsStream(t, sp, validCredential)
+		})
+	})
+
+	t.Run("initial event - stream after a store error reads the store again", func(t *testing.T) {
+		store := newMockStoreQueries()
+		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+			return nil, fakeError
+		})
+
+		withStreamProvider(t, 0, func(sp StreamProvider) {
+			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			require.NotNil(t, esp)
+			defer esp.Close()
+
+			verifyHandlerEndsStream(t, sp, validCredential)
+
+			store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+				return nil, nil
+			})
+			verifyHandlerInitialEvent(t, sp, validCredential, MakeServerSidePutEvent([]ldstoretypes.Collection{
+				{Kind: ldstoreimpl.Features(), Items: nil},
+				{Kind: ldstoreimpl.Segments(), Items: nil},
+			}))
 		})
 	})
 

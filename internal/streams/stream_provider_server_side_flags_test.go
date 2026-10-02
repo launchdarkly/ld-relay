@@ -118,7 +118,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
+			verifyHandlerEndsStream(t, sp, validCredential)
 		})
 	})
 
