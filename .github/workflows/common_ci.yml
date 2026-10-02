@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     name: ${{ format('Unit Tests ({0})', inputs.store) }}
     steps:
-      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0.2.0
+      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0
         with:
           dynamodb: true
           redis: ${{ inputs.redis }}
