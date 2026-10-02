@@ -235,6 +235,9 @@ type RedisConfig struct {
 	Password string            `conf:"REDIS_PASSWORD"`
 
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
+
+	ConnectTimeout ct.OptDuration `conf:"REDIS_CONNECT_TIMEOUT"`
+	ReadTimeout    ct.OptDuration `conf:"REDIS_READ_TIMEOUT"`
 }
 
 // ConsulConfig configures the optional Consul integration.

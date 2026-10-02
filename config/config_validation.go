@@ -18,6 +18,8 @@ var (
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
+	errRedisConnectTimeout             = errors.New("connect timeout for Redis must be greater than zero")
+	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
@@ -264,6 +266,7 @@ func validateMetricsCapacity(c *Config, loggers ldlog.Loggers) {
 
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
 	normalizeRedisConfig(result, c)
+	validateRedisTimeouts(result, c)
 
 	databases := []string{}
 	if c.Redis.URL.IsDefined() {
@@ -314,6 +317,15 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 			(!c.DynamoDB.Enabled || !strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
 			result.AddError(nil, errAutoConfWithoutDBDisambig)
 		}
+	}
+}
+
+func validateRedisTimeouts(result *ct.ValidationResult, c *Config) {
+	if c.Redis.ConnectTimeout.IsDefined() && c.Redis.ConnectTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errRedisConnectTimeout)
+	}
+	if c.Redis.ReadTimeout.IsDefined() && c.Redis.ReadTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errRedisReadTimeout)
 	}
 }
 
