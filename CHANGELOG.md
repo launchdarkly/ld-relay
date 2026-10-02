@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.23.0](https://github.com/launchdarkly/ld-relay/compare/v8.22.0...v8.23.0) (2026-10-02)
+
+
+### Features
+
+* Adopt go-server-sdk-redis-redigo v4 with an opt-in atomic upsert mode ([#904](https://github.com/launchdarkly/ld-relay/issues/904)) ([78563aa](https://github.com/launchdarkly/ld-relay/commit/78563aa6f9603f5d20279e59a42d276cc6a81d86))
+
+
+### Bug Fixes
+
+* **deps:** update Dockerfiles from 3.24.1 to alpine:3.24.2 ([#877](https://github.com/launchdarkly/ld-relay/issues/877)) ([5b2c64e](https://github.com/launchdarkly/ld-relay/commit/5b2c64e380727451da7273e09b01d116fe14e792))
+* Keep a numeric host:port address out of the unparseable branch ([#886](https://github.com/launchdarkly/ld-relay/issues/886)) ([bbdfd9c](https://github.com/launchdarkly/ld-relay/commit/bbdfd9c72883e36776fb73fe63272df96341e266))
+
 ## [8.22.0](https://github.com/launchdarkly/ld-relay/compare/v8.21.0...v8.22.0) (2026-09-16)
 
 
