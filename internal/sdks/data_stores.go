@@ -11,7 +11,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v4"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
@@ -58,7 +58,16 @@ func ConfigureDataStore(
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
+		redisURL, prefix, dialOptions := getRedisBuilderOptions(allConfig, envConfig)
+		upsertMode := ldredis.UpsertModeWatch
+		if allConfig.Redis.AtomicUpsert {
+			upsertMode = ldredis.UpsertModeAtomicScript
+		}
+		redisBuilder := ldredis.DataStore().
+			URL(redisURL).
+			Prefix(prefix).
+			DialOptions(dialOptions...).
+			UpsertMode(upsertMode)
 		redactedURL := util.RedactURL(redisURL)
 
 		loggers.Infof("Using Redis data store: %s with prefix: %s", redactedURL, envConfig.Prefix)
@@ -149,26 +158,21 @@ func GetRedisBasicProperties(
 	return
 }
 
-func makeRedisDataStoreBuilder[T any](
-	constructor func() *ldredis.StoreBuilder[T],
+// getRedisBuilderOptions returns the parameters that the Redis data store and the Redis big segment
+// store both use.
+func getRedisBuilderOptions(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-) (builder *ldredis.StoreBuilder[T], url string) {
-	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
+) (redisURL, prefix string, dialOptions []redigo.DialOption) {
+	redisURL, prefix = GetRedisBasicProperties(allConfig.Redis, envConfig)
 
-	var dialOptions []redigo.DialOption
 	if allConfig.Redis.Password != "" {
 		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
 	}
 	if allConfig.Redis.Username != "" {
 		dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
 	}
-
-	b := constructor().
-		URL(redisURL).
-		Prefix(prefix).
-		DialOptions(dialOptions...)
-	return b, redisURL
+	return
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters
