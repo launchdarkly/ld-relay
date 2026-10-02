@@ -447,6 +447,8 @@ func makeValidConfigRedisAll() testDataValidConfig {
 			TLS:      true,
 			Password: "pass",
 			Username: "user",
+
+			AtomicUpsert: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -457,6 +459,8 @@ func makeValidConfigRedisAll() testDataValidConfig {
 		"REDIS_PASSWORD": "pass",
 		"REDIS_USERNAME": "user",
 		"CACHE_TTL":      "3s",
+
+		"REDIS_ATOMIC_UPSERT": "1",
 	}
 	c.fileContent = `
 [Redis]
@@ -466,6 +470,7 @@ TLS = 1
 Password = "pass"
 Username = "user"
 LocalTTL = 3s
+AtomicUpsert = true
 `
 	return c
 }
