@@ -26,12 +26,18 @@ func StartHTTPServer(
 	tlsCertFile, tlsKeyFile string,
 	tlsMinVersion uint16,
 	gracefulShutdownTimeout time.Duration,
+	maxClientWriteTime time.Duration,
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if maxClientWriteTime > 0 {
+		// On HTTP/2 a stream write timeout can't reset a stream whose connection has stopped
+		// draining, so the connection itself needs a write timeout.
+		srv.HTTP2 = &http.HTTP2Config{WriteByteTimeout: maxClientWriteTime}
 	}
 
 	if tlsEnabled && tlsMinVersion != 0 {

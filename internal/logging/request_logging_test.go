@@ -1,11 +1,14 @@
 package logging
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -68,4 +71,38 @@ func TestRequestLoggerMiddlewareAuth(t *testing.T) {
 
 	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Request: method=GET url=/url auth=\\*fghij status=200 bytes=3")
 	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Request: method=GET url=/url auth=abcd status=200 bytes=3")
+}
+
+type deadlineRecordingWriter struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+	flushErr  error
+}
+
+func (w *deadlineRecordingWriter) SetWriteDeadline(t time.Time) error {
+	w.deadlines = append(w.deadlines, t)
+	return nil
+}
+
+func (w *deadlineRecordingWriter) FlushError() error { return w.flushErr }
+
+// Stream write deadlines are set through http.ResponseController, which must reach the
+// connection through this wrapper.
+func TestRequestLoggerMiddlewareExposesWriteDeadlineAndFlushError(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	inner := &deadlineRecordingWriter{ResponseRecorder: httptest.NewRecorder(), flushErr: errors.New("gone")}
+	deadline := time.Now().Add(time.Minute)
+	var setErr, flushErr error
+	handler := RequestLoggerMiddleware(mockLog.Loggers)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rc := http.NewResponseController(w)
+		setErr = rc.SetWriteDeadline(deadline)
+		flushErr = rc.Flush()
+	}))
+	req, _ := http.NewRequest("GET", "/url", nil)
+	handler.ServeHTTP(inner, req)
+
+	require.NoError(t, setErr)
+	assert.Equal(t, []time.Time{deadline}, inner.deadlines)
+	assert.Equal(t, inner.flushErr, flushErr)
 }

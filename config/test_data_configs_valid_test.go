@@ -70,6 +70,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigAllBaseProperties(),
 		makeValidConfigCustomBaseURIOnly(),
 		makeValidConfigExplicitDefaultBaseURI(),
+		makeValidConfigMaxClientWriteTimeDisabled(),
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
@@ -118,6 +119,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			IgnoreConnectionErrors:           true,
 			HeartbeatInterval:                ct.NewOptDuration(90 * time.Second),
 			MaxClientConnectionTime:          ct.NewOptDuration(30 * time.Minute),
+			MaxClientWriteTime:               ct.NewOptDuration(45 * time.Second),
 			MaxClientRequestBodySize:         mustOptBase2Bytes("5MiB"),
 			DisconnectedStatusTime:           ct.NewOptDuration(3 * time.Minute),
 			TLSEnabled:                       true,
@@ -171,6 +173,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"IGNORE_CONNECTION_ERRORS":            "1",
 		"HEARTBEAT_INTERVAL":                  "90s",
 		"MAX_CLIENT_CONNECTION_TIME":          "30m",
+		"MAX_CLIENT_WRITE_TIME":               "45s",
 		"MAX_CLIENT_REQUEST_BODY_SIZE":        "5MiB",
 		"DISCONNECTED_STATUS_TIME":            "3m",
 		"TLS_ENABLED":                         "1",
@@ -215,6 +218,7 @@ ExitAlways = 1
 IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
+MaxClientWriteTime = 45s
 MaxClientRequestBodySize = "5MiB"
 PingStreamJitterTime = 5m
 DisconnectedStatusTime = 3m
@@ -296,6 +300,19 @@ func makeValidConfigCustomBaseURIOnly() testDataValidConfig {
 	c.fileContent = `
 [Main]
 BaseURI = http://custom-base
+`
+	return c
+}
+
+func makeValidConfigMaxClientWriteTimeDisabled() testDataValidConfig {
+	c := testDataValidConfig{name: "max client write time explicitly disabled"}
+	c.makeConfig = func(c *Config) {
+		c.Main.MaxClientWriteTime = ct.NewOptDuration(0)
+	}
+	c.envVars = map[string]string{"MAX_CLIENT_WRITE_TIME": "0s"}
+	c.fileContent = `
+[Main]
+MaxClientWriteTime = 0s
 `
 	return c
 }

@@ -1,7 +1,10 @@
 package streams
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
@@ -46,45 +49,60 @@ type EnvStreamProvider interface {
 	Close()
 }
 
+// StreamProviderSettings holds the connection limits applied to every stream endpoint.
+type StreamProviderSettings struct {
+	// MaxConnTime, if non-zero, closes each stream after this long.
+	MaxConnTime time.Duration
+	// MaxWriteTime, if non-zero, disconnects a client whose single write takes longer than this.
+	MaxWriteTime time.Duration
+	// PingStreamJitterTime, if non-zero, jitters ping events on the client-side streams.
+	PingStreamJitterTime time.Duration
+	// Loggers receives a warning each time MaxWriteTime disconnects a client.
+	Loggers ldlog.Loggers
+}
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration) StreamProvider {
+func NewStreamProvider(kind basictypes.StreamKind, settings StreamProviderSettings) StreamProvider {
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
-			server: newSSEServer(maxConnTime),
+			server: newSSEServer(eventsource.NewServer(), settings),
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			server:     newSSEServer(eventsource.NewServerWithJitter(settings.PingStreamJitterTime), settings),
 			isJSClient: false,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			server:     newSSEServer(eventsource.NewServerWithJitter(settings.PingStreamJitterTime), settings),
 			isJSClient: true,
 		}
 	default:
 		return &serverSideStreamProvider{
-			server: newSSEServer(maxConnTime),
+			server: newSSEServer(eventsource.NewServer(), settings),
 		}
 	}
 }
 
-func newSSEServer(maxConnTime time.Duration) *eventsource.Server {
-	s := eventsource.NewServer()
+func newSSEServer(s *eventsource.Server, settings StreamProviderSettings) *eventsource.Server {
 	s.Gzip = false
 	s.AllowCORS = true
 	s.ReplayAll = true
-	s.MaxConnTime = maxConnTime
-	return s
-}
-
-func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration) *eventsource.Server {
-	s := eventsource.NewServerWithJitter(jitter)
-	s.Gzip = false
-	s.AllowCORS = true
-	s.ReplayAll = true
-	s.MaxConnTime = maxConnTime
+	s.MaxConnTime = settings.MaxConnTime
+	s.WriteTimeout = settings.MaxWriteTime
+	if settings.MaxWriteTime > 0 {
+		loggers := settings.Loggers
+		s.Trace = &eventsource.ServerTrace{
+			// The channel is the SDK credential, so it is never logged.
+			WriteError: func(_ context.Context, info eventsource.WriteErrorInfo) {
+				if errors.Is(info.Err, os.ErrDeadlineExceeded) {
+					loggers.Warnf("Disconnected a stream client that took longer than maxClientWriteTime (%s) to accept a write",
+						settings.MaxWriteTime)
+				}
+			},
+		}
+	}
 	return s
 }
 

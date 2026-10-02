@@ -48,7 +48,7 @@ func TestReanchorDownstreamConnectionSurvives(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
-	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
+	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, streams.StreamProviderSettings{MaxConnTime: time.Hour})
 	clientCh := make(chan *testclient.FakeLDClient, 10)
 	sdkStartedCh := make(chan EnvContext, 10)
 	env, err := NewEnvContext(EnvContextImplParams{

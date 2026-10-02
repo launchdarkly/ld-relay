@@ -25,7 +25,7 @@ func TestPingStreamJitterDelaysPings(t *testing.T) {
 	validCredential := sdkauth.New(testMobileKey)
 	jitterTime := 200 * time.Millisecond
 
-	sp := NewStreamProvider(basictypes.MobilePingStream, 0, jitterTime)
+	sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{PingStreamJitterTime: jitterTime})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
@@ -70,7 +70,7 @@ func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
 	validCredential := sdkauth.New(testMobileKey)
 	jitterTime := 200 * time.Millisecond
 
-	sp := NewStreamProvider(basictypes.MobilePingStream, 0, jitterTime)
+	sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{PingStreamJitterTime: jitterTime})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
@@ -109,7 +109,7 @@ func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
 func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
 	validCredential := sdkauth.New(testMobileKey)
 
-	sp := NewStreamProvider(basictypes.MobilePingStream, 0, 0)
+	sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
@@ -147,7 +147,7 @@ func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
 func TestPingStreamNoJitterSendsMultiplePings(t *testing.T) {
 	validCredential := sdkauth.New(testMobileKey)
 
-	sp := NewStreamProvider(basictypes.MobilePingStream, 0, 0)
+	sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
@@ -181,7 +181,7 @@ func TestJSClientPingStreamJitter(t *testing.T) {
 	validCredential := sdkauth.New(testEnvID)
 	jitterTime := 200 * time.Millisecond
 
-	sp := NewStreamProvider(basictypes.JSClientPingStream, 0, jitterTime)
+	sp := NewStreamProvider(basictypes.JSClientPingStream, StreamProviderSettings{PingStreamJitterTime: jitterTime})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
@@ -219,7 +219,7 @@ func TestServerSideStreamNoJitter(t *testing.T) {
 	validCredential := sdkauth.New(testSDKKey)
 
 	// Server-side streams are created with jitter=0 regardless of config
-	sp := NewStreamProvider(basictypes.ServerSideStream, 0, 100*time.Millisecond)
+	sp := NewStreamProvider(basictypes.ServerSideStream, StreamProviderSettings{PingStreamJitterTime: 100 * time.Millisecond})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
@@ -260,7 +260,7 @@ func TestPingStreamJitterSubsequentUpdatesAfterDelay(t *testing.T) {
 	validCredential := sdkauth.New(testMobileKey)
 	jitterTime := 150 * time.Millisecond
 
-	sp := NewStreamProvider(basictypes.MobilePingStream, 0, jitterTime)
+	sp := NewStreamProvider(basictypes.MobilePingStream, StreamProviderSettings{PingStreamJitterTime: jitterTime})
 	require.NotNil(t, sp)
 	defer sp.Close()
 
