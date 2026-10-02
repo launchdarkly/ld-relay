@@ -48,7 +48,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
-      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0
+      - uses: launchdarkly/gh-actions/actions/persistent-stores@jb/sdk-3244/consul-2-0
         with:
           dynamodb: true
           redis: true
