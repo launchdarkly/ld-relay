@@ -11,7 +11,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v4"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
