@@ -256,6 +256,8 @@ type RedisConfig struct {
 	TLS      bool              `conf:"REDIS_TLS"`
 	Username string            `conf:"REDIS_USERNAME"`
 	Password string            `conf:"REDIS_PASSWORD"`
+
+	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
 }
 
 // ConsulConfig configures the optional Consul integration.

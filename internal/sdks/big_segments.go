@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v4"
 )
 
 // ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay
@@ -25,7 +25,11 @@ func ConfigureBigSegments(
 	var storeFactory subsystems.ComponentConfigurer[subsystems.BigSegmentStore]
 
 	if allConfig.Redis.URL.IsDefined() {
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig)
+		redisURL, prefix, dialOptions := getRedisBuilderOptions(allConfig, envConfig)
+		redisBuilder := ldredis.BigSegmentStore().
+			URL(redisURL).
+			Prefix(prefix).
+			DialOptions(dialOptions...)
 		redactedURL := util.RedactURL(redisURL)
 		logger.Info("using Redis big segment store", "url", redactedURL, "prefix", envConfig.Prefix)
 		storeFactory = redisBuilder
