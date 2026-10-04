@@ -25,7 +25,10 @@ func ConfigureBigSegments(
 	var storeFactory subsystems.ComponentConfigurer[subsystems.BigSegmentStore]
 
 	if allConfig.Redis.URL.IsDefined() {
-		redisURL, prefix, dialOptions := getRedisBuilderOptions(allConfig, envConfig)
+		redisURL, prefix, dialOptions, err := getRedisBuilderOptions(allConfig, envConfig)
+		if err != nil {
+			return nil, err
+		}
 		redisBuilder := ldredis.BigSegmentStore().
 			URL(redisURL).
 			Prefix(prefix).

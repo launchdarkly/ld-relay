@@ -60,7 +60,10 @@ func ConfigureDataStore(
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
-		redisURL, prefix, dialOptions := getRedisBuilderOptions(allConfig, envConfig)
+		redisURL, prefix, dialOptions, err := getRedisBuilderOptions(allConfig, envConfig)
+		if err != nil {
+			return nil, DataStoreEnvironmentInfo{}, err
+		}
 		upsertMode := ldredis.UpsertModeWatch
 		if allConfig.Redis.AtomicUpsert {
 			upsertMode = ldredis.UpsertModeAtomicScript
@@ -161,11 +164,11 @@ func GetRedisBasicProperties(
 }
 
 // CreateTLSConfig creates a TLS configuration for Redis based on the provided RedisConfig.
-// It returns nil if TLS is not enabled in the configuration.
+// It returns nil if TLS is not enabled in the configuration (neither REDIS_TLS nor a rediss:// URL).
 // If TLS is enabled, it sets up the TLS configuration with the specified server name, minimum version,
 // if a client certificate, key and CA file are provided, it loads them into the TLS configuration.
 func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
-	if !config.TLS {
+	if !config.TLSEnabled() {
 		return nil, nil
 	}
 
@@ -202,7 +205,7 @@ func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
 func getRedisBuilderOptions(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-) (redisURL, prefix string, dialOptions []redigo.DialOption) {
+) (redisURL, prefix string, dialOptions []redigo.DialOption, err error) {
 	redisURL, prefix = GetRedisBasicProperties(allConfig.Redis, envConfig)
 
 	if allConfig.Redis.Password != "" {
@@ -213,9 +216,8 @@ func getRedisBuilderOptions(
 	}
 
 	tlsOpts, err := CreateTLSConfig(allConfig.Redis)
-	// TODO: Should the TLS config be validated as part of validateConfigDatabases?
 	if err != nil {
-		panic(err)
+		return "", "", nil, err
 	}
 	if tlsOpts != nil {
 		dialOptions = append(dialOptions, redigo.DialUseTLS(true), redigo.DialTLSConfig(tlsOpts))

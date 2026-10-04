@@ -264,6 +264,19 @@ type RedisConfig struct {
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
 }
 
+// TLSEnabled is true if TLS was requested either with the TLS option or with a rediss:// URL.
+func (c RedisConfig) TLSEnabled() bool {
+	if c.TLS {
+		return true
+	}
+	return c.URL.IsDefined() && strings.EqualFold(c.URL.Get().Scheme, "rediss")
+}
+
+// hasTLSFiles is true if any certificate, key or CA file option is set.
+func (c RedisConfig) hasTLSFiles() bool {
+	return c.ClientCertificateFile != "" || c.ClientKeyFile != "" || c.CAFile != ""
+}
+
 // ConsulConfig configures the optional Consul integration.
 //
 // Consul is enabled if Host is non-empty.

@@ -71,9 +71,9 @@ func newRedisBigSegmentStore(
 	if redisConfig.Username != "" {
 		opts.Username = redisConfig.Username
 	}
-	// GetRedisBasicProperties rewrites redis: to rediss: when TLS is enabled, so ParseURL has already
-	// set a default TLSConfig (without our CA/client cert). Override it whenever TLS is enabled.
-	if redisConfig.TLS {
+	// ParseURL sets a default TLSConfig (without our CA/client cert) for rediss:// URLs, and
+	// GetRedisBasicProperties rewrites redis: to rediss: when TLS is enabled. Override it whenever TLS is enabled.
+	if redisConfig.TLSEnabled() {
 		tlsConfig, err := sdks.CreateTLSConfig(redisConfig)
 		if err != nil {
 			return nil, err

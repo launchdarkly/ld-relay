@@ -24,6 +24,7 @@ var (
 	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
+	errRedisClientCertWithoutKey               = errors.New("REDIS_CLIENT_CERT_FILE and REDIS_CLIENT_KEY_FILE must be specified together")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
@@ -31,6 +32,9 @@ var (
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
+
+const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file was set, but TLS is not enabled " +
+	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
 
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
@@ -234,6 +238,15 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 	if len(databases) > 1 {
 		result.AddError(nil, errMultipleDatabases(databases))
 		return // no point doing further database config validation if it's in this state
+	}
+
+	if c.Redis.URL.IsDefined() {
+		if (c.Redis.ClientCertificateFile == "") != (c.Redis.ClientKeyFile == "") {
+			result.AddError(nil, errRedisClientCertWithoutKey)
+		}
+		if c.Redis.hasTLSFiles() && !c.Redis.TLSEnabled() {
+			logger.Warn(warnRedisTLSFilesWithoutTLS)
+		}
 	}
 
 	if c.Consul.Host != "" {

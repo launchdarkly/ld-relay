@@ -1,6 +1,7 @@
 package sdks
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -25,8 +26,29 @@ func TestCreateTLSConfig(t *testing.T) {
 	files := sharedtest.NewMTLSFiles(t)
 
 	t.Run("nil when TLS disabled", func(t *testing.T) {
-		c := redisTLSConfig(t, func(c *config.RedisConfig) { c.TLS = false })
+		c := redisTLSConfig(t, func(c *config.RedisConfig) {
+			c.TLS = false
+			c.URL, _ = configtypes.NewOptURLAbsoluteFromString("redis://redishost:6380")
+		})
 		tc, err := CreateTLSConfig(c)
+		assert.NoError(t, err)
+		assert.Nil(t, tc)
+	})
+
+	t.Run("rediss URL enables TLS without the TLS option", func(t *testing.T) {
+		c := redisTLSConfig(t, func(c *config.RedisConfig) {
+			c.TLS = false
+			c.CAFile = files.CAFile
+		})
+		tc, err := CreateTLSConfig(c)
+		require.NoError(t, err)
+		require.NotNil(t, tc)
+		assert.NotNil(t, tc.RootCAs)
+	})
+
+	t.Run("redis URL without the TLS option stays plaintext", func(t *testing.T) {
+		url, _ := configtypes.NewOptURLAbsoluteFromString("redis://redishost:6380")
+		tc, err := CreateTLSConfig(config.RedisConfig{URL: url, CAFile: files.CAFile})
 		assert.NoError(t, err)
 		assert.Nil(t, tc)
 	})
@@ -73,4 +95,16 @@ func TestCreateTLSConfig(t *testing.T) {
 		}))
 		assert.Error(t, err)
 	})
+}
+
+func TestConfigureDataStoreRedisTLSFileErrorIsReturned(t *testing.T) {
+	url, _ := configtypes.NewOptURLAbsoluteFromString("rediss://redishost:6380")
+	c := config.Config{Redis: config.RedisConfig{URL: url, CAFile: "/nonexistent.pem"}}
+	logger := slog.New(slog.DiscardHandler)
+
+	_, _, err := ConfigureDataStore(c, config.EnvConfig{}, logger)
+	assert.Error(t, err)
+
+	_, err = ConfigureBigSegments(c, config.EnvConfig{}, logger)
+	assert.Error(t, err)
 }
