@@ -27,6 +27,10 @@ func testDatabaseIntegrations(t *testing.T, manager *integrationTestManager) {
 		doDatabaseTest(t, manager, redisWithACLDatabaseTestParams)
 	})
 
+	t.Run("Redis with TLS and client certificate (mTLS)", func(t *testing.T) {
+		doDatabaseTest(t, manager, redisMTLSDatabaseTestParams)
+	})
+
 	t.Run("Consul", func(t *testing.T) {
 		doDatabaseTest(t, manager, consulDatabaseTestParams)
 	})
