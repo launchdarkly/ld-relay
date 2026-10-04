@@ -2,8 +2,12 @@ package sdks
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -156,6 +160,43 @@ func GetRedisBasicProperties(
 	return
 }
 
+// CreateTLSConfig creates a TLS configuration for Redis based on the provided RedisConfig.
+// It returns nil if TLS is not enabled in the configuration.
+// If TLS is enabled, it sets up the TLS configuration with the specified server name, minimum version,
+// if a client certificate, key and CA file are provided, it loads them into the TLS configuration.
+func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
+	if !config.TLS {
+		return nil, nil
+	}
+
+	tlsConfig := &tls.Config{
+		ServerName: config.URL.Get().Hostname(),
+		MinVersion: tls.VersionTLS12,
+	}
+
+	if config.ClientCertificateFile != "" && config.ClientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(config.ClientCertificateFile, config.ClientKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	if config.CAFile != "" {
+		caCert, err := os.ReadFile(config.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to append CA certificate")
+		}
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	return tlsConfig, nil
+}
+
 // getRedisBuilderOptions returns the parameters that the Redis data store and the Redis big segment
 // store both use.
 func getRedisBuilderOptions(
@@ -169,6 +210,15 @@ func getRedisBuilderOptions(
 	}
 	if allConfig.Redis.Username != "" {
 		dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
+	}
+
+	tlsOpts, err := CreateTLSConfig(allConfig.Redis)
+	// TODO: Should the TLS config be validated as part of validateConfigDatabases?
+	if err != nil {
+		panic(err)
+	}
+	if tlsOpts != nil {
+		dialOptions = append(dialOptions, redigo.DialUseTLS(true), redigo.DialTLSConfig(tlsOpts))
 	}
 	return
 }

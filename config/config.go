@@ -257,6 +257,10 @@ type RedisConfig struct {
 	Username string            `conf:"REDIS_USERNAME"`
 	Password string            `conf:"REDIS_PASSWORD"`
 
+	ClientCertificateFile string `conf:"REDIS_CLIENT_CERT_FILE"`
+	ClientKeyFile         string `conf:"REDIS_CLIENT_KEY_FILE"`
+	CAFile                string `conf:"REDIS_CA_FILE"`
+
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
 }
 

@@ -2,7 +2,6 @@ package bigsegments
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -72,11 +71,15 @@ func newRedisBigSegmentStore(
 	if redisConfig.Username != "" {
 		opts.Username = redisConfig.Username
 	}
-	if redisConfig.TLS && opts.TLSConfig == nil {
-		opts.TLSConfig = &tls.Config{
-			ServerName: redisConfig.URL.Get().Hostname(),
-			MinVersion: tls.VersionTLS12,
+	// GetRedisBasicProperties rewrites redis: to rediss: when TLS is enabled, so ParseURL has already
+	// set a default TLSConfig (without our CA/client cert). Override it whenever TLS is enabled.
+	if redisConfig.TLS {
+		tlsConfig, err := sdks.CreateTLSConfig(redisConfig)
+		if err != nil {
+			return nil, err
 		}
+
+		opts.TLSConfig = tlsConfig
 	}
 
 	store := redisBigSegmentStore{
