@@ -875,11 +875,23 @@ func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]
 	}
 
 	// Retain only the environments that were added in the PUT.
+	removed := 0
 	for _, deleted := range s.envReceiver.Retain(func(id string) bool {
 		_, ok := content.Environments[config.EnvironmentID(id)]
 		return ok
 	}) {
 		s.dispatchEnvAction(config.EnvironmentID(deleted), envfactory.EnvironmentRep{}, ActionDelete)
+		removed++
+	}
+
+	// A configuration with no environments in it is legal: an auto-configuration key whose policy
+	// matches nothing produces one, and relay cannot tell that from a service that sent no content.
+	// Either way relay now serves nothing and answers 401 for every credential, which is worth one
+	// line rather than leaving an operator to infer it from a count of zero and a run of deletes.
+	if len(content.Environments) == 0 && removed > 0 {
+		s.logger.Warn("this configuration contains no environments; the Relay Proxy removed every "+
+			"environment it was serving and answers 401 for every credential until the "+
+			"configuration changes", "removedCount", removed)
 	}
 
 	// Serve the last-good configuration for every environment this put refused. The cache holds it,

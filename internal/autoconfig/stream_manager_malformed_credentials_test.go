@@ -374,6 +374,28 @@ func TestAPutThatRefusesEveryEnvironmentDoesNotReportConfigured(t *testing.T) {
 	})
 }
 
+func TestAPutWithNoEnvironmentsSaysThatItRemovedEverything(t *testing.T) {
+	// An empty configuration is legal, so relay applies it rather than refusing or reconnecting. It
+	// still leaves relay answering 401 for every credential, which an operator should not have to
+	// infer from an environment count of zero and a run of delete lines.
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1))
+		p.requireMessage()
+		p.requireReceivedAllMessage()
+
+		p.stream.Enqueue(makeEnvPutEvent())
+		msg := p.requireMessage()
+		require.NotNil(t, msg.delete, "the environment must be removed, got %s", msg)
+		p.requireReceivedAllMessage()
+
+		assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, "contains no environments"),
+			"emptying the configuration must be reported")
+	})
+}
+
 func TestAStaleSuccessDoesNotOverwriteAConnectionFailure(t *testing.T) {
 	// The generation check exists so a success an event would report cannot bury a connection
 	// failure that landed while that event was being handled. Every status decision in
