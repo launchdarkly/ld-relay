@@ -120,12 +120,24 @@ type recordingCache struct {
 	previous *PutContent
 	written  []PutContent
 	getErr   error
+	// blockFirstGet holds the startup read open until its context is cancelled. That is what the
+	// stream does in production when its first put wins the race, so the cached data never reaches
+	// the relay by that route. The put path's own read is left alone.
+	blockFirstGet bool
+	gets          int
 }
 
-func (c *recordingCache) GetAll(context.Context) (*PutContent, error) {
+func (c *recordingCache) GetAll(ctx context.Context) (*PutContent, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.previous, c.getErr
+	block := c.blockFirstGet && c.gets == 0
+	c.gets++
+	previous, getErr := c.previous, c.getErr
+	c.mu.Unlock()
+	if block {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return previous, getErr
 }
 
 func (c *recordingCache) SetAll(_ context.Context, content PutContent) error {
@@ -407,5 +419,67 @@ func TestAStaleSuccessDoesNotOverwriteAConnectionFailure(t *testing.T) {
 			"a stale success must not report the connection as working")
 		assert.Equal(t, interfaces.DataSourceErrorKindNetworkError, status.LastError.Kind,
 			"the connection failure must survive the event's report")
+	})
+}
+
+func TestARefusedEnvironmentIsServedFromItsLastGoodCacheEntry(t *testing.T) {
+	// Writing the last-good entry back to the cache serves the next process start. This process has
+	// to serve it too, or Relay holds a usable configuration for an environment it answers nothing
+	// for -- and since a partial refusal no longer reconnects, the service will not resend it.
+	cache := &recordingCache{
+		blockFirstGet: true,
+		previous: &PutContent{Environments: map[config.EnvironmentID]envfactory.EnvironmentRep{
+			testEnv2.EnvID: testEnv2,
+		}},
+	}
+
+	streamHandler, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithCache(t, streamHandler, stream, cache, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, envWithUnusableCredentials(testEnv2)))
+
+		// Both environments reach the relay: testEnv1 from the put, testEnv2 from the cache.
+		var ids []config.EnvironmentID
+		for i := 0; i < 2; i++ {
+			msg := p.requireMessage()
+			require.NotNil(t, msg.add, "expected an environment to be added, got %s", msg)
+			ids = append(ids, msg.add.EnvID)
+		}
+		assert.Contains(t, ids, testEnv1.EnvID)
+		assert.Contains(t, ids, testEnv2.EnvID,
+			"the refused environment must be served from its last-good cached entry")
+		p.requireReceivedAllMessage()
+	})
+}
+
+func TestAFullyRefusedPutStillReportsConfiguredWhenTheCacheCoversIt(t *testing.T) {
+	// The readiness gate exists so Relay does not claim to be configured while serving nothing. An
+	// environment recovered from the cache is being served, so it counts -- otherwise Relay would
+	// answer 503 for an environment whose flags it can serve perfectly well.
+	cache := &recordingCache{
+		blockFirstGet: true,
+		previous: &PutContent{Environments: map[config.EnvironmentID]envfactory.EnvironmentRep{
+			testEnv1.EnvID: testEnv1,
+		}},
+	}
+
+	streamHandler, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithCache(t, streamHandler, stream, cache, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		// Every environment in the put is refused, so nothing of its own data applies.
+		p.stream.Enqueue(makeEnvPutEvent(envWithUnusableCredentials(testEnv1)))
+
+		msg := p.requireMessage()
+		require.NotNil(t, msg.add, "the cached entry must be served, got %s", msg)
+		assert.Equal(t, testEnv1.EnvID, msg.add.EnvID)
+		p.requireReceivedAllMessage()
 	})
 }

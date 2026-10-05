@@ -882,18 +882,38 @@ func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]
 		s.dispatchEnvAction(config.EnvironmentID(deleted), envfactory.EnvironmentRep{}, ActionDelete)
 	}
 
-	// A put that applied nothing must not report the configuration as complete. Relay would declare
-	// itself fully configured while serving no environments, and answer 401 for every credential
-	// instead of the 503 that says it is not ready. An empty put is a different thing: it refused
-	// nothing, so it really is a complete configuration of no environments.
-	if applied > 0 || len(malformedEnvIDs) == 0 {
+	// Serve the last-good configuration for every environment this put refused. The cache holds it,
+	// and without this the entry is written back for the next process start while this one serves
+	// nothing for that environment -- and a partial refusal no longer reconnects, so the service
+	// will not resend it either.
+	//
+	// Validating before Upsert is what makes this safe. A refused environment has no recorded
+	// version, so its cached entry applies; every environment this put did apply has a version that
+	// dedupes an older cached copy away. Recording the last-good version here is correct, because it
+	// is what Relay is now serving, and a corrected payload carries a higher one.
+	recovered := 0
+	if content.Persist {
+		for id, rep := range s.persistPut(content, malformedEnvIDs) {
+			s.dispatchEnvAction(id, rep, s.envReceiver.Upsert(string(id), rep, rep.Version))
+			recovered++
+		}
+		if recovered > 0 {
+			s.logger.Warn("serving the last known good configuration for environments this "+
+				"configuration refused", "recoveredCount", recovered)
+		}
+	}
+
+	// A put that left the Relay Proxy with nothing must not report the configuration as complete. It
+	// would declare itself fully configured while serving no environments, and answer 401 for every
+	// credential instead of the 503 that says it is not ready. Environments recovered from the cache
+	// count: they are being served. An empty put is a different thing again -- it refused nothing, so
+	// it really is a complete configuration of no environments.
+	if applied > 0 || recovered > 0 || len(malformedEnvIDs) == 0 {
 		s.handler.ReceivedAllEnvironments()
 	} else {
-		s.logger.Error("every environment in this configuration was refused; the Relay Proxy is "+
-			"not reporting itself as configured", "refusedCount", len(malformedEnvIDs))
-	}
-	if content.Persist {
-		s.persistPut(content, malformedEnvIDs)
+		s.logger.Error("every environment in this configuration was refused and none could be "+
+			"recovered from the cache; the Relay Proxy is not reporting itself as configured",
+			"refusedCount", len(malformedEnvIDs))
 	}
 	return malformedEnvIDs, applied
 }
@@ -925,13 +945,21 @@ func validateCredentialPayload(rep envfactory.EnvironmentRep) error {
 // A read failure on the prior cache means there is no safe snapshot to assemble, so the cache is left
 // as it is. A nil result with no error is an empty cache rather than a failure, and there is simply
 // nothing to carry forward.
-func (s *StreamManager) persistPut(content PutContent, malformedEnvIDs map[config.EnvironmentID]bool) {
+//
+// It returns the last-good entry it substituted for each refused environment, so the caller can apply
+// those in memory as well. Writing them to the cache alone would serve the next process start and
+// leave this one with nothing for an environment whose last-good configuration it is holding.
+func (s *StreamManager) persistPut(
+	content PutContent,
+	malformedEnvIDs map[config.EnvironmentID]bool,
+) map[config.EnvironmentID]envfactory.EnvironmentRep {
+	var carriedForward map[config.EnvironmentID]envfactory.EnvironmentRep
 	if len(malformedEnvIDs) > 0 {
 		previous, err := s.cache.GetAll(context.Background())
 		if err != nil {
 			s.logger.Warn("skipping AutoConfig cache write for a configuration with malformed credentials, "+
 				"because the previous cache could not be read", "error", err)
-			return
+			return nil
 		}
 		environments := make(map[config.EnvironmentID]envfactory.EnvironmentRep, len(content.Environments))
 		for id, rep := range content.Environments {
@@ -942,6 +970,10 @@ func (s *StreamManager) persistPut(content PutContent, malformedEnvIDs map[confi
 			if previous != nil {
 				if previousRep, ok := previous.Environments[id]; ok {
 					environments[id] = previousRep
+					if carriedForward == nil {
+						carriedForward = make(map[config.EnvironmentID]envfactory.EnvironmentRep)
+					}
+					carriedForward[id] = previousRep
 				}
 			}
 		}
@@ -950,6 +982,7 @@ func (s *StreamManager) persistPut(content PutContent, malformedEnvIDs map[confi
 	if err := s.cache.SetAll(context.Background(), content); err != nil {
 		s.logger.Warn("failed to write AutoConfig cache", "error", err)
 	}
+	return carriedForward
 }
 
 func (s *StreamManager) cacheUpsert(kind CacheKind, id string, data interface{}) {
