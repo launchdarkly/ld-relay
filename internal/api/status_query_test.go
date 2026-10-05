@@ -677,3 +677,42 @@ func TestEvaluateExpectationsAutoConfigStatus(t *testing.T) {
 		assert.Contains(t, res.Results[0].Problem, "unknown field")
 	})
 }
+
+// The recipe docs/endpoints.md gives for detecting an environment Relay refused and is not serving.
+// The check runs the other way round from the other recipes: it holds, with a 200, only when there is
+// something to alert on, and a healthy Relay answers 412.
+func TestEvaluateExpectationsRefusedEnvironmentsRecipe(t *testing.T) {
+	const recipe = "refusedEnvironments[serving=false].serving=false"
+
+	bodyWith := func(t *testing.T, refused ...RefusedEnvironmentRep) []byte {
+		t.Helper()
+		data, err := json.Marshal(StatusRep{Status: "healthy", RefusedEnvironments: refused})
+		require.NoError(t, err)
+		return data
+	}
+	served := RefusedEnvironmentRep{EnvID: "env-a", Reason: "malformed credential payload", Serving: true}
+	unserved := RefusedEnvironmentRep{EnvID: "env-b", Reason: "malformed credential payload", Serving: false}
+
+	for name, tc := range map[string]struct {
+		refused []RefusedEnvironmentRep
+		want    int
+	}{
+		"nothing refused":                  {refused: []RefusedEnvironmentRep{}, want: http.StatusPreconditionFailed},
+		"a refused update, still serving":  {refused: []RefusedEnvironmentRep{served}, want: http.StatusPreconditionFailed},
+		"a refused environment not served": {refused: []RefusedEnvironmentRep{unserved}, want: http.StatusOK},
+		"both kinds":                       {refused: []RefusedEnvironmentRep{served, unserved}, want: http.StatusOK},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, code := EvaluateExpectations(bodyWith(t, tc.refused...), []string{recipe}, SchemaAllEnvironments)
+			assert.Equal(t, tc.want, code)
+		})
+	}
+
+	// The docs say no clause can hold only while nothing is refused. A selector that matches no entry is
+	// unsatisfied whichever operator is used, so the negated form cannot serve as a healthy-is-200 probe.
+	t.Run("the negated form does not hold on an empty list", func(t *testing.T) {
+		_, code := EvaluateExpectations(bodyWith(t),
+			[]string{"refusedEnvironments[serving=false].serving!=false"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusPreconditionFailed, code)
+	})
+}
