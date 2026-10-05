@@ -85,6 +85,7 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 		metadata := GetEventPayloadMetadata(req)
 
 		r.logger.Debug("received events to be proxied", "count", len(evts), "schemaVersion", metadata.SchemaVersion, "remotePath", r.remotePath)
+
 		if metadata.SchemaVersion < SummaryEventsSchemaVersion {
 			r.getSummarizingRelay().enqueue(metadata, evts)
 			return

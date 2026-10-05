@@ -112,10 +112,14 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 
 	// mobileKeys[] with no designated primary is malformed. Refer to NewPrimaryMobileKeyMissingError.
 	//
-	// An empty array with an undefined mobKey is accepted, as a server-side-only environment. That
-	// shape does not come from LaunchDarkly: every environment there has at least one global key of
-	// each kind, so the stream always names a mobile key. It can come from an offline archive that
-	// was assembled by hand, and relay can serve such an environment, so it is not refused.
+	// An empty array with an undefined mobKey is accepted rather than refused, because an accepted
+	// set genuinely need not hold a mobile key: Build requires an SDK key and an anchor, nothing
+	// more. Neither source that reaches this function produces that shape, though. Every
+	// LaunchDarkly environment has at least one global key of each kind, so the auto-configuration
+	// stream always names a mobile key, and an offline archive is generated from the same data and
+	// carries the same guarantee. The place an environment legitimately has no mobile key is manual
+	// configuration, which seeds the rotator through Rotator.Initialize and never comes through
+	// here.
 	if len(params.AcceptedMobileKeys) > 0 && !params.MobileKey.Defined() {
 		return credential.AcceptedSet{}, nil, credential.NewPrimaryMobileKeyMissingError()
 	}
