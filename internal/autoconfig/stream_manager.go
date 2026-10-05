@@ -510,21 +510,19 @@ func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile, extended
 			}
 
 			outcome := s.handleStreamEvent(event)
-			if outcome.recovered {
-				// Drop back to the short retry curve. eventsource clears an activated profile only
-				// after a stretch of healthy operation, and it measures that stretch from a timestamp
-				// stamped as this very event was delivered, so its own reset can never fire here.
-				// Without this the first refused payload leaves the stream on the extended delays for
-				// the life of the process, and a later unrelated reconnect waits minutes.
+			// eventsource clears an activated profile only after a stretch of healthy operation, and
+			// it measures that stretch from a timestamp stamped as this very event was delivered, so
+			// its own reset can never fire here. Relay has to move the profile itself in both
+			// directions: without the return to the short curve, the first refused payload leaves the
+			// stream on the extended delays for the life of the process.
+			switch outcome.curve {
+			case curveNormal:
 				stream.ActivateProfile(normalProfile)
+			case curveExtended:
+				stream.ActivateProfile(extendedProfile)
+			case curveUnchanged:
 			}
 			if outcome.restart {
-				if outcome.backOff {
-					// The service will probably keep sending what relay just refused, so reconnecting on
-					// the short curve would spin. Moving to the extended delays leaves the stream
-					// retrying, which is what an operator fixing the payload needs.
-					stream.ActivateProfile(extendedProfile)
-				}
 				stream.Restart()
 			}
 		case <-s.halt:
@@ -539,19 +537,36 @@ func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile, extended
 	}
 }
 
-// eventOutcome says what the stream should do after an event.
+// retryCurve says which retry profile the connection uses after an event.
 //
-// restart asks for a reconnect. backOff asks for that reconnect to wait.
+// Most events say nothing about the connection beyond having been delivered, so the zero value
+// leaves the profile as it is.
+type retryCurve int
+
+const (
+	// curveUnchanged keeps the profile the connection already has.
+	curveUnchanged retryCurve = iota
+	// curveNormal returns to the short delays. Only a usable event that still holds earns it: it is
+	// the only proof the stream is working again.
+	curveNormal
+	// curveExtended moves to the long delays. A restart caused by unusable data is not worth
+	// hurrying, because the service cannot learn that relay refused the payload and will send the
+	// same thing again. Reconnecting on the short delays would spin until somebody fixes it.
+	curveExtended
+)
+
+// eventOutcome says what the stream should do after an event. The two fields are the two decisions
+// the event loop makes: which retry curve the connection uses from here, and whether to reconnect
+// now.
 //
-// The two are separate because a restart caused by unusable data is not worth hurrying. The service
-// cannot learn that relay refused the payload, so it will send the same thing again. Reconnecting on
-// the short delays would spin until somebody fixes the payload.
+// They are separate because they do not move together. A policy-change reconnect asks for both: the
+// event was delivered and usable, which earns the short curve, and it asks for a reconnect to pick
+// up new data. An unusable event asks for a reconnect without earning anything. A put or patch that
+// applied asks for the short curve without a reconnect. An event this version does not recognize,
+// arriving while the connection is already failing, asks for neither.
 type eventOutcome struct {
+	curve   retryCurve
 	restart bool
-	backOff bool
-	// recovered is true when the event was delivered and usable, which is the only proof the stream
-	// is working again. It returns the connection to the short retry curve.
-	recovered bool
 }
 
 // handleStreamEvent processes a single SSE event and reports what the stream should do next.
@@ -712,7 +727,9 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		// corruption, which a prompt reconnect fixes. A second one means the reconnect brought the
 		// same payload back.
 		s.consecutiveMalformedEvents++
-		outcome.backOff = s.consecutiveMalformedEvents >= malformedBackoffThreshold
+		if s.consecutiveMalformedEvents >= malformedBackoffThreshold {
+			outcome.curve = curveExtended
+		}
 		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
 			Kind: interfaces.DataSourceErrorKindInvalidData,
 			Time: time.Now(),
@@ -729,7 +746,9 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		// Only a success that still holds counts as recovery. When the connection has failed since
 		// this event arrived, markValidWithError declines, and dropping back to the short retry curve
 		// on the strength of this event would leave the stream retrying fast while it is broken.
-		outcome.recovered = s.markValidWithError(generation, errorInfo)
+		if s.markValidWithError(generation, errorInfo) {
+			outcome.curve = curveNormal
+		}
 	}
 
 	return outcome
