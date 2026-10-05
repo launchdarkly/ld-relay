@@ -513,6 +513,7 @@ func TestDeletingAnEnvironmentThatWasOnlyEverRefusedRetiresItsRefusal(t *testing
 		require.Eventually(t, func() bool {
 			return len(p.messageHandler.refusedEnvironments()) == 1
 		}, time.Second, 10*time.Millisecond, "the refused patch must be reported")
+		awaitStreamRequest(t, p)
 
 		p.stream.Enqueue(makeDeleteEnvEvent(testEnv1.EnvID, testEnv1.Version+1))
 
@@ -540,6 +541,7 @@ func TestDeletingAnEnvironmentThatWasServingAlsoRetiresItsRefusal(t *testing.T) 
 		require.Eventually(t, func() bool {
 			return len(p.messageHandler.refusedEnvironments()) == 1
 		}, time.Second, 10*time.Millisecond, "the refused patch must be reported")
+		awaitStreamRequest(t, p)
 
 		p.stream.Enqueue(makeDeleteEnvEvent(testEnv1.EnvID, refused.Version+1))
 
