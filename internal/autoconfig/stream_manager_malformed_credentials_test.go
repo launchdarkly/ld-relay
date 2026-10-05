@@ -10,6 +10,7 @@ package autoconfig
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -241,71 +242,64 @@ func TestRefusedCredentialPayloadRecordsAnInvalidDataError(t *testing.T) {
 	})
 }
 
-func TestOneRefusalReconnectsAtOnceAndASecondSlowsDown(t *testing.T) {
-	// The threshold is the whole point of malformedBackoffThreshold: a single corrupt event is worth
-	// asking about again immediately, and a second identical one means asking faster will not help.
-	// Nothing asserted either half, so lowering the threshold to 1 or raising it left every test green.
-	const extendedBase = 300 * time.Millisecond
+func TestRepeatedRefusalsStayOnTheShortRetryCurve(t *testing.T) {
+	// Unusable data restarts the stream on the short curve however often it arrives. eventsource
+	// grows its own delay for each restart, up to streamMaxRetryDelay, which bounds the reconnects;
+	// the extended delays belong to a failing connection. A payload relay cannot use is fixed
+	// upstream, and a stream parked on the extended delays is disconnected, so it cannot learn that
+	// the payload was fixed.
+	const extendedBase = 2 * time.Second
 
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.streamManager.extendedRetryDelay = extendedBase
 		p.startStream()
 		awaitStreamRequest(t, p)
 
-		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
-		awaitStreamRequest(t, p)
+		for i := 0; i < 3; i++ {
+			p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
+			awaitStreamRequest(t, p)
+		}
 
-		// The first refusal reconnects on the short curve.
-		var afterFirst []time.Duration
-		require.Eventually(t, func() bool {
-			afterFirst = reconnectDelays(p.mockLog)
-			return len(afterFirst) >= 1
-		}, 2*time.Second, 10*time.Millisecond, "expected a logged reconnect delay")
-		assert.Less(t, afterFirst[0], extendedBase/2,
-			"the first unusable event must not engage the extended delays")
-
-		// The second consecutive refusal does engage them.
-		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
-
-		require.Eventually(t, func() bool {
-			delays := reconnectDelays(p.mockLog)
-			return len(delays) > len(afterFirst) && delays[len(delays)-1] >= extendedBase/2
-		}, 5*time.Second, 10*time.Millisecond,
-			"a second consecutive unusable event must move the stream to the extended delays")
+		delays := reconnectDelays(p.mockLog)
+		require.GreaterOrEqual(t, len(delays), 3, "expected a logged delay for each restart")
+		for i, d := range delays {
+			assert.Less(t, d, extendedBase/2,
+				"restart %d must stay on the short curve", i+1)
+		}
 	})
 }
 
 func TestAUsableEventReturnsTheStreamToTheShortRetryCurve(t *testing.T) {
-	// eventsource clears an activated profile only after a stretch of healthy operation, and it
-	// measures that stretch from a timestamp stamped as the event was delivered, so its own reset
-	// never fires on an event-driven restart. Without an explicit revert the first pair of refused
-	// payloads leaves the stream on the extended delays for the life of the process, and every later
-	// reconnect waits minutes even though the stream has been healthy in between.
+	// A rejected key engages the extended delays through the stream error handler. eventsource
+	// reverts an activated profile only after a stretch of healthy operation, and it measures that
+	// stretch from a timestamp stamped as the last event was delivered, so a restart that follows an
+	// event can never clear it. Without an explicit revert the stream keeps the extended delays long
+	// after the key is valid again, and the next reconnect waits minutes.
 	const extendedBase = 300 * time.Millisecond
 
-	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+	initialEvent := makeEnvPutEvent(testEnv1)
+	streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
+	defer stream.Close()
+	handler := httphelpers.SequentialHandler(
+		httphelpers.HandlerWithStatus(401), // the rejected key engages the extended delays
+		streamHandler,                      // the retry succeeds and delivers a usable put
+	)
+
+	streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
 		p.streamManager.extendedRetryDelay = extendedBase
 		p.startStream()
-		awaitStreamRequest(t, p)
 
-		// Two refusals engage the extended profile.
-		for i := 0; i < 2; i++ {
-			p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
-			awaitStreamRequest(t, p)
-		}
-		require.Eventually(t, func() bool {
-			delays := reconnectDelays(p.mockLog)
-			return len(delays) > 0 && delays[len(delays)-1] >= extendedBase/2
-		}, 5*time.Second, 10*time.Millisecond, "expected the extended delays to be engaged")
+		awaitStreamRequest(t, p) // the rejected request
+		awaitStreamRequest(t, p) // the retry
 
-		// A usable event proves the stream works again.
-		p.stream.Enqueue(makePatchEnvEvent(testEnv1))
-		p.requireMessage()
+		p.requireMessage() // the put the recovered stream delivered
+		p.requireReceivedAllMessage()
+		require.True(t, p.mockLog.HasMessage(slog.LevelInfo, "engaging extended backoff"),
+			"the rejected key must have engaged the extended delays")
 
 		before := len(reconnectDelays(p.mockLog))
 
-		// The next refusal is the first of a new run, so it restarts without asking for a backoff.
-		// The delay it waits is the one under test.
+		// A refused patch restarts the stream. The delay it waits is the one under test.
 		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv2)))
 
 		var latest time.Duration
@@ -325,9 +319,8 @@ func TestAUsableEventReturnsTheStreamToTheShortRetryCurve(t *testing.T) {
 
 func TestAPartialRefusalKeepsTheStreamConnected(t *testing.T) {
 	// One environment's bad data must not take the connection down. The refused environment would
-	// come back identical on a new connection, so a reconnect achieves nothing, and two consecutive
-	// partial refusals used to walk the whole stream onto the extended delays. Every other
-	// environment then waited up to an hour for its own updates because of one environment's data.
+	// come back identical on a new connection, so a reconnect achieves nothing, and it would take
+	// every healthy environment's updates down with it.
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
 		awaitStreamRequest(t, p)
@@ -337,8 +330,8 @@ func TestAPartialRefusalKeepsTheStreamConnected(t *testing.T) {
 		require.NotNil(t, msg.add, "the well-formed environment in the put must be applied")
 		p.requireReceivedAllMessage()
 
-		// A second consecutive partial refusal is what used to engage the extended delays. Bump the
-		// good environment so it is a real update rather than a version the receiver dedupes away.
+		// A second partial refusal must be no different. Bump the good environment so it is a real
+		// update rather than a version the receiver dedupes away.
 		updatedEnv1 := testEnv1
 		updatedEnv1.Version++
 		p.stream.Enqueue(makeEnvPutEvent(updatedEnv1, envWithUnusableCredentials(testEnv2)))

@@ -40,14 +40,6 @@ const (
 	// rejecting every request.
 	streamExtendedRetryDelay    = 5 * time.Minute
 	streamExtendedMaxRetryDelay = 1 * time.Hour
-
-	// malformedBackoffThreshold is the number of consecutive unusable events that moves the stream to
-	// the extended delays.
-	//
-	// At two, relay reconnects at once the first time and slowly after that. One bad event may be a
-	// single corruption, so it is worth asking again immediately. A second one means the reconnect
-	// brought the same payload back, and asking faster will not change it.
-	malformedBackoffThreshold = 2
 )
 
 var (
@@ -128,10 +120,6 @@ type StreamManager struct {
 	// failures counts the failures recorded so far. It lets a caller that started work at one point
 	// in time tell whether the connection has failed since.
 	failures uint64
-
-	// consecutiveMalformedEvents counts data-driven restarts since the last event relay could use.
-	// Only the consumeStream goroutine touches it, like the cache fields below.
-	consecutiveMalformedEvents int
 
 	// cacheCh receives the result of the async cache read started by Start().
 	// It is consumed by consumeStream and nilled out after use.
@@ -473,10 +461,10 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	}
 
 	signalReady(nil)
-	s.consumeStream(stream, normalProfile, extendedProfile)
+	s.consumeStream(stream, normalProfile)
 }
 
-func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile, extendedProfile *es.RetryProfile) {
+func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile *es.RetryProfile) {
 	// Consume remaining Events and Errors so we can garbage collect
 	defer func() {
 		for range stream.Events {
@@ -512,14 +500,12 @@ func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile, extended
 			outcome := s.handleStreamEvent(event)
 			// eventsource clears an activated profile only after a stretch of healthy operation, and
 			// it measures that stretch from a timestamp stamped as this very event was delivered, so
-			// its own reset can never fire here. Relay has to move the profile itself in both
-			// directions: without the return to the short curve, the first refused payload leaves the
-			// stream on the extended delays for the life of the process.
+			// its own reset can never fire on an event-driven restart. Relay has to return the
+			// connection to the short curve itself, or a failure that engaged the extended delays
+			// keeps them long after the stream is healthy again.
 			switch outcome.curve {
 			case curveNormal:
 				stream.ActivateProfile(normalProfile)
-			case curveExtended:
-				stream.ActivateProfile(extendedProfile)
 			case curveUnchanged:
 			}
 			if outcome.restart {
@@ -548,11 +534,10 @@ const (
 	curveUnchanged retryCurve = iota
 	// curveNormal returns to the short delays. Only a usable event that still holds earns it: it is
 	// the only proof the stream is working again.
+	//
+	// Nothing here moves the connection to the extended delays. Those belong to the stream error
+	// handler, which sees the failures they are meant for.
 	curveNormal
-	// curveExtended moves to the long delays. A restart caused by unusable data is not worth
-	// hurrying, because the service cannot learn that relay refused the payload and will send the
-	// same thing again. Reconnecting on the short delays would spin until somebody fixes it.
-	curveExtended
 )
 
 // eventOutcome says what the stream should do after an event. The two fields are the two decisions
@@ -723,19 +708,15 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 	// nothing about the connection that carried it.
 	switch {
 	case malformed:
-		// Wait for a second unusable event before slowing down. The first one may be a single
-		// corruption, which a prompt reconnect fixes. A second one means the reconnect brought the
-		// same payload back.
-		s.consecutiveMalformedEvents++
-		if s.consecutiveMalformedEvents >= malformedBackoffThreshold {
-			outcome.curve = curveExtended
-		}
+		// The curve is left alone. eventsource grows its own delay for every restart that follows an
+		// event, up to streamMaxRetryDelay, which bounds the reconnects without relay deciding
+		// anything. The extended delays stay reserved for a connection that is failing: unusable data
+		// is fixed upstream, and a stream that is disconnected for minutes cannot learn that it was.
 		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
 			Kind: interfaces.DataSourceErrorKindInvalidData,
 			Time: time.Now(),
 		})
 	case processedEvent:
-		s.consecutiveMalformedEvents = 0
 		errorInfo := interfaces.DataSourceErrorInfo{}
 		if partiallyRefused {
 			errorInfo = interfaces.DataSourceErrorInfo{
