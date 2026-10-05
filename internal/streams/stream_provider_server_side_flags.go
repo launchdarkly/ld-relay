@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"net/http"
 	"sync"
 
@@ -38,7 +39,7 @@ func (s *serverSideFlagsOnlyStreamProvider) Handler(params sdkauth.ScopedCredent
 	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	return s.server.Handler(params.String())
+	return handlerWithEndStream(s.server.Handler(params.String()))
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Register(
@@ -89,6 +90,16 @@ func (e *serverSideFlagsOnlyEnvStreamProvider) Close() {
 }
 
 func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
+	return r.replay(context.Background())
+}
+
+// ReplayWithContext implements eventsource.RepositoryWithContext. See
+// serverSideEnvStreamRepository.ReplayWithContext.
+func (r *serverSideFlagsOnlyEnvStreamRepository) ReplayWithContext(ctx context.Context, channel, id string) <-chan eventsource.Event {
+	return r.replay(ctx)
+}
+
+func (r *serverSideFlagsOnlyEnvStreamRepository) replay(ctx context.Context) chan eventsource.Event {
 	// Buffered so the goroutine below can always finish its send. The eventsource handler abandons
 	// this channel without draining it when the client disconnects or MaxConnTime fires, which would
 	// otherwise park the goroutine forever and pin the whole environment's replay payload.
@@ -100,7 +111,11 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 	go func() {
 		defer close(out)
 		event, err := r.getReplayEvent()
-		if err == nil && event != nil {
+		if err != nil {
+			endStream(ctx) // See serverSideEnvStreamRepository.ReplayWithContext
+			return
+		}
+		if event != nil {
 			out <- event
 		}
 	}()

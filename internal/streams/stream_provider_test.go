@@ -92,6 +92,18 @@ func verifyHandlerInitialEvent(t *testing.T, sp StreamProvider, credential sdkau
 	})
 }
 
+// verifyHandlerEndsStream checks that the stream ends with no event, while the client stays connected.
+func verifyHandlerEndsStream(t *testing.T, sp StreamProvider, credential sdkauth.ScopedCredential) {
+	handler := sp.Handler(credential)
+	require.NotNil(t, handler)
+
+	req, _ := http.NewRequest("GET", "", nil)
+	sharedtest.WithStreamRequest(t, req, handler, func(eventCh <-chan eventsource.Event) {
+		e := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for the stream to end")
+		assert.Nil(t, e, "expected the stream to end with no event")
+	})
+}
+
 func verifyHandlerUpdateEvent(
 	t *testing.T,
 	sp StreamProvider,

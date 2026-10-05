@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -86,6 +87,27 @@ func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration) *ev
 	s.ReplayAll = true
 	s.MaxConnTime = maxConnTime
 	return s
+}
+
+type endStreamKey struct{}
+
+// handlerWithEndStream wraps an SSE handler so that a Repository can end the stream. The eventsource
+// handler stops when its request context ends. The Repository gets that context in ReplayWithContext
+// and calls endStream to cancel it.
+func handlerWithEndStream(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		handler(w, req.WithContext(context.WithValue(ctx, endStreamKey{}, cancel)))
+	}
+}
+
+// endStream ends the stream that made the request with this context. The SDK then reconnects with
+// its usual backoff. If the context does not come from handlerWithEndStream, endStream does nothing.
+func endStream(ctx context.Context) {
+	if cancel, ok := ctx.Value(endStreamKey{}).(context.CancelFunc); ok {
+		cancel()
+	}
 }
 
 func removeDeleted(items []ldstoretypes.KeyedItemDescriptor) []ldstoretypes.KeyedItemDescriptor {
