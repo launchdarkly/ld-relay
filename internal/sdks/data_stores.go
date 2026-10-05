@@ -164,13 +164,27 @@ func getRedisBuilderOptions(
 ) (redisURL, prefix string, dialOptions []redigo.DialOption) {
 	redisURL, prefix = GetRedisBasicProperties(allConfig.Redis, envConfig)
 
-	if allConfig.Redis.Password != "" {
-		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
-	}
-	if allConfig.Redis.Username != "" {
-		dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
-	}
+	dialOptions = redisDialOptions(allConfig.Redis)
 	return
+}
+
+func redisDialOptions(redisConfig config.RedisConfig) []redigo.DialOption {
+	var dialOptions []redigo.DialOption
+	if redisConfig.Password != "" {
+		dialOptions = append(dialOptions, redigo.DialPassword(redisConfig.Password))
+	}
+	if redisConfig.Username != "" {
+		dialOptions = append(dialOptions, redigo.DialUsername(redisConfig.Username))
+	}
+	// If a timeout is not set, redigo uses its own default. The default connect timeout is 30 seconds.
+	// The default read timeout is none, so a read can wait forever.
+	if redisConfig.ConnectTimeout.IsDefined() {
+		dialOptions = append(dialOptions, redigo.DialConnectTimeout(redisConfig.ConnectTimeout.GetOrElse(0)))
+	}
+	if redisConfig.ReadTimeout.IsDefined() {
+		dialOptions = append(dialOptions, redigo.DialReadTimeout(redisConfig.ReadTimeout.GetOrElse(0)))
+	}
+	return dialOptions
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters
