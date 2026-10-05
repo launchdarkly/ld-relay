@@ -57,7 +57,25 @@ func TestMalformedCredentialPayloadIsRefusedAndRestartsTheStream(t *testing.T) {
 // that follows the reconnect would carry the same version and be dropped as a no-op, leaving the
 // environment on credentials it should have replaced with no path back short of a restart.
 func TestReplayOfTheSameVersionIsAppliedAfterARefusal(t *testing.T) {
-	streamManagerTest(t, nil, func(p streamManagerTestParams) {
+	refused := envWithUnusableCredentials(testEnv1)
+	refused.Version = testEnv1.Version + 1
+
+	// The service replays the same version on the reconnect, this time in a shape relay can use.
+	// Serving it as the second connection's initial event, rather than enqueueing it after the
+	// refusal, guarantees it reaches the new connection. An enqueued event can be written to the old
+	// connection before the server notices it closed, and is then lost.
+	replayed := testEnv1
+	replayed.Version = testEnv1.Version + 1
+	replayed.EnvName = "renamed-by-the-replay"
+	replayEvent := makeEnvPutEvent(replayed)
+
+	firstHandler, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+	replayHandler, replayStream := httphelpers.SSEHandler(&replayEvent)
+	defer replayStream.Close()
+
+	handler := httphelpers.SequentialHandler(firstHandler, replayHandler)
+	streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
 		p.startStream()
 		awaitStreamRequest(t, p)
 
@@ -67,21 +85,17 @@ func TestReplayOfTheSameVersionIsAppliedAfterARefusal(t *testing.T) {
 		require.NotNil(t, msg.add)
 		p.requireReceivedAllMessage()
 
-		refused := envWithUnusableCredentials(testEnv1)
-		refused.Version = testEnv1.Version + 1
+		// The reconnect is immediate, so the replay can arrive within any quiet window this test
+		// could wait for. The refused patch handing anything to the relay shows up instead as a first
+		// message that is not the replay.
 		p.stream.Enqueue(makePatchEnvEvent(refused))
-		p.requireNoMoreMessages()
 
-		// The service replays the same version, this time in a shape relay can use. It must be
-		// applied rather than deduplicated away.
-		replayed := testEnv1
-		replayed.Version = testEnv1.Version + 1
-		replayed.EnvName = "renamed-by-the-replay"
-		p.stream.Enqueue(makePatchEnvEvent(replayed))
-
+		// The refusal reconnects, and the replay must be applied rather than deduplicated away.
+		awaitStreamRequest(t, p)
 		msg = p.requireMessage()
 		require.NotNil(t, msg.update, "the replay of a refused version must be applied")
 		assert.Equal(t, "renamed-by-the-replay", msg.update.Identifiers.EnvName)
+		p.requireReceivedAllMessage()
 	})
 }
 
