@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"testing"
 	"unicode/utf8"
@@ -21,7 +22,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const activeRequestsMetricName = "http.server.active_requests"
+const (
+	activeRequestsMetricName = "http.server.active_requests"
+	requestsMetricName       = "launchdarkly.relay.requests"
+)
 
 // installActiveRequestReader swaps in reader-backed instruments for a started relay. The middleware
 // resolves instruments through the Manager per request, so this takes effect for requests made after
@@ -295,5 +299,52 @@ func TestRecordedAttributesAreValidUTF8(t *testing.T) {
 			}
 		}
 		assert.Positive(t, checked, "no string attributes were examined")
+	})
+}
+
+// TestUnauthenticatedRequestsCannotMintSeries sends the status and not-found handlers, which need no
+// credentials, a distinct user agent and application tag on every request, and the not-found handler a
+// distinct invented method too. None of those reach the request counter, so it holds one series per
+// handler however many distinct values arrive. Without that, each value would be a series that lasts
+// until restart on a cumulative export. The status request stays a GET: any other method misses the
+// status route and lands in the not-found handler.
+func TestUnauthenticatedRequestsCannotMintSeries(t *testing.T) {
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		reader := installActiveRequestReader(t, p.relay)
+
+		for i := range 20 {
+			for path, method := range map[string]string{"/status": "GET", "/no/such/route": fmt.Sprintf("X-METHOD-%d", i)} {
+				req := st.BuildRequest(method, path, nil, nil)
+				req.Header.Set("User-Agent", fmt.Sprintf("scanner/%d", i))
+				req.Header.Set("X-LaunchDarkly-Tags", fmt.Sprintf("application-id/app-%d application-version/%d", i, i))
+				st.DoRequest(req, p.relay)
+			}
+		}
+
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(context.Background(), &rm))
+		m := st.FindMetricByName(&rm, requestsMetricName)
+		require.NotNil(t, m, "%s was not recorded", requestsMetricName)
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok)
+		assert.Len(t, sum.DataPoints, 2, "expected one series per handler")
+		for _, dp := range sum.DataPoints {
+			assert.Equal(t, int64(20), dp.Value)
+			wantMethod := "_OTHER"
+			if endpointType, _ := dp.Attributes.Value("launchdarkly.relay.endpoint.type"); endpointType.AsString() == string(metrics.EndpointTypeStatus) {
+				wantMethod = "GET"
+			}
+			for key, want := range map[attribute.Key]string{
+				"http.request.method":         wantMethod,
+				"user_agent.original":         "not_provided",
+				"launchdarkly.application.id": "not_provided",
+			} {
+				value, _ := dp.Attributes.Value(key)
+				assert.Equal(t, want, value.AsString(), key)
+			}
+		}
 	})
 }
