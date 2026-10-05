@@ -272,14 +272,17 @@ func sanitizeReplacingSlashes(v, absent string) string {
 
 // sanitizeVerbatimValue keeps a value as the client sent it, stripping only invalid UTF-8. Use it for
 // attributes whose semantic convention defines them as the original value, such as
-// user_agent.original: replacing the slashes in "Node/3.4.0" would make the metric attribute disagree
-// with the identical attribute the tracing instrumentation records on the request span, so the two
-// could no longer be joined.
+// user_agent.original.
 //
-// A value that ends up empty is the exception, and it cannot be joined either way. When the header is
-// absent the instrumentation leaves the attribute off the span entirely. When it holds only whitespace,
-// or only bytes that are not valid UTF-8, the span reports whatever survives sanitizing while the metric
-// reports the sentinel. Neither shape identifies a client, so a join would have nothing to tell you.
+// For user_agent.original, keeping the value verbatim lets the metric be joined with the attribute the
+// tracing instrumentation records on the request span, but only for a request that carries no
+// X-LaunchDarkly-User-Agent header. The metric takes that header when it is present, while the
+// instrumentation always reads User-Agent, so for an SDK that sends both the two attributes differ.
+//
+// A value that ends up empty cannot be joined either. When the header is absent the instrumentation
+// leaves the attribute off the span entirely. When it holds only whitespace, or only bytes that are not
+// valid UTF-8, the span reports whatever survives sanitizing while the metric reports the sentinel.
+// Neither shape identifies a client, so a join would have nothing to tell you.
 func sanitizeVerbatimValue(v string) string {
 	v = util.SanitizeUTF8(v)
 	if strings.TrimSpace(v) == "" {
