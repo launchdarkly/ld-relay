@@ -46,7 +46,21 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigOTLPInvalidProtocol(),
 		makeInvalidConfigOTLPNegativeCardinalityLimit(),
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
+		makeInvalidConfigRedisTimeout("ConnectTimeout", "REDIS_CONNECT_TIMEOUT", errRedisConnectTimeout),
+		makeInvalidConfigRedisTimeout("ReadTimeout", "REDIS_READ_TIMEOUT", errRedisReadTimeout),
 	}
+}
+
+func makeInvalidConfigRedisTimeout(fileKey, envVar string, err error) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis " + fileKey + " of zero"}
+	c.envVarsError = err.Error()
+	c.envVars = map[string]string{"USE_REDIS": "1", envVar: "0s"}
+	c.fileContent = `
+[Redis]
+Host = "localhost"
+` + fileKey + ` = 0s
+`
+	return c
 }
 
 func makeInvalidConfigMaxClientRequestBodySize(size string) testDataInvalidConfig {

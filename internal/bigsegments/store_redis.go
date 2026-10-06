@@ -72,6 +72,12 @@ func newRedisBigSegmentStore(
 	if redisConfig.Username != "" {
 		opts.Username = redisConfig.Username
 	}
+	if redisConfig.ConnectTimeout.IsDefined() {
+		opts.DialTimeout = redisConfig.ConnectTimeout.GetOrElse(0)
+	}
+	if redisConfig.ReadTimeout.IsDefined() {
+		opts.ReadTimeout = redisConfig.ReadTimeout.GetOrElse(0)
+	}
 	if redisConfig.TLS && opts.TLSConfig == nil {
 		opts.TLSConfig = &tls.Config{
 			ServerName: redisConfig.URL.Get().Hostname(),
