@@ -18,6 +18,8 @@ var (
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
+	errRedisConnectTimeout             = errors.New("connect timeout for Redis must be greater than zero")
+	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
@@ -216,6 +218,7 @@ func validateMaxClientRequestBodySize(result *ct.ValidationResult, c *Config) {
 
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slog.Logger) {
 	normalizeRedisConfig(result, c)
+	validateRedisTimeouts(result, c)
 
 	databases := []string{}
 	if c.Redis.URL.IsDefined() {
@@ -304,6 +307,15 @@ func warnUnrecognizedSignalExporters(c *Config, logger *slog.Logger) {
 			continue
 		}
 		logger.Warn(warnUnrecognizedSignalExporter(exporter.varName, exporter.value))
+	}
+}
+
+func validateRedisTimeouts(result *ct.ValidationResult, c *Config) {
+	if c.Redis.ConnectTimeout.IsDefined() && c.Redis.ConnectTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errRedisConnectTimeout)
+	}
+	if c.Redis.ReadTimeout.IsDefined() && c.Redis.ReadTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errRedisReadTimeout)
 	}
 }
 
