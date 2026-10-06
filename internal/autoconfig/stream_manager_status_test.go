@@ -572,12 +572,15 @@ func TestStreamStatusIsInterruptedAfterMidStreamKeyRevocation(t *testing.T) {
 
 		stream.EndAll()
 
-		// The stream had connected, so a rejection now interrupts it rather than ending it.
-		got := requireStatusEventually(t, p, "expected INTERRUPTED after the key was rejected",
+		// The stream had connected, so a rejection now interrupts it rather than ending it. The end of
+		// the first connection also interrupts the stream, with a network error, before the
+		// reconnect gets the 401. Wait for the error response, so the test does not stop on that
+		// earlier state.
+		got := requireStatusEventually(t, p, "expected INTERRUPTED with an error response after the key was rejected",
 			func(s StreamStatus) bool {
-				return s.State == interfaces.DataSourceStateInterrupted
+				return s.State == interfaces.DataSourceStateInterrupted &&
+					s.LastError.Kind == interfaces.DataSourceErrorKindErrorResponse
 			})
-		assert.Equal(t, interfaces.DataSourceErrorKindErrorResponse, got.LastError.Kind)
 		assert.Equal(t, 401, got.LastError.StatusCode)
 	})
 }
