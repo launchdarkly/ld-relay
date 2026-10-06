@@ -471,6 +471,45 @@ func TestARefusedEnvironmentIsServedFromItsLastGoodCacheEntry(t *testing.T) {
 	})
 }
 
+func TestAMalformedCachedEntryIsNotCarriedForward(t *testing.T) {
+	// Relay versions before the credential check wrote the cache without validating it, so a store an
+	// older relay filled can hold a payload this one refuses. Carrying such an entry forward would
+	// create an environment from a payload relay has just declared unusable, and would write the same
+	// problem back for the next process start.
+	cache := &recordingCache{
+		blockFirstGet: true,
+		previous: &PutContent{Environments: map[config.EnvironmentID]envfactory.EnvironmentRep{
+			testEnv2.EnvID: envWithUnusableCredentials(testEnv2),
+		}},
+	}
+
+	streamHandler, stream := httphelpers.SSEHandler(nil)
+	defer stream.Close()
+
+	streamManagerTestWithCache(t, streamHandler, stream, cache, func(p streamManagerTestParams) {
+		p.startStream()
+		awaitStreamRequest(t, p)
+
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, envWithUnusableCredentials(testEnv2)))
+
+		// Only the well-formed environment from the put arrives. The refused one has no usable entry
+		// to fall back to, so nothing is served for it.
+		msg := p.requireMessage()
+		require.NotNil(t, msg.add, "expected the well-formed environment, got %s", msg)
+		assert.Equal(t, testEnv1.EnvID, msg.add.EnvID)
+		p.requireReceivedAllMessage()
+
+		require.Eventually(t, func() bool { _, ok := cache.lastWrite(); return ok },
+			time.Second, time.Millisecond, "timed out waiting for the cache write")
+		written, _ := cache.lastWrite()
+		assert.NotContains(t, written.Environments, testEnv2.EnvID,
+			"a malformed cached entry must not be written back")
+
+		assert.True(t, p.mockLog.HasMessage(slog.LevelError, "nothing to fall back to"),
+			"the unusable fallback must be reported")
+	})
+}
+
 func TestAFullyRefusedPutStillReportsConfiguredWhenTheCacheCoversIt(t *testing.T) {
 	// The readiness gate exists so Relay does not claim to be configured while serving nothing. An
 	// environment recovered from the cache is being served, so it counts -- otherwise Relay would

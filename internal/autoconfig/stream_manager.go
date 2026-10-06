@@ -961,6 +961,12 @@ func validateCredentialPayload(rep envfactory.EnvironmentRep) error {
 // It returns the last-good entry it substituted for each refused environment, so the caller can apply
 // those in memory as well. Writing them to the cache alone would serve the next process start and
 // leave this one with nothing for an environment whose last-good configuration it is holding.
+//
+// A cached entry is validated before it is carried forward. Relay versions before this one wrote the
+// cache without checking credentials at all, so a store an older relay filled can hold a payload
+// this one would refuse. An entry that does not pass is carried to neither destination: applying it
+// would create an environment from a payload relay has declared unusable, and keeping it in the
+// snapshot would hand the same problem to the next process start.
 func (s *StreamManager) persistPut(
 	content PutContent,
 	malformedEnvIDs map[config.EnvironmentID]bool,
@@ -979,15 +985,26 @@ func (s *StreamManager) persistPut(
 				environments[id] = rep
 				continue
 			}
-			if previous != nil {
-				if previousRep, ok := previous.Environments[id]; ok {
-					environments[id] = previousRep
-					if carriedForward == nil {
-						carriedForward = make(map[config.EnvironmentID]envfactory.EnvironmentRep)
-					}
-					carriedForward[id] = previousRep
-				}
+			if previous == nil {
+				continue
 			}
+			previousRep, ok := previous.Environments[id]
+			if !ok {
+				continue
+			}
+			if err := validateCredentialPayload(previousRep); err != nil {
+				s.logger.Error("the cached configuration for this environment is malformed too, so "+
+					"there is nothing to fall back to",
+					"envID", id,
+					"error", err,
+				)
+				continue
+			}
+			environments[id] = previousRep
+			if carriedForward == nil {
+				carriedForward = make(map[config.EnvironmentID]envfactory.EnvironmentRep)
+			}
+			carriedForward[id] = previousRep
 		}
 		content.Environments = environments
 	}
