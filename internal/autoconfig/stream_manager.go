@@ -97,7 +97,6 @@ type StreamManager struct {
 	uri               *url.URL
 	handler           MessageHandler
 	cache             Cache
-	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
 	// extendedRetryDelay is the base delay used once a failure looks unlikely to correct
@@ -156,7 +155,6 @@ func NewStreamManager(
 		uri:               streamURI,
 		handler:           handler,
 		cache:             cache,
-		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
 		// The extended delay has no configuration key. Its value bounds the load a fleet of
@@ -268,14 +266,24 @@ func (s *StreamManager) failureGeneration() uint64 {
 // the cache, and the connection can die while that runs. The event was delivered by a connection
 // that is now gone, so it is not evidence that the stream works. Without this check the stream
 // reports VALID until something else reports on it, and if the reconnect hangs, nothing ever does.
-func (s *StreamManager) markValid(generation uint64) {
+// markValidWithError records that the connection works while also recording a data-level error, for
+// an event that was delivered and partly usable. It reports whether it applied.
+//
+// The generation check is the same one markValid makes, and it is the whole point of routing this
+// through here: a connection failure recorded while this event was being handled must not be
+// overwritten by the success the event would otherwise report.
+func (s *StreamManager) markValidWithError(
+	generation uint64,
+	errorInfo interfaces.DataSourceErrorInfo,
+) bool {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
 	if s.failures != generation {
-		return
+		return false
 	}
-	s.setStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{})
+	s.setStatus(interfaces.DataSourceStateValid, errorInfo)
+	return true
 }
 
 // setStatus applies a state change. The caller must hold statusLock.
@@ -453,10 +461,10 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	}
 
 	signalReady(nil)
-	s.consumeStream(stream)
+	s.consumeStream(stream, normalProfile)
 }
 
-func (s *StreamManager) consumeStream(stream *es.Stream) {
+func (s *StreamManager) consumeStream(stream *es.Stream, normalProfile *es.RetryProfile) {
 	// Consume remaining Events and Errors so we can garbage collect
 	defer func() {
 		for range stream.Events {
@@ -489,7 +497,18 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				return
 			}
 
-			if s.handleStreamEvent(event) {
+			outcome := s.handleStreamEvent(event)
+			// eventsource clears an activated profile only after a stretch of healthy operation, and
+			// it measures that stretch from a timestamp stamped as this very event was delivered, so
+			// its own reset can never fire on an event-driven restart. Relay has to return the
+			// connection to the short curve itself, or a failure that engaged the extended delays
+			// keeps them long after the stream is healthy again.
+			switch outcome.curve {
+			case curveNormal:
+				stream.ActivateProfile(normalProfile)
+			case curveUnchanged:
+			}
+			if outcome.restart {
 				stream.Restart()
 			}
 		case <-s.halt:
@@ -504,8 +523,39 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 	}
 }
 
-// handleStreamEvent processes a single SSE event. Returns true if the stream should be restarted.
-func (s *StreamManager) handleStreamEvent(event es.Event) bool {
+// retryCurve says which retry profile the connection uses after an event.
+//
+// Most events say nothing about the connection beyond having been delivered, so the zero value
+// leaves the profile as it is.
+type retryCurve int
+
+const (
+	// curveUnchanged keeps the profile the connection already has.
+	curveUnchanged retryCurve = iota
+	// curveNormal returns to the short delays. Only a usable event that still holds earns it: it is
+	// the only proof the stream is working again.
+	//
+	// Nothing here moves the connection to the extended delays. Those belong to the stream error
+	// handler, which sees the failures they are meant for.
+	curveNormal
+)
+
+// eventOutcome says what the stream should do after an event. The two fields are the two decisions
+// the event loop makes: which retry curve the connection uses from here, and whether to reconnect
+// now.
+//
+// They are separate because they do not move together. A policy-change reconnect asks for both: the
+// event was delivered and usable, which earns the short curve, and it asks for a reconnect to pick
+// up new data. An unusable event asks for a reconnect without earning anything. A put or patch that
+// applied asks for the short curve without a reconnect. An event this version does not recognize,
+// arriving while the connection is already failing, asks for neither.
+type eventOutcome struct {
+	curve   retryCurve
+	restart bool
+}
+
+// handleStreamEvent processes a single SSE event and reports what the stream should do next.
+func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 	if s.logger.Enabled(context.TODO(), slog.LevelDebug) {
 		s.logger.Debug("received SSE event", "event", event.Event(), "data", obfuscateEventData(event.Data()))
 	}
@@ -514,8 +564,11 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 	// handled is not overwritten by the success this event would otherwise report.
 	generation := s.failureGeneration()
 
-	shouldRestart := false
+	outcome := eventOutcome{}
 	malformed := false
+	// partiallyRefused means the event applied something and refused something. Its status is decided
+	// with every other status decision below, so it goes through the same generation check.
+	partiallyRefused := false
 	// The stream delivered an event, which is what proves the connection works. Only malformed data
 	// takes that back, the same as the SDK streaming data source.
 	processedEvent := true
@@ -526,7 +579,20 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 		)
 		malformed = true
 		processedEvent = false
-		shouldRestart = true
+		outcome.restart = true
+	}
+
+	// gotMalformedCredentials reports a payload that parsed but whose credentials cannot produce a
+	// usable set. The environment keeps the credentials it already had.
+	gotMalformedCredentials := func(envID config.EnvironmentID, err error) {
+		s.logger.Error("received malformed credential payload for environment; "+
+			"keeping the previous credentials and restarting the stream",
+			"envID", envID,
+			"error", err,
+		)
+		malformed = true
+		processedEvent = false
+		outcome.restart = true
 	}
 
 	switch event.Event() {
@@ -547,7 +613,26 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			s.cacheCh = nil
 		}
 		putMessage.Data.Persist = true
-		s.handlePut(putMessage.Data)
+		malformedEnvIDs, applied := s.handlePut(putMessage.Data)
+		switch {
+		case len(malformedEnvIDs) == 0:
+		case applied > 0:
+			// A partial refusal. The environments that applied are fine, and the refused one would
+			// come back identical on a new connection, so a restart buys nothing and would take
+			// every healthy environment's updates down with it. Record the error and keep serving.
+			// The refused environment returns when the service sends a new version for it.
+			s.logger.Error("refused one or more environments in this configuration; "+
+				"the rest of the configuration was applied and the stream is still connected",
+				"refusedCount", len(malformedEnvIDs),
+				"appliedCount", applied,
+			)
+			partiallyRefused = true
+		default:
+			// Nothing in the event was usable, so ask for it again.
+			malformed = true
+			processedEvent = false
+			outcome.restart = true
+		}
 
 	case PatchEvent:
 		var patchMsg PatchMessageData
@@ -568,6 +653,12 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			}
 			if id != string(envRep.EnvID) {
 				s.logger.Warn("ignoring environment data whose envId did not match key", "envId", envRep.EnvID, "key", id)
+				break
+			}
+			// Validate before Upsert, which is what records the payload's version. Refer to
+			// validateCredentialPayload for why advancing the version here would be unrecoverable.
+			if err = validateCredentialPayload(envRep); err != nil {
+				gotMalformedCredentials(envRep.EnvID, err)
 				break
 			}
 			action := s.envReceiver.Upsert(id, envRep, envRep.Version)
@@ -605,7 +696,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 
 	case ReconnectEvent:
 		s.logger.Info("will restart auto-configuration stream to get new data due to a policy change")
-		shouldRestart = true
+		outcome.restart = true
 
 	default:
 		s.logger.Warn("ignoring unrecognized stream event", "event", event.Event())
@@ -617,15 +708,31 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 	// nothing about the connection that carried it.
 	switch {
 	case malformed:
+		// The curve is left alone. eventsource grows its own delay for every restart that follows an
+		// event, up to streamMaxRetryDelay, which bounds the reconnects without relay deciding
+		// anything. The extended delays stay reserved for a connection that is failing: unusable data
+		// is fixed upstream, and a stream that is disconnected for minutes cannot learn that it was.
 		s.updateStatus(interfaces.DataSourceStateInterrupted, interfaces.DataSourceErrorInfo{
 			Kind: interfaces.DataSourceErrorKindInvalidData,
 			Time: time.Now(),
 		})
 	case processedEvent:
-		s.markValid(generation)
+		errorInfo := interfaces.DataSourceErrorInfo{}
+		if partiallyRefused {
+			errorInfo = interfaces.DataSourceErrorInfo{
+				Kind: interfaces.DataSourceErrorKindInvalidData,
+				Time: time.Now(),
+			}
+		}
+		// Only a success that still holds counts as recovery. When the connection has failed since
+		// this event arrived, markValidWithError declines, and dropping back to the short retry curve
+		// on the strength of this event would leave the stream retrying fast while it is broken.
+		if s.markValidWithError(generation, errorInfo) {
+			outcome.curve = curveNormal
+		}
 	}
 
-	return shouldRestart
+	return outcome
 }
 
 func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) {
@@ -733,34 +840,178 @@ func (s *StreamManager) applyCachedContent(content *PutContent) {
 
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
-func (s *StreamManager) handlePut(content PutContent) {
+// handlePut applies a full environment set, and returns the environments whose credential payload it
+// refused. A refused environment keeps the credentials it already had; every other environment in the
+// put is applied as usual.
+func (s *StreamManager) handlePut(content PutContent) (map[config.EnvironmentID]bool, int) {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
 	// in the set.
+	var malformedEnvIDs map[config.EnvironmentID]bool
+	applied := 0
 	s.logger.Info("received configuration", "environmentCount", len(content.Environments))
 	for id, rep := range content.Environments {
 		if id != rep.EnvID {
 			s.logger.Warn("ignoring environment data whose envId did not match key", "envId", rep.EnvID, "key", id)
 			continue
 		}
+		// Validate before Upsert, which is what records the payload's version. Refer to
+		// validateCredentialPayload.
+		if err := validateCredentialPayload(rep); err != nil {
+			s.logger.Error("received malformed credential payload for environment in configuration; "+
+				"keeping the previous credentials",
+				"envID", id,
+				"error", err,
+			)
+			if malformedEnvIDs == nil {
+				malformedEnvIDs = make(map[config.EnvironmentID]bool)
+			}
+			malformedEnvIDs[id] = true
+			continue
+		}
 		s.dispatchEnvAction(id, rep, s.envReceiver.Upsert(string(id), rep, rep.Version))
+		applied++
 	}
 
 	// Retain only the environments that were added in the PUT.
+	removed := 0
 	for _, deleted := range s.envReceiver.Retain(func(id string) bool {
 		_, ok := content.Environments[config.EnvironmentID(id)]
 		return ok
 	}) {
 		s.dispatchEnvAction(config.EnvironmentID(deleted), envfactory.EnvironmentRep{}, ActionDelete)
+		removed++
 	}
 
-	s.handler.ReceivedAllEnvironments()
+	// A configuration with no environments in it is legal: an auto-configuration key whose policy
+	// matches nothing produces one, and relay cannot tell that from a service that sent no content.
+	// Either way relay now serves nothing and answers 401 for every credential, which is worth one
+	// line rather than leaving an operator to infer it from a count of zero and a run of deletes.
+	if len(content.Environments) == 0 && removed > 0 {
+		s.logger.Warn("this configuration contains no environments; the Relay Proxy removed every "+
+			"environment it was serving and answers 401 for every credential until the "+
+			"configuration changes", "removedCount", removed)
+	}
+
+	// Serve the last-good configuration for every environment this put refused. The cache holds it,
+	// and without this the entry is written back for the next process start while this one serves
+	// nothing for that environment -- and a partial refusal no longer reconnects, so the service
+	// will not resend it either.
+	//
+	// Validating before Upsert is what makes this safe. A refused environment has no recorded
+	// version, so its cached entry applies; every environment this put did apply has a version that
+	// dedupes an older cached copy away. Recording the last-good version here is correct, because it
+	// is what Relay is now serving, and a corrected payload carries a higher one.
+	recovered := 0
 	if content.Persist {
-		if err := s.cache.SetAll(context.Background(), content); err != nil {
-			s.logger.Warn("failed to write AutoConfig cache", "error", err)
+		for id, rep := range s.persistPut(content, malformedEnvIDs) {
+			s.dispatchEnvAction(id, rep, s.envReceiver.Upsert(string(id), rep, rep.Version))
+			recovered++
+		}
+		if recovered > 0 {
+			s.logger.Warn("serving the last known good configuration for environments this "+
+				"configuration refused", "recoveredCount", recovered)
 		}
 	}
+
+	// A put that left the Relay Proxy with nothing must not report the configuration as complete. It
+	// would declare itself fully configured while serving no environments, and answer 401 for every
+	// credential instead of the 503 that says it is not ready. Environments recovered from the cache
+	// count: they are being served. An empty put is a different thing again -- it refused nothing, so
+	// it really is a complete configuration of no environments.
+	if applied > 0 || recovered > 0 || len(malformedEnvIDs) == 0 {
+		s.handler.ReceivedAllEnvironments()
+	} else {
+		s.logger.Error("every environment in this configuration was refused and none could be "+
+			"recovered from the cache; the Relay Proxy is not reporting itself as configured",
+			"refusedCount", len(malformedEnvIDs))
+	}
+	return malformedEnvIDs, applied
+}
+
+// validateCredentialPayload reports whether an environment's credentials can produce a usable
+// accepted set.
+//
+// Call it before MessageReceiver.Upsert, never after. Upsert records the payload's version, and it
+// deduplicates by that version: a later payload carrying the same version is treated as already
+// applied and dropped.
+//
+// So if a refused payload had already been through Upsert, the version would be recorded even
+// though nothing was applied. LaunchDarkly replays the same payload on the next connection, Upsert
+// would discard it as a duplicate, and the environment would go on serving the credentials that
+// payload was meant to replace -- with no way back short of restarting the process. Validating
+// first leaves the version untouched, so that replay is applied.
+func validateCredentialPayload(rep envfactory.EnvironmentRep) error {
+	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
+	return err
+}
+
+// persistPut writes a put to the cache, substituting the last-good cached entry for each environment
+// whose credentials were refused.
+//
+// A plain SetAll would drop those environments from the cache, or empty it when every environment in
+// the put was refused, which would leave a restarting relay with nothing to serve from until it
+// reached LaunchDarkly. Environments the put genuinely removed are still dropped.
+//
+// A read failure on the prior cache means there is no safe snapshot to assemble, so the cache is left
+// as it is. A nil result with no error is an empty cache rather than a failure, and there is simply
+// nothing to carry forward.
+//
+// It returns the last-good entry it substituted for each refused environment, so the caller can apply
+// those in memory as well. Writing them to the cache alone would serve the next process start and
+// leave this one with nothing for an environment whose last-good configuration it is holding.
+//
+// A cached entry is validated before it is carried forward. Relay versions before this one wrote the
+// cache without checking credentials at all, so a store an older relay filled can hold a payload
+// this one would refuse. An entry that does not pass is carried to neither destination: applying it
+// would create an environment from a payload relay has declared unusable, and keeping it in the
+// snapshot would hand the same problem to the next process start.
+func (s *StreamManager) persistPut(
+	content PutContent,
+	malformedEnvIDs map[config.EnvironmentID]bool,
+) map[config.EnvironmentID]envfactory.EnvironmentRep {
+	var carriedForward map[config.EnvironmentID]envfactory.EnvironmentRep
+	if len(malformedEnvIDs) > 0 {
+		previous, err := s.cache.GetAll(context.Background())
+		if err != nil {
+			s.logger.Warn("skipping AutoConfig cache write for a configuration with malformed credentials, "+
+				"because the previous cache could not be read", "error", err)
+			return nil
+		}
+		environments := make(map[config.EnvironmentID]envfactory.EnvironmentRep, len(content.Environments))
+		for id, rep := range content.Environments {
+			if !malformedEnvIDs[id] {
+				environments[id] = rep
+				continue
+			}
+			if previous == nil {
+				continue
+			}
+			previousRep, ok := previous.Environments[id]
+			if !ok {
+				continue
+			}
+			if err := validateCredentialPayload(previousRep); err != nil {
+				s.logger.Error("the cached configuration for this environment is malformed too, so "+
+					"there is nothing to fall back to",
+					"envID", id,
+					"error", err,
+				)
+				continue
+			}
+			environments[id] = previousRep
+			if carriedForward == nil {
+				carriedForward = make(map[config.EnvironmentID]envfactory.EnvironmentRep)
+			}
+			carriedForward[id] = previousRep
+		}
+		content.Environments = environments
+	}
+	if err := s.cache.SetAll(context.Background(), content); err != nil {
+		s.logger.Warn("failed to write AutoConfig cache", "error", err)
+	}
+	return carriedForward
 }
 
 func (s *StreamManager) cacheUpsert(kind CacheKind, id string, data interface{}) {
