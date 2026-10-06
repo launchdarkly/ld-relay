@@ -2,6 +2,22 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.23.0](https://github.com/launchdarkly/ld-relay/compare/v8.22.0...v8.23.0) (2026-10-06)
+
+
+### Features
+
+* Add connect and read timeout options for Redis ([#908](https://github.com/launchdarkly/ld-relay/issues/908)) ([27f6233](https://github.com/launchdarkly/ld-relay/commit/27f62333884cc59ccac37923578aafe34b2f2470))
+* Adopt go-server-sdk-redis-redigo v4 with an opt-in atomic upsert mode ([#904](https://github.com/launchdarkly/ld-relay/issues/904)) ([78563aa](https://github.com/launchdarkly/ld-relay/commit/78563aa6f9603f5d20279e59a42d276cc6a81d86))
+
+
+### Bug Fixes
+
+* **deps:** update Dockerfiles from 3.24.1 to alpine:3.24.2 ([#877](https://github.com/launchdarkly/ld-relay/issues/877)) ([5b2c64e](https://github.com/launchdarkly/ld-relay/commit/5b2c64e380727451da7273e09b01d116fe14e792))
+* End a stream when its initial data cannot be read ([#909](https://github.com/launchdarkly/ld-relay/issues/909)) ([52bd378](https://github.com/launchdarkly/ld-relay/commit/52bd37828df89a7fd27d82a94e862df7272d5962))
+* Keep a numeric host:port address out of the unparseable branch ([#886](https://github.com/launchdarkly/ld-relay/issues/886)) ([bbdfd9c](https://github.com/launchdarkly/ld-relay/commit/bbdfd9c72883e36776fb73fe63272df96341e266))
+* Update go-server-sdk-redis-redigo to v4.0.1 ([#910](https://github.com/launchdarkly/ld-relay/issues/910)) ([c6f6fd3](https://github.com/launchdarkly/ld-relay/commit/c6f6fd31249b8cf9300ff58c3e03058fef7790e2))
+
 ## [8.22.0](https://github.com/launchdarkly/ld-relay/compare/v8.21.0...v8.22.0) (2026-09-16)
 
 
