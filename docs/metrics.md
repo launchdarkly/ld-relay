@@ -221,12 +221,11 @@ following:
 | Attribute | Description |
 |-----------|-------------|
 | `launchdarkly.environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
-| `user_agent.original` | The `User-Agent` header sent by the SDK making the request, as received. Example: `Node/3.4.0` |
+| `user_agent.original` | The user agent of the SDK making the request, as received: the `X-LaunchDarkly-User-Agent` header if the request has one, and the `User-Agent` header otherwise. Example: `Node/3.4.0`. Request spans take `user_agent.original` from the `User-Agent` header only, so for an SDK that sends both headers the span and the metrics report different values. |
 | `http.route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
-| `http.request.method` | The HTTP method. Example: `GET` |
+| `http.request.method` | The HTTP method, normalized as the semantic convention defines it: one of the methods it lists (`GET`, `POST`, and so on), or `_OTHER` for anything else, including a listed method in another case. Example: `GET` |
 | `url.scheme` | The URL scheme. Example: `https` |
 | `launchdarkly.application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
-| `launchdarkly.application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
 | `launchdarkly.relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
 `http.server.active_requests` and `launchdarkly.relay.requests` carry exactly the attributes above, so
@@ -251,11 +250,15 @@ service returned a response, `error.type` is that status code as a string and
 
 Attribute values that are absent are reported as `not_provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
-they report `not_provided` for `launchdarkly.environment.name` and the other SDK attributes.
+they report `not_provided` for `launchdarkly.environment.name`, `user_agent.original`, and
+`launchdarkly.application.id`, whatever the request sent.
+Those requests need no credentials, so recording the values they carry would let any caller add a
+series per distinct value, and on a cumulative export each such series lasts until the Relay Proxy
+restarts.
 
 Values that are present are reported as received, apart from bytes that are not valid UTF-8, which are
 stripped because they would otherwise fail the OTLP export. In particular a value containing a slash --
-an application version such as `2026/08/01`, or an environment name such as `My Project / Staging` --
+an application ID such as `checkout/web`, or an environment name such as `My Project / Staging` --
 keeps it.
 
 `platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
