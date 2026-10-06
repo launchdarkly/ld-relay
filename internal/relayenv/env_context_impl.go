@@ -110,20 +110,23 @@ type envContextImpl struct {
 	// in headers, so re-keying it in place is within reach; what stands in the way is coordinating a
 	// backoff reset and a reconnect with the goroutine that owns its retry strategy. It is nil when
 	// big segments are not configured.
-	makeBigSegmentSync        func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer
-	bigSegmentStore           bigsegments.BigSegmentStore
-	bigSegmentsExist          bool
-	sdkBigSegments            *ldstoreimpl.BigSegmentStoreWrapper
-	sdkConfig                 ld.Config
-	sdkClientFactory          sdks.ClientFactoryFunc
-	sdkInitTimeout            time.Duration
-	metricsManager            *metrics.Manager
-	metricsEnv                *metrics.EnvironmentManager
-	metricsEventPub           events.EventPublisher
-	dataStoreInfo             sdks.DataStoreEnvironmentInfo
-	globalLogger              *slog.Logger
-	ttl                       time.Duration
-	initErr                   error
+	makeBigSegmentSync func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer
+	bigSegmentStore    bigsegments.BigSegmentStore
+	bigSegmentsExist   bool
+	sdkBigSegments     *ldstoreimpl.BigSegmentStoreWrapper
+	sdkConfig          ld.Config
+	sdkClientFactory   sdks.ClientFactoryFunc
+	sdkInitTimeout     time.Duration
+	metricsManager     *metrics.Manager
+	metricsEnv         *metrics.EnvironmentManager
+	metricsEventPub    events.EventPublisher
+	dataStoreInfo      sdks.DataStoreEnvironmentInfo
+	globalLogger       *slog.Logger
+	ttl                time.Duration
+	initErr            error
+	// clientRebuilding means a replacement SDK client is being built. It keeps a second reconcile
+	// from starting another one while the first is still running.
+	clientRebuilding          bool
 	creationTime              time.Time
 	keyRotator                *credential.Rotator
 	stopMonitoringCredentials chan struct{}
@@ -466,10 +469,60 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	c.envStreams.RemoveCredential(oldCredential)
 }
 
+// rebuildSDKClient replaces the environment's SDK client with one built on sdkKey. It is the
+// recovery path for the two states re-keying cannot reach: a data system the SDK has shut down, and
+// an environment whose build produced no client at all.
+//
+// The outgoing client is closed before the replacement is built, so the environment never holds two
+// copies of its data. The cost is that it has nothing to serve until the new client has a store.
+// That is the right trade here and not in an ordinary rotation: the client being replaced has a dead
+// data system, so its store can only go on being stale.
+func (c *envContextImpl) rebuildSDKClient(sdkKey config.SDKKey) {
+	defer func() {
+		c.mu.Lock()
+		c.clientRebuilding = false
+		c.mu.Unlock()
+	}()
+
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	name := c.identifiers.GetDisplayName()
+	outgoing := c.client
+	c.client = nil
+	c.mu.Unlock()
+
+	if outgoing != nil {
+		if err := outgoing.Close(); err != nil {
+			c.globalLogger.Error("error closing the environment's previous SDK client",
+				"env", name, "error", err)
+		}
+	}
+
+	// Errors are suppressed: this is a recovery attempt for an environment that is already not
+	// serving, so a failure here is not a new startup failure to escalate.
+	c.startSDKClient(sdkKey, nil, true)
+}
+
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
+	if c.closed {
+		// Close ran while this build was in flight. Installing the client would leak its connection,
+		// its goroutines and its store, and leave GetClient answering for a deleted environment.
+		c.mu.Unlock()
+		if client != nil {
+			_ = client.Close()
+		}
+		c.globalLogger.Info("discarding an SDK client built for an environment that has closed", "env", name)
+		if readyCh != nil {
+			readyCh <- c
+		}
+		return
+	}
 	if client != nil {
 		c.client = client
 		// A reconcile can move the anchor while this build is in flight, and the build used the key it
@@ -639,15 +692,67 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 		c.registerCredentialMappings(change.NewAnchor)
 	}
 
-	if !c.offline && c.client != nil {
-		if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
-			c.globalLogger.Error("could not move the environment to its new SDK key; "+
-				"keeping the previous key, which LaunchDarkly may already be invalidating",
+	if !c.offline {
+		// Re-keying reaches only the credential the client's requests carry, so it is the right move
+		// only when there is a working client to re-key. rebuildSDKClient takes c.mu, so every case
+		// that needs it starts it on another goroutine.
+		switch {
+		case c.clientRebuilding:
+			// A replacement is already being built. It catches up to the anchor committed below when
+			// it finishes, the same way the initial build does.
+
+		case c.client == nil && c.initErr == nil:
+			// The initial build is still in flight: it records an error in the same critical section
+			// where it installs the client, so neither is set yet. startSDKClient catches that client
+			// up to the anchor committed below, and building a second one here would leave the
+			// environment with two.
+
+		case c.client == nil:
+			// The build finished and produced no client, which is what an SDK key the SDK refuses at
+			// construction does. There is nothing to re-key and nothing else will try again, so this
+			// environment would stay unserved for the life of the process even once a usable key
+			// arrives.
+			c.globalLogger.Warn("the environment has no SDK client, so its new SDK key cannot be "+
+				"applied to one; building a client on the new key",
+				"env", c.identifiers.GetDisplayName(),
+				"new", change.NewAnchor.Masked())
+			c.clientRebuilding = true
+			go c.rebuildSDKClient(change.NewAnchor)
+
+		case c.client.GetDataSourceStatus().State == interfaces.DataSourceStateOff:
+			// SetSDKKey cannot revive a data system the SDK has already shut down: an unrecoverable
+			// authorization error removes every synchronizer permanently, and the data system then
+			// reports Off and stops. Re-keying that client would report a move that did not happen and
+			// leave the environment serving whatever its store still held, with nothing to refresh it.
+			c.globalLogger.Warn("the environment's data system has shut down, so its new SDK key "+
+				"cannot be applied to the existing client; rebuilding the client on the new key",
 				"env", c.identifiers.GetDisplayName(),
 				"previous", change.PreviousAnchor.Masked(),
-				"new", change.NewAnchor.Masked(),
-				"error", err)
-			return false
+				"new", change.NewAnchor.Masked())
+			c.clientRebuilding = true
+			go c.rebuildSDKClient(change.NewAnchor)
+
+		default:
+			if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
+				c.globalLogger.Error("could not move the environment to its new SDK key; "+
+					"keeping the previous key, which LaunchDarkly may already be invalidating",
+					"env", c.identifiers.GetDisplayName(),
+					"previous", change.PreviousAnchor.Masked(),
+					"new", change.NewAnchor.Masked(),
+					"error", err)
+				return false
+			}
+			// A build error recorded earlier describes a client that is now re-keyed and receiving
+			// data, so it is no longer the truth. Clearing it matters because the middleware rejects
+			// every request for an environment whose initialization failed, which would otherwise
+			// outlast the key that caused it. The Valid test is deliberate: a client that has not
+			// yet received data must keep the error rather than start serving an empty store.
+			if c.initErr != nil && c.client.GetDataSourceStatus().State == interfaces.DataSourceStateValid {
+				c.globalLogger.Info("the environment recovered on its new SDK key; clearing the "+
+					"initialization error recorded against the previous one",
+					"env", c.identifiers.GetDisplayName())
+				c.initErr = nil
+			}
 		}
 	}
 
