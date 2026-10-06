@@ -25,4 +25,21 @@ type MessageHandler interface {
 	// DeleteEnvironment is called when an environment should be removed, due to either a "delete"
 	// message, or a "put" that no longer contains that environment.
 	DeleteEnvironment(id config.EnvironmentID)
+
+	// EnvironmentRefused is called when a "patch" gave an environment a configuration Relay cannot
+	// use, so that environment is not served. reason is a short stable phrase, safe to publish: the
+	// detail goes to the log instead. A later message that Relay can use clears the refusal.
+	EnvironmentRefused(id config.EnvironmentID, reason string)
+
+	// SetRefusedEnvironments is called at the end of a "put" with every environment in it that Relay
+	// could not use. A "put" is the full environment set, so this replaces whatever was refused
+	// before rather than adding to it, which is what retires a refusal for an environment the "put"
+	// no longer mentions at all.
+	SetRefusedEnvironments(refused map[config.EnvironmentID]string)
+
+	// ClearEnvironmentRefusal is called for a "delete", to retire any refusal recorded against that
+	// environment. It is separate from DeleteEnvironment because an environment that was only ever
+	// refused was never applied, so nothing tracks it and no delete is dispatched for it. It is a
+	// no-op when nothing was refused.
+	ClearEnvironmentRefusal(id config.EnvironmentID)
 }

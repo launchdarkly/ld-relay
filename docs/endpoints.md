@@ -30,13 +30,25 @@ Others are for functionality that is specific to the Relay Proxy.
 
 Making a `GET` request to the URL path `/status` provides JSON information about the Relay Proxy's configured environments. There is no authentication required for this request.
 
+`sdkKeys` and `mobileKeys` list every credential the environment accepts, because an environment can
+accept several SDK keys at once -- during a key rotation, for instance. Each entry carries the
+non-secret `key` identifier, the obscured `value`, and an `expiry` in Unix milliseconds when the key
+is due to stop working. The scalar `sdkKey` and `mobileKey` fields name which entry is the anchor
+that owns the connection to LaunchDarkly, and which mobile key is used where only one can be.
+
 ```json
 {
   "environments": {
     "environment1": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
+      "sdkKeys": [
+        { "key": "default", "value": "sdk-********-****-****-****-*******99999" }
+      ],
       "envId": "999999999999999999999999",
       "mobileKey": "mob-********-****-****-****-*******99999",
+      "mobileKeys": [
+        { "key": "default", "value": "mob-********-****-****-****-*******99999" }
+      ],
       "status": "connected",
       "connectionStatus": {
         "state": "VALID",
@@ -56,8 +68,14 @@ Making a `GET` request to the URL path `/status` provides JSON information about
     },
     "environment2": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
+      "sdkKeys": [
+        { "key": "default", "value": "sdk-********-****-****-****-*******99999" }
+      ],
       "envId": "999999999999999999999999",
       "mobileKey": "mob-********-****-****-****-*******99999",
+      "mobileKeys": [
+        { "key": "default", "value": "mob-********-****-****-****-*******99999" }
+      ],
       "status": "connected",
       "connectionStatus": {
         "state": "INTERRUPTED",
@@ -84,6 +102,7 @@ Making a `GET` request to the URL path `/status` provides JSON information about
     "state": "VALID",
     "stateSince": 10000000
   },
+  "refusedEnvironments": [],
   "status": "healthy",
   "version": "5.11.1",
   "clientVersion": "4.17.2"
@@ -115,6 +134,11 @@ The status properties are defined as follows:
     - A non-`VALID` state does not stop flag serving: the environments the Relay Proxy already knows about keep their own connections to LaunchDarkly. What it means is that the Relay Proxy is no longer learning about *changes* to the environment list, so it may be serving a configuration that is out of date.
     - `"INITIALIZING"` with a `lastError` present means the Relay Proxy has never completed a connection to the configuration stream. If it is nonetheless serving environments, they came from the [persistent auto-config cache](configuration.md#file-section-autoconfig), so treat their configuration as potentially stale.
     - Because a broken configuration stream leaves flag serving intact, the top-level `status` does **not** become `"degraded"` for it. A monitor that cares about configuration freshness should check this property directly, for example with `?expect=autoConfigStatus.state=VALID`.
+- The `refusedEnvironments` property lists environments whose configuration the Relay Proxy would not accept. Each entry has an `envId`, a short `reason` (the detail is in the Relay Proxy's log, because this endpoint is unauthenticated), and a `serving` boolean. Entries are sorted by `envId`.
+    - **Read `serving` before treating an entry as an outage.** `false` means the Relay Proxy has no configuration for that environment at all: it is absent from `environments` and SDKs presenting its credentials get `401`. `true` means the Relay Proxy refused an *update* for an environment it already had, so that environment also appears under `environments` and goes on serving the credentials it had before; its flag data is current and only the refused configuration is unapplied.
+    - Nothing else in this document reports either case: the connection to LaunchDarkly is working, the rest of the configuration applied, and so both the top-level `status` and `autoConfigStatus.state` stay healthy. Check this property to detect the condition, for example with `?expect=refusedEnvironments[serving=false].serving=false`, which returns `200` when at least one environment is refused and not served, and `412` when none is. This check runs the other way round from the others on this page: `412` is the healthy answer, so alert on `200`. No clause can instead be written that holds only while nothing is refused, because a selector that matches no entry is unsatisfied with either operator.
+    - The property is always present, and is an empty array when nothing is refused, so a monitor does not have to tell an empty list apart from a Relay Proxy too old to report one.
+    - The Relay Proxy retires an entry as soon as it receives a configuration for that environment that it can use, or when the environment is removed from the configuration.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
     - In [automatic configuration mode](configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
     - When Big Segments are enabled, this value will also be `"degraded"` if the Big Segments status has an `available` property of `false` (indicating a database error), or if `potentiallyStale` is `true` (meaning Big Segments are potentially not fully synchronized) _and_ the configuration setting `bigSegmentsStaleAsDegraded` is enabled.
@@ -153,12 +177,19 @@ The response is a single environment status object (not wrapped in an `"environm
 ```json
 {
   "sdkKey": "sdk-********-****-****-****-*******99999",
+  "sdkKeys": [
+    { "key": "default", "value": "sdk-********-****-****-****-*******99999" },
+    { "key": "rotated-out", "value": "sdk-********-****-****-****-*******11111", "expiry": 1700000900000 }
+  ],
   "envId": "507f1f77bcf86cd799439011",
   "envKey": "production",
   "envName": "Production",
   "projKey": "my-app",
   "projName": "My Application",
   "mobileKey": "mob-********-****-****-****-*******99999",
+  "mobileKeys": [
+    { "key": "default", "value": "mob-********-****-****-****-*******99999" }
+  ],
   "status": "connected",
   "connectionStatus": {
     "state": "VALID",
@@ -237,7 +268,7 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 - Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`, `autoConfigStatus.lastError.kind`.
 - `autoConfigStatus` is only addressable on `/status`, since the per-environment routes return a single environment object. Outside automatic configuration mode the Relay Proxy omits the block, so a clause on it returns `412` (see the `422`-versus-`412` note below) rather than `422`.
 - For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
-- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). No field of the current status document is an array; this syntax exists so that selectors keep working when one becomes an array, and addressing a field that is not an array today returns `422`.
+- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). The array fields are `sdkKeys` and `mobileKeys` on an environment, and `refusedEnvironments` on `/status`. Addressing a field that is not an array returns `422`. Prefer the matching form over the index form for `sdkKeys` and `mobileKeys`: the order of their entries is unspecified, so an index addresses a different key from one request to the next.
 
 **Operators and comparison:**
 
@@ -259,7 +290,8 @@ On the per-environment routes, an unknown environment or filter (`404`) or an un
 
 - `connexionStatus.state=VALID` returns `422`: there is no such field, so the assertion can never be answered. This is almost always a typo.
 - `environments.my-env.status=connected` returns `412` when `my-env` is not a configured environment. Any environment key is addressable, so this is a well-formed question whose answer is "no".
-- `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `expiringSdkKey=...` returns `412` when no key is expiring. Both fields are real but are omitted when they have no value.
+- `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `mobileKey=...` returns `412` on an environment with no mobile key. Both fields are real but are omitted when they have no value.
+- `sdkKeys[key=some-name].value=...` returns `412` when the environment accepts no key by that name. The array is real and addressable, so a selector that matches nothing is a well-formed question rather than a caller error.
 
 When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging. Clauses appear in the order you supplied them. A clause that was evaluated reports `expected`, `actual`, and `ok`; a clause that could not be evaluated reports `problem` instead:
 

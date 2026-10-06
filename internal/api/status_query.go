@@ -32,8 +32,8 @@ import (
 // The distinction between 422 and 412 is drawn against the *schema* of the status document, not
 // against the particular body being served. A misspelled field is a caller error and reports 422,
 // while a real field that is merely absent right now -- an unconfigured environment, an omitted
-// expiringSdkKey, a bigSegmentStatus on an environment without big segments -- is a legitimately
-// unmet assertion and reports 412.
+// mobileKey, a bigSegmentStatus on an environment without big segments, an sdkKeys selector that
+// matches no key -- is a legitimately unmet assertion and reports 412.
 
 // ExpectParam is the query parameter that carries the assertion clauses.
 const ExpectParam = "expect"
