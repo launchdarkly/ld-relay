@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"net/http"
 	"strings"
 	"time"
 
@@ -125,10 +126,9 @@ const (
 //     http.route. All three are still reported in the usage data Relay sends to LaunchDarkly, which is
 //     a separate sink with its own cardinality budget.
 var (
-	envNameAttrKey            = attribute.Key("launchdarkly.environment.name")    //nolint:gochecknoglobals
-	applicationIDAttrKey      = attribute.Key("launchdarkly.application.id")      //nolint:gochecknoglobals
-	applicationVersionAttrKey = attribute.Key("launchdarkly.application.version") //nolint:gochecknoglobals
-	endpointTypeAttrKey       = attribute.Key("launchdarkly.relay.endpoint.type") //nolint:gochecknoglobals
+	envNameAttrKey       = attribute.Key("launchdarkly.environment.name")    //nolint:gochecknoglobals
+	applicationIDAttrKey = attribute.Key("launchdarkly.application.id")      //nolint:gochecknoglobals
+	endpointTypeAttrKey  = attribute.Key("launchdarkly.relay.endpoint.type") //nolint:gochecknoglobals
 
 	// Attribute keys for the initialization-delivery limiter instruments.
 	initReasonAttrKey     = attribute.Key("launchdarkly.relay.init.reason")      //nolint:gochecknoglobals
@@ -162,7 +162,6 @@ var (
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals
 	httpRouteAttrKey           = semconv.HTTPRouteKey              //nolint:gochecknoglobals
-	httpRequestMethodAttrKey   = semconv.HTTPRequestMethodKey      //nolint:gochecknoglobals
 	httpResponseStatusAttrKey  = semconv.HTTPResponseStatusCodeKey //nolint:gochecknoglobals
 	urlSchemeAttrKey           = semconv.URLSchemeKey              //nolint:gochecknoglobals
 	networkProtoVersionAttrKey = semconv.NetworkProtocolVersionKey //nolint:gochecknoglobals
@@ -176,7 +175,7 @@ const errorTypeOther = "_OTHER"
 // buildRequestAttributes creates an OTel attribute set for request metrics using semconv attribute names
 // where applicable. Values from the RequestInfo are sanitized here, so callers pass it through as-is.
 func buildRequestAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+7)
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+6)
 	copy(attrs, baseKVs)
 	attrs = append(attrs, requestKVs(ri)...)
 	return attribute.NewSet(attrs...)
@@ -185,7 +184,7 @@ func buildRequestAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attrib
 // buildDurationAttributes creates an OTel attribute set for the http.server.request.duration histogram,
 // including all semconv required/conditionally-required attributes.
 func buildDurationAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+10)
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+9)
 	copy(attrs, baseKVs)
 	attrs = append(attrs, requestKVs(ri)...)
 	if ri.ProtocolVersion != "" {
@@ -200,18 +199,52 @@ func buildDurationAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attri
 	return attribute.NewSet(attrs...)
 }
 
-// requestKVs returns the attributes that every request-scoped metric carries. Keeping this at seven,
+// requestKVs returns the attributes that every request-scoped metric carries. Keeping this at six,
 // plus launchdarkly.environment.name from the environment, holds the common case within attribute.NewSet's
 // fixed-size fast path, which only covers sets of ten or fewer.
 func requestKVs(ri RequestInfo) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		userAgentAttrKey.String(sanitizeVerbatimValue(ri.UserAgent)),
 		httpRouteAttrKey.String(sanitizeRouteValue(ri.Route)),
-		httpRequestMethodAttrKey.String(sanitizeVerbatimValue(ri.Method)),
+		normalizeMethod(ri.Method),
 		urlSchemeAttrKey.String(ri.URLScheme),
 		applicationIDAttrKey.String(sanitizeVerbatimValue(ri.ApplicationID)),
-		applicationVersionAttrKey.String(sanitizeVerbatimValue(ri.ApplicationVersion)),
 		endpointTypeAttrKey.String(sanitizeVerbatimValue(string(ri.EndpointType))),
+	}
+}
+
+// normalizeMethod maps a request method to http.request.method as the semantic convention defines it:
+// the known methods as-is, and anything else, including a known method in the wrong case, as _OTHER.
+// The method comes straight from the request line, and the status and not-found handlers record it
+// without requiring credentials, so recording it verbatim would let any caller mint a series per
+// method. On the cumulative instruments those series last until the process restarts.
+//
+// The convention also defines http.request.method_original for the value that was replaced. Relay
+// does not record it, since doing so would bring back the unbounded values.
+func normalizeMethod(method string) attribute.KeyValue {
+	switch method {
+	case http.MethodGet:
+		return semconv.HTTPRequestMethodGet
+	case http.MethodPost:
+		return semconv.HTTPRequestMethodPost
+	case http.MethodPut:
+		return semconv.HTTPRequestMethodPut
+	case http.MethodPatch:
+		return semconv.HTTPRequestMethodPatch
+	case http.MethodDelete:
+		return semconv.HTTPRequestMethodDelete
+	case http.MethodHead:
+		return semconv.HTTPRequestMethodHead
+	case http.MethodOptions:
+		return semconv.HTTPRequestMethodOptions
+	case http.MethodConnect:
+		return semconv.HTTPRequestMethodConnect
+	case http.MethodTrace:
+		return semconv.HTTPRequestMethodTrace
+	case "QUERY":
+		return semconv.HTTPRequestMethodQuery
+	default:
+		return semconv.HTTPRequestMethodOther
 	}
 }
 
@@ -239,14 +272,17 @@ func sanitizeReplacingSlashes(v, absent string) string {
 
 // sanitizeVerbatimValue keeps a value as the client sent it, stripping only invalid UTF-8. Use it for
 // attributes whose semantic convention defines them as the original value, such as
-// user_agent.original: replacing the slashes in "Node/3.4.0" would make the metric attribute disagree
-// with the identical attribute the tracing instrumentation records on the request span, so the two
-// could no longer be joined.
+// user_agent.original.
 //
-// A value that ends up empty is the exception, and it cannot be joined either way. When the header is
-// absent the instrumentation leaves the attribute off the span entirely. When it holds only whitespace,
-// or only bytes that are not valid UTF-8, the span reports whatever survives sanitizing while the metric
-// reports the sentinel. Neither shape identifies a client, so a join would have nothing to tell you.
+// For user_agent.original, keeping the value verbatim lets the metric be joined with the attribute the
+// tracing instrumentation records on the request span, but only for a request that carries no
+// X-LaunchDarkly-User-Agent header. The metric takes that header when it is present, while the
+// instrumentation always reads User-Agent, so for an SDK that sends both the two attributes differ.
+//
+// A value that ends up empty cannot be joined either. When the header is absent the instrumentation
+// leaves the attribute off the span entirely. When it holds only whitespace, or only bytes that are not
+// valid UTF-8, the span reports whatever survives sanitizing while the metric reports the sentinel.
+// Neither shape identifies a client, so a join would have nothing to tell you.
 func sanitizeVerbatimValue(v string) string {
 	v = util.SanitizeUTF8(v)
 	if strings.TrimSpace(v) == "" {

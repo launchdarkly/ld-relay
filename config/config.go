@@ -262,6 +262,9 @@ type RedisConfig struct {
 	CAFile                string `conf:"REDIS_CA_FILE"`
 
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
+
+	ConnectTimeout ct.OptDuration `conf:"REDIS_CONNECT_TIMEOUT"`
+	ReadTimeout    ct.OptDuration `conf:"REDIS_READ_TIMEOUT"`
 }
 
 // TLSEnabled is true if TLS was requested either with the TLS option or with a rediss:// URL.

@@ -450,6 +450,9 @@ func makeValidConfigRedisAll() testDataValidConfig {
 			Username: "user",
 
 			AtomicUpsert: true,
+
+			ConnectTimeout: ct.NewOptDuration(2 * time.Second),
+			ReadTimeout:    ct.NewOptDuration(4 * time.Second),
 		}
 	}
 	c.envVars = map[string]string{
@@ -461,7 +464,9 @@ func makeValidConfigRedisAll() testDataValidConfig {
 		"REDIS_USERNAME": "user",
 		"CACHE_TTL":      "3s",
 
-		"REDIS_ATOMIC_UPSERT": "1",
+		"REDIS_ATOMIC_UPSERT":   "1",
+		"REDIS_CONNECT_TIMEOUT": "2s",
+		"REDIS_READ_TIMEOUT":    "4s",
 	}
 	c.fileContent = `
 [Redis]
@@ -472,6 +477,8 @@ Password = "pass"
 Username = "user"
 LocalTTL = 3s
 AtomicUpsert = true
+ConnectTimeout = 2s
+ReadTimeout = 4s
 `
 	return c
 }

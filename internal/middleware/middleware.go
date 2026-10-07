@@ -75,22 +75,19 @@ func getSDKWrapper(req *http.Request) string {
 	return req.Header.Get(ldWrapperHeader)
 }
 
-// parseApplicationTags extracts the application ID and version from the
-// X-LaunchDarkly-Tags header. The header format is space-separated key/value
-// pairs like "application-id/my-app application-version/1.0.0".
-func parseApplicationTags(req *http.Request) (applicationID, applicationVersion string) {
-	tags := req.Header.Get(ldTagsHeader)
-	for _, part := range strings.Split(tags, " ") {
-		if k, v, ok := strings.Cut(part, "/"); ok {
-			switch k {
-			case "application-id":
-				applicationID = v
-			case "application-version":
-				applicationVersion = v
-			}
+// parseApplicationID extracts the application ID from the X-LaunchDarkly-Tags header. The header format
+// is space-separated key/value pairs like "application-id/my-app application-version/1.0.0".
+//
+// The application version is deliberately not extracted. It changes with every client deploy, and on the
+// cumulative request instruments each value is a series that lasts until the process restarts, so on a
+// long-running Relay Proxy the versions would fill the cardinality limit.
+func parseApplicationID(req *http.Request) string {
+	for _, part := range strings.Split(req.Header.Get(ldTagsHeader), " ") {
+		if k, v, ok := strings.Cut(part, "/"); ok && k == "application-id" {
+			return v
 		}
 	}
-	return
+	return ""
 }
 
 // Chain combines a series of middleware functions that will be applied in the same order.

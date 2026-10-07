@@ -103,10 +103,32 @@ func (s *serverSideStreamProvider) HandlerV2(credential credential.SDKCredential
 	}))
 }
 
-// closeConnectionKey is the context key under which withInitDeadline stores a function
-// that closes the current SSE connection. A shed replay uses it to make the SDK reconnect,
-// so the SDK does not stay connected without data.
+// closeConnectionKey is the context key under which withCloseConnection and withInitDeadline
+// store a function that closes the current SSE connection. A replay that sheds, or that cannot
+// read the store, uses it to make the SDK reconnect, so the SDK does not stay connected without
+// data.
 type closeConnectionKey struct{}
+
+// withCloseConnection wraps an SSE handler so that a Repository can close the connection. The
+// eventsource handler stops when its request context ends. The wrapper makes that context
+// cancelable and supplies the cancel function under closeConnectionKey.
+func withCloseConnection(h http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
+		h.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// closeConnection closes the SSE connection that made the request with this context. The SDK
+// then reconnects with its usual backoff. If the context has no close function, closeConnection
+// does nothing.
+func closeConnection(ctx context.Context) {
+	if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
+		closeConn()
+	}
+}
 
 // withInitDeadline wraps an SSE handler. It makes sure a client that holds a budget slot
 // cannot keep it without limit. When the init limiter is enabled, the wrapper does two
@@ -119,7 +141,7 @@ type closeConnectionKey struct{}
 func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.initLimiter.Enabled() {
-			h.ServeHTTP(w, r)
+			withCloseConnection(h).ServeHTTP(w, r)
 			return
 		}
 		timeout := s.sendTimeout
@@ -328,7 +350,10 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		// cannot make the payload old.
 		snapshot, selector, err := r.peek(ctx, id)
 		if err != nil {
-			r.logger.Error("error getting all flags", "error", err)
+			// Close the connection. Otherwise the stream stays open with no initial data, and the
+			// SDK stays uninitialized until the next flag change.
+			r.logger.Error("error getting all flags; closing stream so the SDK reconnects", "error", err)
+			closeConnection(ctx)
 			return
 		}
 
@@ -376,9 +401,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				}
 				trace.SpanFromContext(ctx).AddEvent(tracing.EventInitShed,
 					trace.WithAttributes(tracing.InitShedReasonKey.String("budget_full")))
-				if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
-					closeConn()
-				}
+				closeConnection(ctx)
 				return
 			}
 
@@ -409,12 +432,13 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			// transfer, not on the live stream.)
 			snapshot, selector, err = r.peek(ctx, id)
 			if err != nil {
-				r.logger.Error("error getting all flags after admission", "error", err)
+				r.logger.Error("error getting all flags after admission; closing stream so the SDK reconnects", "error", err)
 				dspan.SetAttributes(tracing.InitOutcomeKey.String("read_error"))
 				if r.initObserver != nil {
 					r.initObserver.RecordDelivery(r.protocol(), "read_error", false)
 				}
 				release()
+				closeConnection(ctx)
 				return
 			}
 			if r.isV2 && id != "" && selector.IsDefined() && selector.State() == id {
