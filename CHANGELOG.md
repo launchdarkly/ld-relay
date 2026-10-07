@@ -2,6 +2,47 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.7](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.6...v9.0.0-rc.7) (2026-10-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* Drop launchdarkly.application.version from the request metrics
+* Remove the vestigial per-environment projKey option ([#891](https://github.com/launchdarkly/ld-relay/issues/891))
+* Stop serving payload filters ([#867](https://github.com/launchdarkly/ld-relay/issues/867))
+
+### Features
+
+* Add connect and read timeout options for Redis ([#913](https://github.com/launchdarkly/ld-relay/issues/913)) ([a8482bf](https://github.com/launchdarkly/ld-relay/commit/a8482bfc0b050a7f0161545a7c0fb3b141c6fa96))
+* Adopt go-server-sdk-redis-redigo v4 with an opt-in atomic upsert mode ([#905](https://github.com/launchdarkly/ld-relay/issues/905)) ([e1dba1b](https://github.com/launchdarkly/ld-relay/commit/e1dba1b5600bae205ac3607ec422eba0ba164f58))
+* Allow disabling OTel log, trace and metric export individually ([#887](https://github.com/launchdarkly/ld-relay/issues/887)) ([c2aa518](https://github.com/launchdarkly/ld-relay/commit/c2aa518c2cce8a4734f668ef82060cb21b701025))
+* Back off big segment synchronization on a rejected SDK key ([#881](https://github.com/launchdarkly/ld-relay/issues/881)) ([4a2c737](https://github.com/launchdarkly/ld-relay/commit/4a2c737b7ebc5fbd0caff74152d4b468d1873ef0))
+* Export the status document as OpenTelemetry metrics ([#876](https://github.com/launchdarkly/ld-relay/issues/876)) ([421a00e](https://github.com/launchdarkly/ld-relay/commit/421a00ef06ed6321c7e5f44805f83e21f6281f53))
+* Keep retrying a rejected auto-configuration key ([#883](https://github.com/launchdarkly/ld-relay/issues/883)) ([2d0967b](https://github.com/launchdarkly/ld-relay/commit/2d0967b31daecef225f95fe45ee9587fac8c0f17))
+* Remove the vestigial per-environment projKey option ([#891](https://github.com/launchdarkly/ld-relay/issues/891)) ([60ee8df](https://github.com/launchdarkly/ld-relay/commit/60ee8dfb4853acc2790c8568a21c5ce7cdaf2697))
+* Report the auto-config stream connection state in the status endpoint ([#859](https://github.com/launchdarkly/ld-relay/issues/859)) ([12fea11](https://github.com/launchdarkly/ld-relay/commit/12fea11c66294120a98abc9ebe21651159e70ec2))
+* Support Redis mTLS connections ([#906](https://github.com/launchdarkly/ld-relay/issues/906)) ([022f918](https://github.com/launchdarkly/ld-relay/commit/022f9189c337a1794bc2ab3945e6562d152061a2))
+
+
+### Bug Fixes
+
+* Close remaining v8 parity gaps ([#865](https://github.com/launchdarkly/ld-relay/issues/865)) ([9cf5e1a](https://github.com/launchdarkly/ld-relay/commit/9cf5e1ad6d637cc3998de8a7cc27f4be81de8de3))
+* Close the server error channel only after the shutdown finishes ([#880](https://github.com/launchdarkly/ld-relay/issues/880)) ([b11a9d5](https://github.com/launchdarkly/ld-relay/commit/b11a9d53600df397be4828306662ae92ff3570a8))
+* **deps:** Bump go-server-sdk to v7.17.0 and eventsource to v1.14.0 ([#862](https://github.com/launchdarkly/ld-relay/issues/862)) ([0de102c](https://github.com/launchdarkly/ld-relay/commit/0de102c261be9b270e6ba77c9dca9e870c001a97))
+* **deps:** Bump OpenTelemetry to clear Docker Scout CVE findings ([#878](https://github.com/launchdarkly/ld-relay/issues/878)) ([a6b138f](https://github.com/launchdarkly/ld-relay/commit/a6b138fef6e5bb1c2734c331a0884a0d995bd31c))
+* **deps:** Bump security dependencies and Go toolchain ([#860](https://github.com/launchdarkly/ld-relay/issues/860)) ([d760fdc](https://github.com/launchdarkly/ld-relay/commit/d760fdc0eb439d01f70245610294e9c83375b49a))
+* **deps:** Update Dockerfiles from 3.24.1 to alpine:3.24.2 ([#888](https://github.com/launchdarkly/ld-relay/issues/888)) ([5874f6f](https://github.com/launchdarkly/ld-relay/commit/5874f6ffc9dc7790b4fb560b2301bafe4b0af3d0))
+* Drop launchdarkly.application.version from the request metrics ([0898dfa](https://github.com/launchdarkly/ld-relay/commit/0898dfad4629b487e17ba95a2e06b2d1e589d418))
+* End a stream when its initial data cannot be read ([#914](https://github.com/launchdarkly/ld-relay/issues/914)) ([a997c20](https://github.com/launchdarkly/ld-relay/commit/a997c2044a606bf520e238350d6d8f9efef987b0))
+* **middleware:** Match wrapped ErrInitializationFailed with errors.Is ([#861](https://github.com/launchdarkly/ld-relay/issues/861)) ([76c164e](https://github.com/launchdarkly/ld-relay/commit/76c164e9394e7d95eb8c34a28efeb2fe49caba9e))
+* Normalize http.request.method and stop recording client-supplied attributes on unauthenticated requests ([0898dfa](https://github.com/launchdarkly/ld-relay/commit/0898dfad4629b487e17ba95a2e06b2d1e589d418))
+* Port remaining security fixes from v8 ([#863](https://github.com/launchdarkly/ld-relay/issues/863)) ([1a2d1f6](https://github.com/launchdarkly/ld-relay/commit/1a2d1f6ec16fd4bac51da56b9575254c347a3b18))
+* Redact all credential-bearing URL components in the status dbServer field ([#879](https://github.com/launchdarkly/ld-relay/issues/879)) ([73b253d](https://github.com/launchdarkly/ld-relay/commit/73b253dff672d6521fbb33c9dbc83fcf52c2671b))
+* Report an incomplete DynamoDB auto-config cache write ([#885](https://github.com/launchdarkly/ld-relay/issues/885)) ([c37db62](https://github.com/launchdarkly/ld-relay/commit/c37db62809d1af8ad9b5d893b34d3d35d8a7a898))
+* Stop serving payload filters ([#867](https://github.com/launchdarkly/ld-relay/issues/867)) ([80d86a8](https://github.com/launchdarkly/ld-relay/commit/80d86a86a7709894e3e00efc0252afedf49c1360))
+* Update go-server-sdk to v7.19.0 ([#919](https://github.com/launchdarkly/ld-relay/issues/919)) ([7e998a1](https://github.com/launchdarkly/ld-relay/commit/7e998a1dc9fa2278e7e4d1c60a273e16fb7872a4))
+* Update go-server-sdk-redis-redigo to v4.0.1 ([#911](https://github.com/launchdarkly/ld-relay/issues/911)) ([8519bc8](https://github.com/launchdarkly/ld-relay/commit/8519bc89fb8da2b85a0c0296633cc23b01664dca))
+
 ## [9.0.0-rc.6](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.5...v9.0.0-rc.6) (2026-08-20)
 
 
