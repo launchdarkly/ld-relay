@@ -138,6 +138,35 @@ func TestEnvironmentSDKDataItemOfUnknownKindIsIgnored(t *testing.T) {
 	})
 }
 
+func TestTempDirectoryIsRemovedOnError(t *testing.T) {
+	for _, params := range []struct {
+		name     string
+		setupFn  func(t *testing.T, filePath string)
+		modifyFn func(dirPath string)
+	}{
+		{name: "malformed archive", setupFn: func(t *testing.T, filePath string) { writeMalformedArchive(filePath) }},
+		{name: "missing checksum file", modifyFn: removeChecksumFileFromArchive},
+		{name: "bad checksum", modifyFn: makeChecksumFileInvalidInArchive},
+	} {
+		t.Run(params.name, func(t *testing.T) {
+			tempDirPath := t.TempDir()
+			t.Setenv("TMPDIR", tempDirPath)
+
+			helpers.WithTempFile(func(filePath string) {
+				if params.setupFn != nil {
+					params.setupFn(t, filePath)
+				} else {
+					writeArchive(t, filePath, false, params.modifyFn, allTestEnvs...)
+				}
+
+				_, err := newArchiveReader(filePath)
+				require.Error(t, err)
+				assert.Equal(t, 0, countTempArchiveDirs(t, tempDirPath))
+			})
+		})
+	}
+}
+
 func verifyAllEnvironmentData(t *testing.T, ar *archiveReader) {
 	var expectedEnvIDs []config.EnvironmentID
 	for _, te := range allTestEnvs {
