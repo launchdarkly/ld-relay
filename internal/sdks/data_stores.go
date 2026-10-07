@@ -216,7 +216,7 @@ func getRedisBuilderOptions(
 		return "", "", nil, err
 	}
 	if tlsOpts != nil {
-		dialOptions = append(dialOptions, redigo.DialUseTLS(true), redigo.DialTLSConfig(tlsOpts))
+		dialOptions = append(dialOptions, redigo.DialTLSConfig(tlsOpts))
 	}
 	return
 }
