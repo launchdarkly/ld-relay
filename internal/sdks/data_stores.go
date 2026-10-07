@@ -180,7 +180,8 @@ func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
 	if config.ClientCertificateFile != "" && config.ClientKeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(config.ClientCertificateFile, config.ClientKeyFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("loading Redis client certificate %q and key %q: %w",
+				config.ClientCertificateFile, config.ClientKeyFile, err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
@@ -188,11 +189,11 @@ func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
 	if config.CAFile != "" {
 		caCert, err := os.ReadFile(config.CAFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("reading Redis CA file: %w", err)
 		}
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to append CA certificate")
+			return nil, fmt.Errorf("no valid PEM certificates in Redis CA file %q", config.CAFile)
 		}
 		tlsConfig.RootCAs = caCertPool
 	}

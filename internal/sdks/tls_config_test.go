@@ -85,15 +85,20 @@ func TestCreateTLSConfig(t *testing.T) {
 			c.ClientCertificateFile = "/nonexistent.pem"
 			c.ClientKeyFile = "/nonexistent.key"
 		}))
-		assert.Error(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `Redis client certificate "/nonexistent.pem" and key "/nonexistent.key"`)
 
 		_, err = CreateTLSConfig(redisTLSConfig(t, func(c *config.RedisConfig) { c.CAFile = "/nonexistent.pem" }))
-		assert.Error(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reading Redis CA file")
+		assert.Contains(t, err.Error(), "/nonexistent.pem")
 
 		_, err = CreateTLSConfig(redisTLSConfig(t, func(c *config.RedisConfig) {
 			c.CAFile = files.ClientKeyFile // readable, but not a certificate
 		}))
-		assert.Error(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no valid PEM certificates in Redis CA file")
+		assert.Contains(t, err.Error(), files.ClientKeyFile)
 	})
 }
 

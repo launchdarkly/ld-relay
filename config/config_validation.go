@@ -24,7 +24,7 @@ var (
 	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
-	errRedisClientCertWithoutKey               = errors.New("REDIS_CLIENT_CERT_FILE and REDIS_CLIENT_KEY_FILE must be specified together")
+	errRedisClientCertWithoutKey               = errors.New("Redis client certificate and key must be specified together (REDIS_CLIENT_CERT_FILE and REDIS_CLIENT_KEY_FILE, or ClientCertificateFile and ClientKeyFile)") //nolint:staticcheck
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
