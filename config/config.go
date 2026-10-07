@@ -257,10 +257,27 @@ type RedisConfig struct {
 	Username string            `conf:"REDIS_USERNAME"`
 	Password string            `conf:"REDIS_PASSWORD"`
 
+	ClientCertificateFile string `conf:"REDIS_CLIENT_CERT_FILE"`
+	ClientKeyFile         string `conf:"REDIS_CLIENT_KEY_FILE"`
+	CAFile                string `conf:"REDIS_CA_FILE"`
+
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
 
 	ConnectTimeout ct.OptDuration `conf:"REDIS_CONNECT_TIMEOUT"`
 	ReadTimeout    ct.OptDuration `conf:"REDIS_READ_TIMEOUT"`
+}
+
+// TLSEnabled is true if TLS was requested either with the TLS option or with a rediss:// URL.
+func (c RedisConfig) TLSEnabled() bool {
+	if c.TLS {
+		return true
+	}
+	return c.URL.IsDefined() && strings.EqualFold(c.URL.Get().Scheme, "rediss")
+}
+
+// hasTLSFiles is true if any certificate, key or CA file option is set.
+func (c RedisConfig) hasTLSFiles() bool {
+	return c.ClientCertificateFile != "" || c.ClientKeyFile != "" || c.CAFile != ""
 }
 
 // ConsulConfig configures the optional Consul integration.

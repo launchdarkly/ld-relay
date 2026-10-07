@@ -84,6 +84,11 @@ func testBigSegments(t *testing.T, manager *integrationTestManager) {
 		// of this part is just to make sure connecting with a password also works
 		doBigSegmentsTestWithPreExistingSegment(t, manager, redisWithPasswordDatabaseTestParams)
 	})
+	t.Run("Redis with TLS and client certificate (mTLS)", func(t *testing.T) {
+		// Big segments use a separate Redis client from the data store, so verify it picks up the
+		// CA and client certificate too.
+		doBigSegmentsTestWithPreExistingSegment(t, manager, redisMTLSDatabaseTestParams)
+	})
 	t.Run("DynamoDB", func(t *testing.T) {
 		doAll(t, dynamoDBDatabaseTestParams)
 	})

@@ -67,6 +67,26 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfFileDataSourceIsSet(t *testing.
 	assert.NotEqual(t, errNoEnvironments, err)
 }
 
+func TestNewRelayRejectsUnreadableRedisTLSFileInAutoConfigMode(t *testing.T) {
+	// Without an auto-config cache, nothing else would open the TLS files until the first
+	// environment arrived.
+	redisURL, _ := configtypes.NewOptURLAbsoluteFromString("rediss://redishost:6380")
+	config := c.Config{
+		AutoConfig: c.AutoConfigConfig{
+			Key:                "x",
+			EnvDatastorePrefix: "relay-" + c.AutoConfigEnvironmentIDPlaceholder,
+		},
+		Redis: c.RedisConfig{
+			URL:    redisURL,
+			CAFile: "/nonexistent/ca.pem",
+		},
+	}
+	relay, err := NewRelay(config, slog.Default(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Redis TLS configuration")
+	assert.Nil(t, relay)
+}
+
 func TestStrayFilterQueryParameterIsIgnored(t *testing.T) {
 	// Payload filters are not supported, but an SDK configured with one keeps sending ?filter= on
 	// every request. Those requests must be served the environment's full data. Refusing them would

@@ -2,7 +2,6 @@ package autoconfigcache
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 )
 
 type redisStore struct {
@@ -43,11 +43,15 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 	if redisConfig.Username != "" {
 		uo.Username = redisConfig.Username
 	}
-	if redisConfig.TLS && uo.TLSConfig == nil {
-		uo.TLSConfig = &tls.Config{
-			ServerName: redisConfig.URL.Get().Hostname(),
-			MinVersion: tls.VersionTLS12,
+	// ParseURL sets a default TLSConfig for rediss:// URLs but none for redis://, so apply ours
+	// whenever TLS is enabled by either the TLS option or the URL scheme.
+	if redisConfig.TLSEnabled() {
+		tlsConfig, err := sdks.CreateTLSConfig(redisConfig)
+		if err != nil {
+			return nil, err
 		}
+
+		uo.TLSConfig = tlsConfig
 	}
 	client := redis.NewUniversalClient(uo)
 	ctx, cancel := context.WithCancel(context.Background())
