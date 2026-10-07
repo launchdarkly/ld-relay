@@ -1,6 +1,7 @@
 package bigsegments
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -46,7 +47,8 @@ func TestRedisBigSegmentStoreMTLS(t *testing.T) {
 			c.ClientKeyFile = files.ClientKeyFile
 		}), config.EnvConfig{}, true, logger)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown authority")
+		var verifyErr *tls.CertificateVerificationError
+		assert.ErrorAs(t, err, &verifyErr) // the message text differs by OS
 	})
 
 	t.Run("fails without a client cert", func(t *testing.T) {

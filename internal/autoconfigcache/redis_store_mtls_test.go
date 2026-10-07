@@ -2,6 +2,7 @@ package autoconfigcache
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -70,6 +71,7 @@ func TestRedisStoreMTLS(t *testing.T) {
 		})
 		err := getAll(store)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown authority")
+		var verifyErr *tls.CertificateVerificationError
+		assert.ErrorAs(t, err, &verifyErr) // the message text differs by OS
 	})
 }
