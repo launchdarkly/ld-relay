@@ -165,8 +165,8 @@ func GetRedisBasicProperties(
 
 // CreateTLSConfig creates a TLS configuration for Redis based on the provided RedisConfig.
 // It returns nil if TLS is not enabled in the configuration (neither REDIS_TLS nor a rediss:// URL).
-// If TLS is enabled, it sets up the TLS configuration with the specified server name, minimum version,
-// if a client certificate, key and CA file are provided, it loads them into the TLS configuration.
+// If TLS is enabled, it sets the server name and a minimum version of TLS 1.2. It loads the client
+// certificate and key if both are set, and uses the CA file as the root CAs if it is set.
 func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
 	if !config.TLSEnabled() {
 		return nil, nil
