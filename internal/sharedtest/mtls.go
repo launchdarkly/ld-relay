@@ -64,7 +64,7 @@ func NewMTLSFilesInDir(t *testing.T, dir string, serverDNSNames []string, server
 
 	write := func(name string, data []byte) string {
 		p := filepath.Join(dir, name)
-		require.NoError(t, os.WriteFile(p, data, 0o644))
+		require.NoError(t, os.WriteFile(p, data, 0o644)) //nolint:gosec // world-readable on purpose, see above
 		return p
 	}
 	return MTLSFiles{
@@ -140,7 +140,7 @@ func StartMTLSPingServer(t *testing.T, files MTLSFiles) (port int, handshakes <-
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				err := c.(*tls.Conn).Handshake()
 				select {
 				case ch <- err:
