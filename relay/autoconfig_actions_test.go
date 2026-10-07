@@ -275,6 +275,26 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	})
 }
 
+func TestAutoConfigAddEnvironmentWithExpiringSDKKeyDoesNotPanicIfEnvironmentCannotBeCreated(t *testing.T) {
+	// An unreadable Redis CA file makes addEnvironment fail, which leaves no environment to apply
+	// the expiring key to.
+	redisURL, err := configtypes.NewOptURLAbsoluteFromString("rediss://redishost:6380")
+	require.NoError(t, err)
+	config := c.Config{Redis: c.RedisConfig{URL: redisURL, CAFile: "/nonexistent/ca.pem"}}
+	r := &Relay{config: config, logger: slog.New(slog.DiscardHandler)}
+	actions := &relayAutoConfigActions{r}
+
+	assert.NotPanics(t, func() {
+		actions.AddEnvironment(envfactory.EnvironmentParams{
+			SDKKey: c.SDKKey("newsdkkey"),
+			ExpiringSDKKey: envfactory.ExpiringSDKKey{
+				Key:        c.SDKKey("oldsdkkey"),
+				Expiration: time.Now().Add(time.Hour),
+			},
+		})
+	})
+}
+
 func TestAutoConfigUpdateEnvironmentName(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
