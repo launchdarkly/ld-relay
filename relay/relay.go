@@ -123,6 +123,15 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		return nil, errNoEnvironments
 	}
 
+	// The Redis TLS files are loaded again whenever a store is created, but checking them here
+	// makes a bad file a startup error. Otherwise, in auto-configuration mode, every environment
+	// would fail to initialize while Relay kept running.
+	if c.Redis.URL.IsDefined() {
+		if _, err := sdks.CreateTLSConfig(c.Redis); err != nil {
+			return nil, errRedisTLSConfig(err)
+		}
+	}
+
 	logNameMode := relayenv.LogNameIsSDKKey
 	if hasAutoConfigKey || hasFileDataSource {
 		logNameMode = relayenv.LogNameIsEnvID
