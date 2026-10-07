@@ -24,13 +24,13 @@ require (
 	github.com/launchdarkly/eventsource v1.14.0
 	github.com/launchdarkly/go-configtypes v1.2.2
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.2
-	github.com/launchdarkly/go-sdk-common/v3 v3.5.1
-	github.com/launchdarkly/go-sdk-events/v3 v3.6.3
+	github.com/launchdarkly/go-sdk-common/v3 v3.6.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.7.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3
-	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.2
+	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v4 v4.0.1
-	github.com/launchdarkly/go-server-sdk/v7 v7.17.0
+	github.com/launchdarkly/go-server-sdk/v7 v7.19.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/pborman/uuid v1.2.1
 	github.com/stretchr/testify v1.12.1
