@@ -134,7 +134,8 @@ type EnvContext interface {
 	// SetTTL changes the configured cache TTL for PHP SDK endpoints for this environment.
 	SetTTL(time.Duration)
 
-	// GetInitError returns an error if initialization has failed, or nil otherwise.
+	// GetInitError returns an error if initialization has failed, or nil otherwise. An
+	// ld.ErrInitializationFailed is returned only until the SDK client receives data.
 	GetInitError() error
 
 	// IsSecureMode returns true if client-side evaluation requests for this environment must have a valid
