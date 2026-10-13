@@ -1,8 +1,9 @@
 package relayenv
 
-// Tests for recovering an environment whose SDK data system the SDK itself has shut down. Re-keying
-// reaches only the credential the client's requests carry, so it cannot bring a removed synchronizer
-// back; the client has to be replaced.
+// Tests for recovering an environment whose SDK client cannot serve: one whose data system has
+// stopped for good, one whose build produced no client, and one whose build recorded an
+// initialization error. Re-keying reaches only the credential the client's requests carry, so a
+// stopped data system needs a new client. A client that recovers needs its build error cleared.
 
 import (
 	"log/slog"
@@ -89,9 +90,9 @@ func newRecoverTestEnv(t *testing.T, factory *recordingClientFactory) EnvContext
 }
 
 func TestReanchorRebuildsTheClientWhenTheDataSystemHasShutDown(t *testing.T) {
-	// An unrecoverable authorization error makes the SDK delete every synchronizer and report Off.
-	// Re-keying that client changes a header on a connection nothing is driving any more, so relay
-	// would log a move that did not happen and serve whatever the store still held, forever.
+	// A data system that reports Off has stopped for good. Re-keying that client changes a header on
+	// a connection nothing is driving any more, so relay would log a move that did not happen and
+	// serve whatever the store still held, forever.
 	factory := newRecordingClientFactory()
 	env := newRecoverTestEnv(t, factory)
 
@@ -131,11 +132,11 @@ func TestReanchorRekeysAHealthyClientRatherThanRebuildingIt(t *testing.T) {
 	assert.Equal(t, first, env.GetClient())
 }
 
-func TestTheRebuildClearsTheInitializationErrorFromTheRevokedKey(t *testing.T) {
-	// The scenario the two findings share. An environment created on a key LaunchDarkly has already
-	// revoked installs a client and records ErrInitializationFailed, and the middleware then rejects
-	// every request for that environment on that error alone. Re-keying could not clear it, because
-	// the data system was gone; the rebuild replaces both the client and the error.
+func TestTheRebuildClearsTheInitializationErrorOfAStoppedClient(t *testing.T) {
+	// A build that records ErrInitializationFailed makes the middleware reject every request for the
+	// environment on that error alone. When the client's data system has also stopped for good, it
+	// can never receive data to clear the error, so the rebuild replaces both the client and the
+	// error.
 	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
 	env := newRecoverTestEnv(t, factory)
 
@@ -143,7 +144,7 @@ func TestTheRebuildClearsTheInitializationErrorFromTheRevokedKey(t *testing.T) {
 	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateOff})
 	require.Eventually(t, func() bool {
 		return env.GetInitError() != nil
-	}, time.Second, time.Millisecond, "the revoked key must record an initialization error")
+	}, time.Second, time.Millisecond, "the failed build must record an initialization error")
 
 	rotated := config.SDKKey("sdk-rotated")
 	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, rotated, "", ""), time.Unix(1000, 0))
@@ -156,33 +157,15 @@ func TestTheRebuildClearsTheInitializationErrorFromTheRevokedKey(t *testing.T) {
 		"the environment must serve again once it has a client built on a valid key")
 }
 
-func TestAReanchorClearsAStaleInitializationErrorOnALiveClient(t *testing.T) {
-	// The other half of the same latch. A build that timed out records the error and leaves a client
-	// that keeps retrying and succeeds. Nothing else in the package clears the error, so a
-	// re-anchored environment would go on rejecting requests even though its data is current.
-	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
-	env := newRecoverTestEnv(t, factory)
-
-	first := factory.awaitClient(t, "timed out waiting for the initial client")
-	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateValid})
-	require.Eventually(t, func() bool {
-		return env.GetInitError() != nil
-	}, time.Second, time.Millisecond, "the timed-out build must record an initialization error")
-
-	env.(*envContextImpl).reconcileCredentials(
-		mustAcceptedSet(t, config.SDKKey("sdk-rotated"), "", ""), time.Unix(1000, 0))
-
-	assert.NoError(t, env.GetInitError(), "a client that is receiving data must not stay marked as failed")
-	if !helpers.AssertNoMoreValues(t, factory.clientCh, 100*time.Millisecond,
-		"a live client must be re-keyed rather than rebuilt") {
-		t.FailNow()
-	}
-}
-
-func TestAReanchorKeepsTheInitializationErrorWhileTheClientIsStillInterrupted(t *testing.T) {
-	// Clearing the error on any successful re-key would be wrong: an interrupted client may hold an
-	// empty store, and relay would answer 200 with no flags rather than refusing. Only a client that
-	// has actually received data is allowed to retire the error.
+func TestARevokedKeyEnvironmentServesOnceTheReanchoredClientReceivesData(t *testing.T) {
+	// An environment created on a key LaunchDarkly has already revoked. Every synchronizer fails on
+	// the authorization error, so the build records ErrInitializationFailed. The SDK reports
+	// Interrupted, not Off, because it restarts the synchronizers once SetSDKKey supplies a new key.
+	// So the re-anchor re-keys the client in place.
+	//
+	// The error must stay until the client has data, because an interrupted client may hold an empty
+	// store and relay would answer 200 with no flags rather than refusing. It must clear once the
+	// client has data, because the middleware rejects every request while it is set.
 	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
 	env := newRecoverTestEnv(t, factory)
 
@@ -190,13 +173,46 @@ func TestAReanchorKeepsTheInitializationErrorWhileTheClientIsStillInterrupted(t 
 	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateInterrupted})
 	require.Eventually(t, func() bool {
 		return env.GetInitError() != nil
+	}, time.Second, time.Millisecond, "the revoked key must record an initialization error")
+
+	rotated := config.SDKKey("sdk-rotated")
+	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, rotated, "", ""), time.Unix(1000, 0))
+
+	assert.Equal(t, []config.SDKKey{rotated}, first.SDKKeys(), "the interrupted client must be re-keyed")
+	if !helpers.AssertNoMoreValues(t, factory.clientCh, 100*time.Millisecond,
+		"an interrupted client must be re-keyed rather than rebuilt") {
+		t.FailNow()
+	}
+	assert.ErrorIs(t, env.GetInitError(), ld.ErrInitializationFailed,
+		"an environment whose client has not received data must keep refusing requests")
+
+	// The synchronizers restart on the new key and receive data.
+	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateValid})
+	assert.NoError(t, env.GetInitError(), "the environment must serve once its client receives data")
+}
+
+func TestTheInitializationErrorClearsOnceTheClientReceivesData(t *testing.T) {
+	// SDK-3209. A client can receive data after its build recorded an error, with no re-anchor at
+	// all. The error must not outlive that. A later interruption must not bring it back either,
+	// because the store then holds data.
+	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
+	env := newRecoverTestEnv(t, factory)
+
+	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	require.Eventually(t, func() bool {
+		return env.GetInitError() != nil
 	}, time.Second, time.Millisecond, "the failed build must record an initialization error")
 
-	env.(*envContextImpl).reconcileCredentials(
-		mustAcceptedSet(t, config.SDKKey("sdk-rotated"), "", ""), time.Unix(1000, 0))
+	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateValid})
+	assert.NoError(t, env.GetInitError(), "a client that is receiving data must not stay marked as failed")
 
-	assert.Error(t, env.GetInitError(),
-		"an environment whose client has not received data must keep refusing requests")
+	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateInterrupted})
+	assert.NoError(t, env.GetInitError(),
+		"an interruption after the client received data must not bring the error back")
+	if !helpers.AssertNoMoreValues(t, factory.clientCh, 100*time.Millisecond,
+		"clearing the error must not rebuild the client") {
+		t.FailNow()
+	}
 }
 
 func TestAClientBuiltAfterTheEnvironmentClosedIsDiscarded(t *testing.T) {

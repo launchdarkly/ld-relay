@@ -2,6 +2,7 @@ package relayenv
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -90,9 +91,10 @@ type EnvContextImplParams struct {
 
 type envContextImpl struct {
 	mu sync.RWMutex
-	// client is the environment's single SDK client. Only construction creates one: a key rotation
-	// re-keys this client in place rather than building a replacement, so an environment never holds
-	// two data systems and never holds two copies of the environment's data.
+	// client is the environment's single SDK client. A key rotation re-keys this client in place
+	// rather than building a replacement. A rotation builds one only when there is no client or its
+	// data system has stopped for good, and rebuildSDKClient closes the old client first. So an
+	// environment never holds two data systems and never holds two copies of the environment's data.
 	client          sdks.LDClientContext
 	logger          *slog.Logger
 	wrapper         *datadestination.DataDestinationWrapper
@@ -720,10 +722,13 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 			go c.rebuildSDKClient(change.NewAnchor)
 
 		case c.client.GetDataSourceStatus().State == interfaces.DataSourceStateOff:
-			// SetSDKKey cannot revive a data system the SDK has already shut down: an unrecoverable
-			// authorization error removes every synchronizer permanently, and the data system then
-			// reports Off and stops. Re-keying that client would report a move that did not happen and
-			// leave the environment serving whatever its store still held, with nothing to refresh it.
+			// Off means the data system has stopped for good, and SetSDKKey cannot restart it.
+			// Re-keying that client would report a move that did not happen and leave the environment
+			// serving whatever its store still held, with nothing to refresh it.
+			//
+			// A revoked key does not lead here. When every synchronizer fails on an authorization
+			// error, the SDK reports Interrupted and restarts them once SetSDKKey supplies a new key,
+			// so the default case re-keys that client and the environment keeps its store.
 			c.globalLogger.Warn("the environment's data system has shut down, so its new SDK key "+
 				"cannot be applied to the existing client; rebuilding the client on the new key",
 				"env", c.identifiers.GetDisplayName(),
@@ -742,17 +747,8 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 					"error", err)
 				return false
 			}
-			// A build error recorded earlier describes a client that is now re-keyed and receiving
-			// data, so it is no longer the truth. Clearing it matters because the middleware rejects
-			// every request for an environment whose initialization failed, which would otherwise
-			// outlast the key that caused it. The Valid test is deliberate: a client that has not
-			// yet received data must keep the error rather than start serving an empty store.
-			if c.initErr != nil && c.client.GetDataSourceStatus().State == interfaces.DataSourceStateValid {
-				c.globalLogger.Info("the environment recovered on its new SDK key; clearing the "+
-					"initialization error recorded against the previous one",
-					"env", c.identifiers.GetDisplayName())
-				c.initErr = nil
-			}
+			// A build error is not cleared here. GetInitError clears it once the client receives data,
+			// and a client that recovers on the new key does that only after this returns.
 		}
 	}
 
@@ -932,10 +928,32 @@ func (c *envContextImpl) SetTTL(newTTL time.Duration) {
 	c.ttl = newTTL
 }
 
+// GetInitError returns the error from building the environment's SDK client. An
+// ld.ErrInitializationFailed is returned only until that client receives data.
+//
+// startSDKClient records the error once, when the build finishes, and the middleware rejects every
+// request for the environment while it is ld.ErrInitializationFailed. A client can recover after
+// that: the SDK restarts a client whose key was revoked once a re-anchor gives it a new key. So the
+// first call that finds the client Valid clears that error for good. Later interruptions do not
+// bring it back, because the store then holds data.
+//
+// The test is Valid and nothing weaker. A client that has not received data may have an empty
+// store, and relay must keep refusing requests rather than answer them with no flags.
+//
+// Other errors stay as the build recorded them. No request is refused over them, and relay reports
+// them when it starts.
 func (c *envContextImpl) GetInitError() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if errors.Is(c.initErr, ld.ErrInitializationFailed) && c.client != nil &&
+		c.client.GetDataSourceStatus().State == interfaces.DataSourceStateValid {
+		c.globalLogger.Info("the environment's SDK client is receiving data; clearing the "+
+			"initialization error recorded when it was built",
+			"env", c.identifiers.GetDisplayName(),
+			"error", c.initErr)
+		c.initErr = nil
+	}
 	return c.initErr
 }
 
