@@ -1,0 +1,40 @@
+name: Check Released Dependencies
+
+# Fails when a published module's go.mod pins a LaunchDarkly module to
+# anything other than a final released version (a pseudo-version, a
+# pre-release tag such as v3.6.0-rc1, or a `replace`), so that unreleased
+# components cannot be merged onto a release branch.
+#
+# This only runs for release branches. Feature branches (feat/**) routinely
+# pin unreleased components during development, so a feature-to-feature merge
+# is never gated; once a feature branch is ready, merging it to a release
+# branch is gated here.
+#
+# A pull_request workflow is read from the PR's merge commit, so this file
+# must exist on every branch it gates. Keep it identical on v8 and v9, and
+# extend the branch lists below as new release branches open.
+#
+# Adapted from go-server-sdk's check-released-deps workflow. Exact
+# module@version exemptions (currently only the test-only api-client-go pin)
+# are listed, with reasons, in .github/scripts/check-released-deps.sh.
+
+on:
+  push:
+    branches: ["v8", "v9"]
+  pull_request:
+    branches: ["v8", "v9"]
+
+permissions:
+  contents: read
+
+jobs:
+  check-released-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The script parses go.mod files directly, so no Go toolchain is needed.
+      # cmd/fdv2-integration/ (v9 only) is excluded: it is an unpublished
+      # placeholder module (module path `fdv2-integration`, no dependencies,
+      # not built or released by any workflow or Makefile target).
+      - name: Verify go.mod references released LaunchDarkly module versions
+        run: .github/scripts/check-released-deps.sh $(git ls-files '*go.mod' | grep -v '^cmd/fdv2-integration/')
