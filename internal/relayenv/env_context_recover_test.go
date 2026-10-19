@@ -265,3 +265,68 @@ func TestAnAnchorThatMovesTwiceDuringARebuildStartsOnlyOneClient(t *testing.T) {
 		t.FailNow()
 	}
 }
+
+func TestTheRetryAppliesTheKeyAgainWhileTheDataSystemIsOff(t *testing.T) {
+	// Every synchronizer failed permanently, and the anchor has not changed. Only a SetSDKKey call
+	// starts the synchronizers again, so the cleanup ticker applies the current key again on each
+	// tick until the client receives data.
+	factory := newRecordingClientFactory()
+	env := newRecoverTestEnv(t, factory)
+	impl := env.(*envContextImpl)
+
+	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateOff})
+	anchor := env.GetAnchorKey()
+
+	impl.retryAnOffClient()
+	impl.retryAnOffClient()
+	assert.Equal(t, []config.SDKKey{anchor, anchor}, first.SDKKeys(),
+		"each tick must apply the current key again while the data system is off")
+
+	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateValid})
+	impl.retryAnOffClient()
+	assert.Len(t, first.SDKKeys(), 2, "a client that receives data must not be re-keyed again")
+
+	if !helpers.AssertNoMoreValues(t, factory.clientCh, 100*time.Millisecond,
+		"the retry must re-key the client rather than rebuild it") {
+		t.FailNow()
+	}
+	assert.Equal(t, first, env.GetClient())
+}
+
+func TestTheRetryLeavesAClientAloneUnlessItsDataSystemIsOff(t *testing.T) {
+	// A client in any other state either has data or is still trying on its own. Re-keying it would
+	// make it restart a synchronizer that has not failed.
+	factory := newRecordingClientFactory()
+	env := newRecoverTestEnv(t, factory)
+	impl := env.(*envContextImpl)
+
+	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	for _, state := range []interfaces.DataSourceState{
+		interfaces.DataSourceStateInitializing,
+		interfaces.DataSourceStateValid,
+		interfaces.DataSourceStateInterrupted,
+	} {
+		first.SetDataSourceStatus(interfaces.DataSourceStatus{State: state})
+		impl.retryAnOffClient()
+		assert.Empty(t, first.SDKKeys(), "a client that is %s must not be re-keyed", state)
+	}
+}
+
+func TestTheRetryDoesNothingForAnEnvironmentWithNoClient(t *testing.T) {
+	// An environment whose build produced no client gets one from the re-anchor, not from the retry.
+	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
+	factory.nilClientBuilds = 1
+	env := newRecoverTestEnv(t, factory)
+	require.Eventually(t, func() bool {
+		return env.GetInitError() != nil && env.GetClient() == nil
+	}, time.Second, time.Millisecond, "the failed build must leave no client")
+
+	env.(*envContextImpl).retryAnOffClient()
+
+	assert.Nil(t, env.GetClient())
+	if !helpers.AssertNoMoreValues(t, factory.clientCh, 100*time.Millisecond,
+		"the retry must not build a client") {
+		t.FailNow()
+	}
+}

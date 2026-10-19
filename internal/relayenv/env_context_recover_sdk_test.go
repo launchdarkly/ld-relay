@@ -92,13 +92,27 @@ func (f *fakeLaunchDarkly) revoke(key string) {
 	}
 }
 
+// allow makes LaunchDarkly accept key again.
+func (f *fakeLaunchDarkly) allow(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.revoked, key)
+}
+
 func (f *fakeLaunchDarkly) rejectedPollCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.rejectedPolls
 }
 
-func newRealClientTestEnv(t *testing.T, fake *fakeLaunchDarkly, sdkKey config.SDKKey) EnvContext {
+// newRealClientTestEnv makes an environment with a real SDK client that connects to fake. A
+// cleanupInterval of zero gives the default interval, which is longer than any of these tests.
+func newRealClientTestEnv(
+	t *testing.T,
+	fake *fakeLaunchDarkly,
+	sdkKey config.SDKKey,
+	cleanupInterval time.Duration,
+) EnvContext {
 	t.Helper()
 	uri, err := configtypes.NewOptURLAbsoluteFromString(fake.server.URL)
 	require.NoError(t, err)
@@ -115,6 +129,8 @@ func newRealClientTestEnv(t *testing.T, fake *fakeLaunchDarkly, sdkKey config.SD
 		ClientFactory:    sdks.DefaultClientFactory(),
 		ConnectionMapper: mockConnectionMapper{},
 		Logger:           slog.Default(),
+
+		ExpiredCredentialCleanupInterval: cleanupInterval,
 	}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Close() })
@@ -130,7 +146,7 @@ func dataSourceState(env EnvContext) interfaces.DataSourceState {
 
 func TestARealClientCreatedOnARevokedKeyServesAfterAReanchor(t *testing.T) {
 	fake := newFakeLaunchDarkly(t, "sdk-revoked")
-	env := newRealClientTestEnv(t, fake, "sdk-revoked")
+	env := newRealClientTestEnv(t, fake, "sdk-revoked", 0)
 
 	// Every synchronizer fails on the revoked key, so the build records ErrInitializationFailed, the
 	// SDK reports Off, and the middleware refuses every request for the environment.
@@ -151,7 +167,7 @@ func TestARealClientCreatedOnARevokedKeyServesAfterAReanchor(t *testing.T) {
 
 func TestARealClientWhoseKeyIsRevokedRecoversAfterAReanchor(t *testing.T) {
 	fake := newFakeLaunchDarkly(t)
-	env := newRealClientTestEnv(t, fake, "sdk-old")
+	env := newRealClientTestEnv(t, fake, "sdk-old", 0)
 	require.Eventually(t, func() bool {
 		return dataSourceState(env) == interfaces.DataSourceStateValid
 	}, 5*time.Second, 10*time.Millisecond, "the client must receive data on its first key")
@@ -173,4 +189,30 @@ func TestARealClientWhoseKeyIsRevokedRecoversAfterAReanchor(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "the environment must receive data on the new key")
 	assert.NoError(t, env.GetInitError())
 	assert.Equal(t, client, env.GetClient(), "the client must be re-keyed rather than rebuilt")
+}
+
+func TestARealClientRecoversWhenLaunchDarklyAcceptsItsKeyAgain(t *testing.T) {
+	// LaunchDarkly rejects the key at first, for example a new key that it does not know yet. The
+	// anchor does not change, so only the cleanup ticker's retry can start the client again.
+	fake := newFakeLaunchDarkly(t, "sdk-pending")
+	env := newRealClientTestEnv(t, fake, "sdk-pending", 100*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		return errors.Is(env.GetInitError(), ld.ErrInitializationFailed)
+	}, 5*time.Second, 10*time.Millisecond, "the rejected key must record an initialization error")
+	client := env.GetClient()
+
+	// The build polled twice: the initializer and the polling synchronizer. A third rejected poll
+	// shows that the retry started the synchronizers again with the rejected key.
+	require.Eventually(t, func() bool {
+		return fake.rejectedPollCount() >= 3
+	}, 5*time.Second, 10*time.Millisecond, "the retry must try the key again while LaunchDarkly rejects it")
+
+	fake.allow("sdk-pending")
+
+	require.Eventually(t, func() bool {
+		return dataSourceState(env) == interfaces.DataSourceStateValid
+	}, 5*time.Second, 10*time.Millisecond, "the client must receive data once LaunchDarkly accepts the key")
+	assert.NoError(t, env.GetInitError(), "the environment must serve once its client receives data")
+	assert.Equal(t, client, env.GetClient(), "the retry must re-key the client rather than rebuild it")
 }

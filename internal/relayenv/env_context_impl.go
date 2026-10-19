@@ -127,7 +127,10 @@ type envContextImpl struct {
 	initErr            error
 	// clientRebuilding means a replacement SDK client is being built. It keeps a second reconcile
 	// from starting another one while the first is still running.
-	clientRebuilding          bool
+	clientRebuilding bool
+	// offRetryLogged means retryAnOffClient has logged the current outage at warning level. It is
+	// cleared when the client receives data, so each outage gets one warning.
+	offRetryLogged            bool
 	creationTime              time.Time
 	keyRotator                *credential.Rotator
 	stopMonitoringCredentials chan struct{}
@@ -418,6 +421,7 @@ func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
 		select {
 		case <-ticker.C:
 			c.triggerCredentialChanges(time.Now())
+			c.retryAnOffClient()
 		case <-c.stopMonitoringCredentials:
 			close(c.doneMonitoringCredentials)
 			return
@@ -759,6 +763,57 @@ func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 	}
 }
 
+// retryAnOffClient re-keys the client with the anchor it already has when its data system is off.
+// It runs on the cleanup ticker.
+//
+// Off means every synchronizer failed permanently, for example because LaunchDarkly rejected the
+// key. The SDK starts them again on any SetSDKKey call, also one with the current key. So a key that
+// LaunchDarkly rejected and then accepts, for example a new key that it did not know yet, takes
+// effect within one cleanup interval. Without this, the client would try only once for each key
+// change.
+//
+// It holds c.mu, as reanchor does, so a retry cannot run in the middle of a re-anchor.
+func (c *envContextImpl) retryAnOffClient() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed || c.offline || c.client == nil || c.clientRebuilding {
+		return
+	}
+	status := c.client.GetDataSourceStatus()
+	if status.State == interfaces.DataSourceStateValid {
+		c.offRetryLogged = false
+	}
+	if status.State != interfaces.DataSourceStateOff {
+		return
+	}
+	anchor := c.keyRotator.AnchorKey()
+	if !anchor.Defined() {
+		return
+	}
+
+	if err := c.client.SetSDKKey(string(anchor)); err != nil {
+		c.globalLogger.Error("could not apply the SDK key again to restart the environment's data system",
+			"env", c.identifiers.GetDisplayName(),
+			"sdkKey", anchor.Masked(),
+			"error", err)
+		return
+	}
+	if !c.offRetryLogged {
+		c.offRetryLogged = true
+		c.globalLogger.Warn("the environment's data system has stopped; applying its SDK key again "+
+			"to restart it, and again on each cleanup interval until it receives data",
+			"env", c.identifiers.GetDisplayName(),
+			"sdkKey", anchor.Masked(),
+			"lastError", status.LastError.String())
+		return
+	}
+	c.globalLogger.Debug("the environment's data system is still stopped; applying its SDK key again",
+		"env", c.identifiers.GetDisplayName(),
+		"sdkKey", anchor.Masked(),
+		"lastError", status.LastError.String())
+}
+
 func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
 	return c.keyRotator.AllCredentials()
 }
@@ -902,9 +957,10 @@ func (c *envContextImpl) SetTTL(newTTL time.Duration) {
 //
 // startSDKClient records the error once, when the build finishes, and the middleware rejects every
 // request for the environment while it is ld.ErrInitializationFailed. A client can recover after
-// that: the SDK restarts a client whose key was revoked once a re-anchor gives it a new key. So the
-// first call that finds the client Valid clears that error for good. Later interruptions do not
-// bring it back, because the store then holds data.
+// that: the SDK restarts a client whose key was rejected once a re-anchor gives it a new key, or
+// once retryAnOffClient applies the current key again. So the first call that finds the client
+// Valid clears that error for good. Later interruptions do not bring it back, because the store
+// then holds data.
 //
 // The test is Valid and nothing weaker. A client that has not received data may have an empty
 // store, and relay must keep refusing requests rather than answer them with no flags.
