@@ -686,9 +686,11 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 		// Re-keying needs a client to re-key. rebuildSDKClient takes c.mu, so the case that needs it
 		// starts it on another goroutine.
 		switch {
-		case c.clientRebuilding:
+		case c.clientRebuilding && c.client == nil:
 			// A replacement is already being built. It catches up to the anchor committed below when
-			// it finishes, the same way the initial build does.
+			// it finishes, the same way the initial build does. The catch-up runs when the build
+			// installs the client, and rebuildSDKClient clears clientRebuilding only after that. So
+			// once a client is installed, the default case re-keys it, even while the flag is set.
 
 		case c.client == nil && c.initErr == nil:
 			// The initial build is still in flight: it records an error in the same critical section

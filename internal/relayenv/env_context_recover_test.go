@@ -7,6 +7,7 @@ package relayenv
 // needs its build error cleared.
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"testing"
@@ -247,9 +248,13 @@ func TestReanchorBuildsAClientWhenTheEnvironmentNeverGotOne(t *testing.T) {
 
 func TestAnAnchorThatMovesTwiceDuringARebuildStartsOnlyOneClient(t *testing.T) {
 	// A reconcile landing while a rebuild is running must not start a second one: the environment
-	// would end up with two clients, each with its own store and upstream connection.
+	// would end up with two clients, each with its own store and upstream connection. The client
+	// that the rebuild installs must end on the anchor that the second reconcile committed.
 	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
 	factory.nilClientBuilds = 1
+	// An unbuffered channel holds the factory inside its send, which keeps the rebuild in flight
+	// for both reconciles. The initial build returns no client, so it does not send.
+	factory.clientCh = make(chan *testclient.FakeLDClient)
 	env := newRecoverTestEnv(t, factory)
 
 	require.Eventually(t, func() bool {
@@ -260,15 +265,86 @@ func TestAnAnchorThatMovesTwiceDuringARebuildStartsOnlyOneClient(t *testing.T) {
 	impl.reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-first"), "", ""), time.Unix(1000, 0))
 	impl.reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-second"), "", ""), time.Unix(2000, 0))
 
-	_ = factory.awaitClient(t, "timed out waiting for the rebuilt client")
+	// Let the rebuild finish. It was started on the first key and catches up to the second.
+	built := factory.awaitClient(t, "timed out waiting for the rebuilt client")
+	require.Eventually(t, func() bool {
+		return env.GetClient() == built
+	}, time.Second, time.Millisecond, "the rebuilt client must become the environment's client")
+	assert.Equal(t, []config.SDKKey{"sdk-second"}, built.SDKKeys(),
+		"the rebuilt client must catch up to the anchor that the second reconcile committed")
 	if !helpers.AssertNoMoreValues(t, factory.clientCh, 200*time.Millisecond,
 		"a second reconcile must not start a concurrent build") {
 		t.FailNow()
 	}
 }
 
+func TestAReanchorAsARebuildFinishesRekeysTheNewClient(t *testing.T) {
+	// rebuildSDKClient clears clientRebuilding after startSDKClient has installed the client, run
+	// its catch-up and released c.mu. A reconcile in that window must still re-key the installed
+	// client. Otherwise the anchor moves while the client stays on the superseded key.
+	factory := newRecordingClientFactory(ld.ErrInitializationFailed)
+	factory.nilClientBuilds = 1
+	// startSDKClient logs this after it releases c.mu and before rebuildSDKClient clears the flag.
+	// Holding that log call keeps the environment in the window.
+	held := &holdingLogHandler{
+		Handler: slog.Default().Handler(),
+		message: "initialized LaunchDarkly client",
+		held:    make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:        st.EnvMain.Config,
+		AllConfig:        config.Config{},
+		ClientFactory:    factory.create,
+		ConnectionMapper: mockConnectionMapper{},
+		Logger:           slog.New(held),
+	}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = env.Close() })
+	require.Eventually(t, func() bool {
+		return env.GetInitError() != nil && env.GetClient() == nil
+	}, time.Second, time.Millisecond, "the failed build must leave no client")
+
+	impl := env.(*envContextImpl)
+	impl.reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-first"), "", ""), time.Unix(1000, 0))
+	built := factory.awaitClient(t, "timed out waiting for the rebuilt client")
+	helpers.RequireValue(t, held.held, time.Second, "timed out waiting for the rebuild to install its client")
+
+	impl.reconcileCredentials(mustAcceptedSet(t, config.SDKKey("sdk-second"), "", ""), time.Unix(2000, 0))
+	close(held.release)
+
+	assert.Equal(t, config.SDKKey("sdk-second"), env.GetAnchorKey())
+	assert.Equal(t, []config.SDKKey{"sdk-second"}, built.SDKKeys(),
+		"the installed client must be re-keyed to the anchor that the reconcile committed")
+}
+
+// holdingLogHandler holds the first goroutine that logs message until release is closed, and
+// signals held when it does.
+type holdingLogHandler struct {
+	slog.Handler
+	message string
+	held    chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (h *holdingLogHandler) Handle(ctx context.Context, r slog.Record) error {
+	if r.Message == h.message {
+		h.once.Do(func() {
+			h.held <- struct{}{}
+			<-h.release
+		})
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+func (h *holdingLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *holdingLogHandler) WithGroup(string) slog.Handler { return h }
+
 func TestTheRetryAppliesTheKeyAgainWhileTheDataSystemIsOff(t *testing.T) {
-	// Every synchronizer failed permanently, and the anchor has not changed. Only a
+	// Every synchronizer failed permanently, and the anchor has not changed. Only an
 	// LDRelayApplySDKKey call starts the synchronizers again, so the cleanup ticker applies the
 	// current key again on each tick until the client receives data.
 	factory := newRecordingClientFactory()
