@@ -24,7 +24,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/integrationtests/oshelpers"
 	"github.com/launchdarkly/ld-relay/v9/internal/api"
 
-	ldapi "github.com/launchdarkly/api-client-go/v13"
+	ldapi "github.com/launchdarkly/api-client-go/v24"
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/maps"
 
-	ldapi "github.com/launchdarkly/api-client-go/v13"
+	ldapi "github.com/launchdarkly/api-client-go/v24"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/stretchr/testify/require"
 )
