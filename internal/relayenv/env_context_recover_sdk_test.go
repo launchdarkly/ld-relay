@@ -3,7 +3,7 @@ package relayenv
 // Tests for recovering an environment with a real SDK client, against a fake LaunchDarkly that
 // rejects revoked keys. The tests in env_context_recover_test.go use a fake client, which reports
 // whatever status a test gives it. These tests check that relay and the SDK agree on what a revoked
-// key does to the client's status.
+// key does to the client's status: the SDK reports Off, and a re-key restarts the same client.
 
 import (
 	"errors"
@@ -132,11 +132,13 @@ func TestARealClientCreatedOnARevokedKeyServesAfterAReanchor(t *testing.T) {
 	fake := newFakeLaunchDarkly(t, "sdk-revoked")
 	env := newRealClientTestEnv(t, fake, "sdk-revoked")
 
-	// Every synchronizer fails on the revoked key, so the build records ErrInitializationFailed and
-	// the middleware refuses every request for the environment.
+	// Every synchronizer fails on the revoked key, so the build records ErrInitializationFailed, the
+	// SDK reports Off, and the middleware refuses every request for the environment.
 	require.Eventually(t, func() bool {
 		return errors.Is(env.GetInitError(), ld.ErrInitializationFailed)
 	}, 5*time.Second, 10*time.Millisecond, "the revoked key must record an initialization error")
+	require.Equal(t, interfaces.DataSourceStateOff, dataSourceState(env))
+	client := env.GetClient()
 
 	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, "sdk-valid", "", ""), time.Unix(1000, 0))
 
@@ -144,6 +146,7 @@ func TestARealClientCreatedOnARevokedKeyServesAfterAReanchor(t *testing.T) {
 		return dataSourceState(env) == interfaces.DataSourceStateValid
 	}, 5*time.Second, 10*time.Millisecond, "the client must receive data on the new key")
 	assert.NoError(t, env.GetInitError(), "the environment must serve once its client receives data")
+	assert.Equal(t, client, env.GetClient(), "the client must be re-keyed rather than rebuilt")
 }
 
 func TestARealClientWhoseKeyIsRevokedRecoversAfterAReanchor(t *testing.T) {
@@ -153,11 +156,15 @@ func TestARealClientWhoseKeyIsRevokedRecoversAfterAReanchor(t *testing.T) {
 		return dataSourceState(env) == interfaces.DataSourceStateValid
 	}, 5*time.Second, 10*time.Millisecond, "the client must receive data on its first key")
 
-	// LaunchDarkly revokes the key. The stream reconnects and fails, and then polling fails.
+	client := env.GetClient()
+
+	// LaunchDarkly revokes the key. The stream reconnects and fails, and then polling fails, so the
+	// SDK reports Off.
 	fake.revoke("sdk-old")
 	require.Eventually(t, func() bool {
-		return fake.rejectedPollCount() > 0
-	}, 5*time.Second, 10*time.Millisecond, "the client must fall back to polling on the revoked key")
+		return dataSourceState(env) == interfaces.DataSourceStateOff
+	}, 5*time.Second, 10*time.Millisecond, "every synchronizer must fail on the revoked key")
+	require.Positive(t, fake.rejectedPollCount(), "the client must fall back to polling on the revoked key")
 
 	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, "sdk-new", "", ""), time.Unix(1000, 0))
 
@@ -165,4 +172,5 @@ func TestARealClientWhoseKeyIsRevokedRecoversAfterAReanchor(t *testing.T) {
 		return dataSourceState(env) == interfaces.DataSourceStateValid
 	}, 5*time.Second, 10*time.Millisecond, "the environment must receive data on the new key")
 	assert.NoError(t, env.GetInitError())
+	assert.Equal(t, client, env.GetClient(), "the client must be re-keyed rather than rebuilt")
 }

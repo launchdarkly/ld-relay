@@ -92,8 +92,7 @@ type EnvContextImplParams struct {
 type envContextImpl struct {
 	mu sync.RWMutex
 	// client is the environment's single SDK client. A key rotation re-keys this client in place
-	// rather than building a replacement. A rotation builds one only when there is no client or its
-	// data system has stopped for good, and rebuildSDKClient closes the old client first. So an
+	// rather than building a replacement. A rotation builds one only when there is no client. So an
 	// environment never holds two data systems and never holds two copies of the environment's data.
 	client          sdks.LDClientContext
 	logger          *slog.Logger
@@ -471,14 +470,8 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	c.envStreams.RemoveCredential(oldCredential)
 }
 
-// rebuildSDKClient replaces the environment's SDK client with one built on sdkKey. It is the
-// recovery path for the two states re-keying cannot reach: a data system the SDK has shut down, and
-// an environment whose build produced no client at all.
-//
-// The outgoing client is closed before the replacement is built, so the environment never holds two
-// copies of its data. The cost is that it has nothing to serve until the new client has a store.
-// That is the right trade here and not in an ordinary rotation: the client being replaced has a dead
-// data system, so its store can only go on being stale.
+// rebuildSDKClient builds the environment's SDK client on sdkKey. It is the recovery path for the
+// one state re-keying cannot reach: an environment whose build produced no client at all.
 func (c *envContextImpl) rebuildSDKClient(sdkKey config.SDKKey) {
 	defer func() {
 		c.mu.Lock()
@@ -486,21 +479,11 @@ func (c *envContextImpl) rebuildSDKClient(sdkKey config.SDKKey) {
 		c.mu.Unlock()
 	}()
 
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
 		return
-	}
-	name := c.identifiers.GetDisplayName()
-	outgoing := c.client
-	c.client = nil
-	c.mu.Unlock()
-
-	if outgoing != nil {
-		if err := outgoing.Close(); err != nil {
-			c.globalLogger.Error("error closing the environment's previous SDK client",
-				"env", name, "error", err)
-		}
 	}
 
 	// Errors are suppressed: this is a recovery attempt for an environment that is already not
@@ -695,9 +678,8 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	}
 
 	if !c.offline {
-		// Re-keying reaches only the credential the client's requests carry, so it is the right move
-		// only when there is a working client to re-key. rebuildSDKClient takes c.mu, so every case
-		// that needs it starts it on another goroutine.
+		// Re-keying needs a client to re-key. rebuildSDKClient takes c.mu, so the case that needs it
+		// starts it on another goroutine.
 		switch {
 		case c.clientRebuilding:
 			// A replacement is already being built. It catches up to the anchor committed below when
@@ -721,23 +703,10 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 			c.clientRebuilding = true
 			go c.rebuildSDKClient(change.NewAnchor)
 
-		case c.client.GetDataSourceStatus().State == interfaces.DataSourceStateOff:
-			// Off means the data system has stopped for good, and SetSDKKey cannot restart it.
-			// Re-keying that client would report a move that did not happen and leave the environment
-			// serving whatever its store still held, with nothing to refresh it.
-			//
-			// A revoked key does not lead here. When every synchronizer fails on an authorization
-			// error, the SDK reports Interrupted and restarts them once SetSDKKey supplies a new key,
-			// so the default case re-keys that client and the environment keeps its store.
-			c.globalLogger.Warn("the environment's data system has shut down, so its new SDK key "+
-				"cannot be applied to the existing client; rebuilding the client on the new key",
-				"env", c.identifiers.GetDisplayName(),
-				"previous", change.PreviousAnchor.Masked(),
-				"new", change.NewAnchor.Masked())
-			c.clientRebuilding = true
-			go c.rebuildSDKClient(change.NewAnchor)
-
 		default:
+			// The client is re-keyed whatever its data source status is. A revoked key makes every
+			// synchronizer fail, and the SDK then reports Off. SetSDKKey restarts those
+			// synchronizers on the new key, so the environment keeps its client and its store.
 			if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
 				c.globalLogger.Error("could not move the environment to its new SDK key; "+
 					"keeping the previous key, which LaunchDarkly may already be invalidating",
