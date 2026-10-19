@@ -35,11 +35,11 @@ type FakeLDClient struct {
 	initialized      bool
 	lock             sync.Mutex
 
-	// SetSDKKeyErr, if non-nil, is what SetSDKKey returns instead of applying the new key. Tests set
-	// it to exercise the path where the SDK rejects a key.
-	SetSDKKeyErr error
-	// sdkKeys records every key SetSDKKey accepted, in order, so a test can assert what the client
-	// was re-keyed to.
+	// LDRelayApplySDKKeyErr, if non-nil, is what LDRelayApplySDKKey returns instead of applying the
+	// new key. Tests set it to exercise the path where the SDK rejects a key.
+	LDRelayApplySDKKeyErr error
+	// sdkKeys records every key LDRelayApplySDKKey accepted, in order, so a test can assert what
+	// the client was re-keyed to.
 	sdkKeys []config.SDKKey
 }
 
@@ -73,18 +73,18 @@ func (c *FakeLDClient) GetDataStoreStatus() sdks.DataStoreStatusInfo {
 	return sdks.DataStoreStatusInfo{Available: true}
 }
 
-func (c *FakeLDClient) SetSDKKey(sdkKey string) error {
+func (c *FakeLDClient) LDRelayApplySDKKey(sdkKey string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	if c.SetSDKKeyErr != nil {
-		return c.SetSDKKeyErr
+	if c.LDRelayApplySDKKeyErr != nil {
+		return c.LDRelayApplySDKKeyErr
 	}
 	c.Key = config.SDKKey(sdkKey)
 	c.sdkKeys = append(c.sdkKeys, config.SDKKey(sdkKey))
 	return nil
 }
 
-// SDKKeys returns the keys SetSDKKey accepted, in order.
+// SDKKeys returns the keys LDRelayApplySDKKey accepted, in order.
 func (c *FakeLDClient) SDKKeys() []config.SDKKey {
 	c.lock.Lock()
 	defer c.lock.Unlock()

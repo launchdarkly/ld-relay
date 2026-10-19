@@ -517,7 +517,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// A reconcile can move the anchor while this build is in flight, and the build used the key it
 		// was started with. Catch the client up so it does not connect on a superseded key.
 		if anchor := c.keyRotator.AnchorKey(); !c.offline && anchor.Defined() && anchor != sdkKey {
-			if err := client.SetSDKKey(string(anchor)); err != nil {
+			if err := client.LDRelayApplySDKKey(string(anchor)); err != nil {
 				c.globalLogger.Error("could not apply the current SDK key to a newly built client",
 					"env", name, "error", err)
 			}
@@ -650,20 +650,21 @@ func (c *envContextImpl) applyCredentialSet(newSet credential.AcceptedSet, now t
 // reanchor re-keys the environment's existing SDK client onto change.NewAnchor and moves the
 // designation to it. It reports whether the anchor moved.
 //
-// It does not move the upstream connection, despite what "re-anchor" suggests. SetSDKKey changes the
-// credential that future requests carry; a stream that is already open is not closed, and goes on
-// running on the previous key until LaunchDarkly or the network ends it, at which point the client
-// reconnects with the new one. Polling, event delivery and the next stream connect pick the new key
-// up immediately. Refer to sdks.LDClientContext.SetSDKKey.
+// It does not move the upstream connection, despite what "re-anchor" suggests. LDRelayApplySDKKey
+// changes the credential that future requests carry; a stream that is already open is not closed,
+// and goes on running on the previous key until LaunchDarkly or the network ends it, at which point
+// the client reconnects with the new one. Polling, event delivery and the next stream connect pick
+// the new key up immediately. Refer to sdks.LDClientContext.LDRelayApplySDKKey.
 //
-// A nil return from SetSDKKey also means only that the value is a legal HTTP header. No request is
-// made here, so it is not evidence that LaunchDarkly accepts the key.
+// A nil return from LDRelayApplySDKKey also means only that the value is a legal HTTP header. No
+// request is made here, so it is not evidence that LaunchDarkly accepts the key.
 //
 // There is no client to build and so nothing to roll back on a transient failure. The only way
-// SetSDKKey fails is a key that is not valid in an HTTP header, and BuildAcceptedSet refuses such a
-// key before it can reach a reconcile, so no payload can take this path. The rollback remains for a
-// caller that reconciles a set it did not build there. It parks the environment on its current
-// anchor and says so loudly, rather than moving the designation to a key that cannot serve.
+// LDRelayApplySDKKey fails is a key that is not valid in an HTTP header, and BuildAcceptedSet
+// refuses such a key before it can reach a reconcile, so no payload can take this path. The
+// rollback remains for a caller that reconciles a set it did not build there. It parks the
+// environment on its current anchor and says so loudly, rather than moving the designation to a key
+// that cannot serve.
 //
 // An offline environment has no upstream connection, so re-anchoring it is only the mapping and
 // designation changes.
@@ -709,9 +710,9 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 
 		default:
 			// The client is re-keyed whatever its data source status is. A revoked key makes every
-			// synchronizer fail, and the SDK then reports Off. SetSDKKey restarts those
+			// synchronizer fail, and the SDK then reports Off. LDRelayApplySDKKey restarts those
 			// synchronizers on the new key, so the environment keeps its client and its store.
-			if err := c.client.SetSDKKey(string(change.NewAnchor)); err != nil {
+			if err := c.client.LDRelayApplySDKKey(string(change.NewAnchor)); err != nil {
 				c.globalLogger.Error("could not move the environment to its new SDK key; "+
 					"keeping the previous key, which LaunchDarkly may already be invalidating",
 					"env", c.identifiers.GetDisplayName(),
@@ -767,10 +768,10 @@ func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 // It runs on the cleanup ticker.
 //
 // Off means every synchronizer failed permanently, for example because LaunchDarkly rejected the
-// key. The SDK starts them again on any SetSDKKey call, also one with the current key. So a key that
-// LaunchDarkly rejected and then accepts, for example a new key that it did not know yet, takes
-// effect within one cleanup interval. Without this, the client would try only once for each key
-// change.
+// key. The SDK starts them again on any LDRelayApplySDKKey call, also one with the current key. So
+// a key that LaunchDarkly rejected and then accepts, for example a new key that it did not know
+// yet, takes effect within one cleanup interval. Without this, the client would try only once for
+// each key change.
 //
 // It holds c.mu, as reanchor does, so a retry cannot run in the middle of a re-anchor.
 func (c *envContextImpl) retryAnOffClient() {
@@ -792,7 +793,7 @@ func (c *envContextImpl) retryAnOffClient() {
 		return
 	}
 
-	if err := c.client.SetSDKKey(string(anchor)); err != nil {
+	if err := c.client.LDRelayApplySDKKey(string(anchor)); err != nil {
 		c.globalLogger.Error("could not apply the SDK key again to restart the environment's data system",
 			"env", c.identifiers.GetDisplayName(),
 			"sdkKey", anchor.Masked(),

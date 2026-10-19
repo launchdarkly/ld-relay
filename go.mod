@@ -126,7 +126,7 @@ require (
 
 // TEMPORARY, remove before merge: unreleased SDK support for changing an SDK key at run time.
 // go-server-sdk#466 (restarting synchronizers after a key change), which is stacked on
-// go-server-sdk#457 (LDClient.SetSDKKey), and their dependency go-sdk-events#63.
-replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk/v7 v7.19.2-0.20261013213525-8ee81c241f80
+// go-server-sdk#457 (LDClient.LDRelayApplySDKKey), and their dependency go-sdk-events#63.
+replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk/v7 v7.19.2-0.20261019182248-5b041ff834f5
 
 replace github.com/launchdarkly/go-sdk-events/v3 => github.com/launchdarkly/go-sdk-events/v3 v3.7.1-0.20261007160855-d97f7b627322

@@ -2,9 +2,9 @@ package relayenv
 
 // Tests for recovering an environment whose SDK client cannot serve: one whose data system is off,
 // one whose build produced no client, and one whose build recorded an initialization error. A
-// client is re-keyed in place whatever its status, because SetSDKKey restarts a data system that
-// is off. Only an environment with no client needs a new one. A client that recovers needs its
-// build error cleared.
+// client is re-keyed in place whatever its status, because LDRelayApplySDKKey restarts a data
+// system that is off. Only an environment with no client needs a new one. A client that recovers
+// needs its build error cleared.
 
 import (
 	"log/slog"
@@ -91,9 +91,10 @@ func newRecoverTestEnv(t *testing.T, factory *recordingClientFactory) EnvContext
 }
 
 func TestReanchorRekeysAClientWhoseDataSystemIsOff(t *testing.T) {
-	// A revoked key makes every synchronizer fail, and the SDK then reports Off. SetSDKKey restarts
-	// those synchronizers on the new key, so relay re-keys the client and the environment keeps its
-	// store. A rebuild would drop the store and refuse requests until the new client had data.
+	// A revoked key makes every synchronizer fail, and the SDK then reports Off. LDRelayApplySDKKey
+	// restarts those synchronizers on the new key, so relay re-keys the client and the environment
+	// keeps its store. A rebuild would drop the store and refuse requests until the new client had
+	// data.
 	factory := newRecordingClientFactory()
 	env := newRecoverTestEnv(t, factory)
 
@@ -134,7 +135,7 @@ func TestReanchorRekeysAHealthyClientRatherThanRebuildingIt(t *testing.T) {
 func TestARevokedKeyEnvironmentServesOnceTheReanchoredClientReceivesData(t *testing.T) {
 	// An environment created on a key LaunchDarkly has already revoked. Every synchronizer fails on
 	// the authorization error, so the build records ErrInitializationFailed and the SDK reports Off.
-	// The re-anchor re-keys the client in place, and SetSDKKey restarts the synchronizers.
+	// The re-anchor re-keys the client in place, and LDRelayApplySDKKey restarts the synchronizers.
 	//
 	// The error must stay until the client has data, because a restarted client may hold an empty
 	// store and relay would answer 200 with no flags rather than refusing. It must clear once the
@@ -267,9 +268,9 @@ func TestAnAnchorThatMovesTwiceDuringARebuildStartsOnlyOneClient(t *testing.T) {
 }
 
 func TestTheRetryAppliesTheKeyAgainWhileTheDataSystemIsOff(t *testing.T) {
-	// Every synchronizer failed permanently, and the anchor has not changed. Only a SetSDKKey call
-	// starts the synchronizers again, so the cleanup ticker applies the current key again on each
-	// tick until the client receives data.
+	// Every synchronizer failed permanently, and the anchor has not changed. Only a
+	// LDRelayApplySDKKey call starts the synchronizers again, so the cleanup ticker applies the
+	// current key again on each tick until the client receives data.
 	factory := newRecordingClientFactory()
 	env := newRecoverTestEnv(t, factory)
 	impl := env.(*envContextImpl)
