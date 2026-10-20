@@ -13,7 +13,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
-	ldapi "github.com/launchdarkly/api-client-go/v13"
+	ldapi "github.com/launchdarkly/api-client-go/v24"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
@@ -186,7 +186,7 @@ func (a *apiHelper) createAutoConfigKey(policyResources []string) (autoConfigID,
 		RelayAutoConfigPost(body).
 		Execute()
 
-	return autoConfigID(entity.Id), config.AutoConfigKey(entity.FullKey), a.logResult("Create auto-config key", err)
+	return autoConfigID(entity.Id), config.AutoConfigKey(entity.GetFullKey()), a.logResult("Create auto-config key", err)
 }
 
 func (a *apiHelper) updateAutoConfigPolicy(id autoConfigID, newPolicyResources []string) error {
