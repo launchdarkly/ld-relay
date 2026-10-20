@@ -3,7 +3,6 @@
 package integrationtests
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,10 +67,7 @@ func TestEndToEnd(t *testing.T) {
 		testDatabaseIntegrations(t, manager)
 	})
 
-	// TEMPORARY (FD-1257 verification, will be reverted): repeat the big segment tests.
-	for i := 1; i <= 25; i++ {
-		t.Run(fmt.Sprintf("big segments %02d", i), func(t *testing.T) {
-			testBigSegments(t, manager)
-		})
-	}
+	t.Run("big segments", func(t *testing.T) {
+		testBigSegments(t, manager)
+	})
 }
