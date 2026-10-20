@@ -3,6 +3,7 @@
 package integrationtests
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,4 +71,22 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("big segments", func(t *testing.T) {
 		testBigSegments(t, manager)
 	})
+
+	// TEMPORARY (FD-1257 verification, will be reverted): repeat only the subtests that add big
+	// segment targets while Relay is running.
+	for i := 1; i <= 15; i++ {
+		t.Run(fmt.Sprintf("big segment race repeat %02d", i), func(t *testing.T) {
+			for name, dbParams := range map[string]databaseTestParams{
+				"Redis":    redisDatabaseTestParams,
+				"DynamoDB": dynamoDBDatabaseTestParams,
+			} {
+				t.Run(name+" first", func(t *testing.T) {
+					doBigSegmentsTestWithFirstSegmentAddedAfterStartup(t, manager, dbParams)
+				})
+				t.Run(name+" another", func(t *testing.T) {
+					doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(t, manager, dbParams)
+				})
+			}
+		})
+	}
 }
