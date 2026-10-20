@@ -154,21 +154,57 @@ func verifyEvaluationWithBigSegment(
 
 	// If the evaluation succeeded, then Big Segments polling must have successfully started by now,
 	// so we'll also verify that Relay is now reporting that status correctly.
-	if status, ok := manager.awaitRelayStatus(t,
-		func(status api.StatusRep) bool {
-			for _, envRep := range status.Environments {
-				if envRep.BigSegmentStatus == nil ||
-					!envRep.BigSegmentStatus.Available || envRep.BigSegmentStatus.PotentiallyStale {
-					return false
-				}
-			}
-			return true
-		}); !ok {
+	if status, ok := manager.awaitRelayStatus(t, bigSegmentsStatusIsValid); !ok {
 		jsonStatus, _ := json.Marshal(status)
 		assert.Fail(t, "Did not see expected valid big segments status", "Last status received was: %s",
 			string(jsonStatus))
 	}
 	return success
+}
+
+func bigSegmentsStatusIsValid(status api.StatusRep) bool {
+	for _, envRep := range status.Environments {
+		if envRep.BigSegmentStatus == nil ||
+			!envRep.BigSegmentStatus.Available || envRep.BigSegmentStatus.PotentiallyStale {
+			return false
+		}
+	}
+	return true
+}
+
+// createFirstBigSegmentWhileRelayIsRunning creates the first big segment in each environment after
+// Relay has started, and adds its targets only once every environment's big segment synchronizer
+// has finished its initial sync.
+//
+// Relay starts polling for big segment data as soon as the SDK stream reports a big segment, which
+// happens right after the segment is created. If that first poll is still in flight while the
+// targets are being added, LaunchDarkly can answer with a first revision that holds only some of the
+// targets, and it never sends the rest under a later revision. Relay has no way to detect that, so
+// the missing users would never be included (FD-1257). Once the synchronizer reports that it is in
+// sync, it is listening on the big segments stream and receives the targets as a single update.
+func createFirstBigSegmentWhileRelayIsRunning(
+	t *testing.T,
+	manager *integrationTestManager,
+	projectInfo projectInfo,
+	environments []environmentInfo,
+	segmentKey string,
+	segmentTestData []bigSegmentTestData,
+) {
+	for i, env := range environments {
+		require.NoError(t, manager.apiHelper.createBigSegmentWithoutTargets(projectInfo, env, segmentKey,
+			segmentTestData[i].includedByRuleUserKeys))
+	}
+
+	if status, ok := manager.awaitRelayStatus(t, bigSegmentsStatusIsValid); !ok {
+		jsonStatus, _ := json.Marshal(status)
+		require.Fail(t, "Big segment synchronizer did not finish its initial sync", "Last status received was: %s",
+			string(jsonStatus))
+	}
+
+	for i, env := range environments {
+		require.NoError(t, manager.apiHelper.addBigSegmentTargets(projectInfo, env, segmentKey,
+			segmentTestData[i].includedUserKeys))
+	}
 }
 
 func doBigSegmentsTestWithPreExistingSegment(
@@ -225,8 +261,8 @@ func doBigSegmentsTestWithFirstSegmentAddedAfterStartup(
 	dbParams databaseTestParams,
 ) {
 	// This is very similar to doBigSegmentsTestWithPreExistingSegment. The difference is that we start Relay
-	// first and *then* create the big segment, so we are verifying that it starts the synchronizer and picks
-	// up the big segment data as soon as the SDK stream informs it of the big segment's existence.
+	// first and *then* create the big segment, so we are verifying that it starts the synchronizer as soon as
+	// the SDK stream informs it of the big segment's existence, and then picks up the big segment data.
 	dbParams.withContainer(t, manager, func(dbContainer *docker.Container) {
 		projectInfo, environments, err := manager.apiHelper.createProject(2)
 		require.NoError(t, err)
@@ -239,11 +275,7 @@ func doBigSegmentsTestWithFirstSegmentAddedAfterStartup(
 		segmentTestData := makeBigSegmentTestDataForEnvs(environments)
 
 		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(api.StatusRep) {
-			for i, env := range environments {
-				segmentInfo := segmentTestData[i]
-				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey,
-					segmentInfo.includedUserKeys, segmentInfo.includedByRuleUserKeys))
-			}
+			createFirstBigSegmentWhileRelayIsRunning(t, manager, projectInfo, environments, segmentKey, segmentTestData)
 
 			flagKey := flagKeyForProj(projectInfo)
 			err := manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey, projectInfo, environments, segmentKey)
@@ -276,11 +308,7 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 		segmentTestData := makeBigSegmentTestDataForEnvs(environments)
 
 		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(api.StatusRep) {
-			for i, env := range environments {
-				segmentInfo := segmentTestData[i]
-				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey1,
-					segmentInfo.includedUserKeys, segmentInfo.includedByRuleUserKeys))
-			}
+			createFirstBigSegmentWhileRelayIsRunning(t, manager, projectInfo, environments, segmentKey1, segmentTestData)
 			flagKey1 := flagKeyForProj(projectInfo) + "1"
 			err := manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey1, projectInfo, environments, segmentKey1)
 			require.NoError(t, err)
