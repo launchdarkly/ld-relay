@@ -490,8 +490,9 @@ func (c *envContextImpl) rebuildSDKClient(sdkKey config.SDKKey) {
 		return
 	}
 
-	// Errors are suppressed: this is a recovery attempt for an environment that is already not
-	// serving, so a failure here is not a new startup failure to escalate.
+	// suppressErrors does not discard a build error. startSDKClient records it in initErr, as it does
+	// for the initial build, and only logs it as a warning instead of an error. The environment had no
+	// client before this build, so a failed build leaves it in the same state.
 	c.startSDKClient(sdkKey, nil, true)
 }
 
@@ -712,8 +713,9 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 
 		default:
 			// The client is re-keyed whatever its data source status is. A revoked key makes every
-			// synchronizer fail, and the SDK then reports Off. LDRelayApplySDKKey restarts those
-			// synchronizers on the new key, so the environment keeps its client and its store.
+			// synchronizer that sends the key fail. When no synchronizer is left, the SDK reports Off.
+			// LDRelayApplySDKKey restarts the failed synchronizers on the new key, so the environment
+			// keeps its client and its store.
 			if err := c.client.LDRelayApplySDKKey(string(change.NewAnchor)); err != nil {
 				c.globalLogger.Error("could not move the environment to its new SDK key; "+
 					"keeping the previous key, which LaunchDarkly may already be invalidating",
