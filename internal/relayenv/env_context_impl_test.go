@@ -686,6 +686,63 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 // This method forces the metrics events exporter to post an event to the event publisher, and then triggers a
 // flush of the event publisher. Because both of those actions are asynchronous, it may be necessary to call it
 // more than once to ensure that the newly posted event is included in the flush.
+func TestBigSegmentDataReceivedAfterCloseDoesNotStartBigSegmentPolling(t *testing.T) {
+	// A client's data system can deliver data after the environment has closed, for example when the
+	// build finishes after Close. Close has already closed the synchronizer and the SDK's big segment
+	// wrapper, so a big segment in that data must not start them again: nothing would stop them.
+	envConfig := st.EnvMain.Config
+	allConfig := config.Config{}
+
+	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, *slog.Logger) (bigsegments.BigSegmentStore, error) {
+		return bigsegments.NewNullBigSegmentStore(), nil
+	}
+	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
+	sdkBigSegmentStore := &metadataSignalingSDKBigSegmentStore{metadataCh: make(chan struct{}, 10)}
+
+	// Unbuffered, so that a send returns only once the environment has finished with the previous
+	// change set.
+	changeSetCh := make(chan subsystems.ChangeSet)
+	readyCh := make(chan EnvContext, 1)
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:                     envConfig,
+		AllConfig:                     allConfig,
+		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
+		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
+		ClientFactory:                 testclient.FakeLDClientFactoryWithChannel(true, nil, changeSetCh),
+		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
+			st.ExistingInstance[subsystems.BigSegmentStore](sdkBigSegmentStore),
+		).StatusPollInterval(10 * time.Millisecond),
+		Logger: slog.Default(),
+	}, readyCh)
+	require.NoError(t, err)
+	requireEnvReady(t, readyCh)
+	require.NoError(t, env.Close())
+
+	s1 := ldbuilders.NewSegmentBuilder("s1").Unbounded(true).Generation(1).Build()
+	s1JSON, _ := json.Marshal(s1)
+	changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "new-state",
+			Target: 1,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		},
+	}).
+		AddPut(subsystems.SegmentKind, s1.Key, s1.Version, s1JSON).
+		Finish(subsystems.NewSelector("new-state", 1))
+	require.NoError(t, err)
+
+	changeSetCh <- *changeSet
+	changeSetCh <- *changeSet
+
+	synchronizer := fakeSynchronizerFactory.synchronizer
+	require.NotNil(t, synchronizer)
+	assert.False(t, synchronizer.isStarted(), "the big segment synchronizer was started after Close")
+	helpers.AssertNoMoreValues(t, sdkBigSegmentStore.metadataCh, 100*time.Millisecond,
+		"the SDK's big segment wrapper started polling the store after Close")
+}
+
 func flushMetricsEvents(c *envContextImpl) {
 	if c.metricsEventPub != nil {
 		c.metricsEnv.FlushEventsExporter()
@@ -754,4 +811,19 @@ func ensureSynchronizerState(t *testing.T, synchronizer *mockBigSegmentSynchroni
 	require.Eventually(t, func() bool {
 		return synchronizer.isStarted() == expectedState
 	}, time.Second, 10*time.Millisecond, "timed out waiting for big segments synchronizer to start")
+}
+
+// metadataSignalingSDKBigSegmentStore is an SDK big segment store that sends on metadataCh each
+// time the SDK's big segment wrapper polls it for its status.
+type metadataSignalingSDKBigSegmentStore struct {
+	st.NoOpSDKBigSegmentStore
+	metadataCh chan struct{}
+}
+
+func (s *metadataSignalingSDKBigSegmentStore) GetMetadata() (subsystems.BigSegmentStoreMetadata, error) {
+	select {
+	case s.metadataCh <- struct{}{}:
+	default:
+	}
+	return subsystems.BigSegmentStoreMetadata{}, nil
 }

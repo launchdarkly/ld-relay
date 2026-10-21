@@ -211,6 +211,70 @@ func TestCloseEnvStreamsClosesAll(t *testing.T) {
 	assert.False(t, esp2V2.closed)
 }
 
+func TestUpdatesAfterCloseGoToNoStream(t *testing.T) {
+	// A closed stream provider can still be asked to publish, and the eventsource server it publishes
+	// to may itself have closed, in which case the publish blocks forever.
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
+
+	es.AddCredential(config.SDKKey("sdk-key1"))
+	require.Len(t, sp.createdStreamsV1, 1)
+	require.Len(t, sp.createdStreamsV2, 1)
+	esp, espV2 := sp.createdStreamsV1[0], sp.createdStreamsV2[0]
+
+	require.NoError(t, es.Close())
+
+	es.Apply(*fdv2ChangeSet)
+	es.InvalidateClientSideState()
+
+	assert.Len(t, esp.allDataUpdates, 0)
+	assert.Len(t, espV2.allDataUpdates, 0)
+	assert.Equal(t, 0, esp.clientSideUps)
+	assert.Equal(t, 0, espV2.clientSideUps)
+}
+
+func TestAddCredentialAfterCloseOpensNoStream(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
+	require.NoError(t, es.Close())
+
+	es.AddCredential(config.SDKKey("sdk-key1"))
+
+	assert.Len(t, sp.createdStreamsV1, 0)
+	assert.Len(t, sp.createdStreamsV2, 0)
+}
+
+func TestAStreamRegisteredWhileClosingIsClosed(t *testing.T) {
+	// AddCredential checks for Close before it registers a stream. Close can run between the check
+	// and the registration, and then the stream must not stay open.
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, slog.Default())
+	require.NoError(t, es.Close())
+
+	esp := &mockEnvStreamProvider{parent: sp, credential: config.SDKKey("sdk-key1"), store: store}
+	es.addStream(streamInfo{esp.credential, esp})
+	es.Apply(*fdv2ChangeSet)
+
+	assert.True(t, esp.closed)
+	assert.Len(t, esp.allDataUpdates, 0)
+}
+
+func TestCloseEnvStreamsTwice(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, time.Hour, slog.Default())
+
+	require.NoError(t, es.Close())
+	assert.NotPanics(t, func() { _ = es.Close() })
+}
+
 func TestSetBasisGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
