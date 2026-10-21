@@ -1,0 +1,50 @@
+# Fork-only workflow: builds the Relay Proxy image from this actblue fork (which includes the
+# opt-in Redis cluster-mode change) and pushes it to GHCR so core-gitops can pull it for devlab
+# validation. Not part of the upstream ld-relay project.
+name: Build and push image to GHCR
+
+on:
+  push:
+    branches:
+      - feat/redis-cluster-mode
+  workflow_dispatch: {}
+
+env:
+  IMAGE: ghcr.io/actblue/ld-relay
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute short SHA
+        id: vars
+        run: echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      # The standalone Dockerfile builds the binary in-container. go.mod uses a replace pointing at
+      # the (public) actblue fork of go-server-sdk-redis-go-redis, so `go build` resolves it with no
+      # extra auth. Single-arch (amd64) is enough for the devlab EKS nodes.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE }}:cluster-mode
+            ${{ env.IMAGE }}:cluster-mode-${{ steps.vars.outputs.sha }}
