@@ -778,11 +778,19 @@ func (c *envContextImpl) Close() error {
 
 func (c *envContextImpl) setBigSegmentsExist() {
 	c.mu.Lock()
-	alreadyExisted := c.bigSegmentsExist
-	c.bigSegmentsExist = true
-	c.mu.Unlock()
+	defer c.mu.Unlock()
 
-	if !alreadyExisted && c.bigSegmentSync != nil {
+	// Close sets c.closed before it closes the synchronizer and the SDK's big segment wrapper. The
+	// wrapper does not record that it has closed, so polling started after its Close never stops.
+	// A client can still deliver data after Close, so check c.closed and start in one critical
+	// section: a start either comes before Close, which then stops it, or does not happen. Start
+	// and SetPollingActive only launch goroutines, so holding c.mu is safe here.
+	if c.closed || c.bigSegmentsExist {
+		return
+	}
+	c.bigSegmentsExist = true
+
+	if c.bigSegmentSync != nil {
 		c.bigSegmentSync.Start()
 		c.sdkBigSegments.SetPollingActive(true) // has no effect if already active
 	}

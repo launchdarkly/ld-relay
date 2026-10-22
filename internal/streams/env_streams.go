@@ -42,6 +42,7 @@ type EnvStreams struct {
 	streamProviders []StreamProvider
 	storeQueries    EnvStoreQueries
 	activeStreams   []streamInfo
+	closed          bool
 	logger          *slog.Logger
 	lock            sync.RWMutex
 	closeCh         chan struct{}
@@ -97,23 +98,39 @@ func NewEnvStreams(
 }
 
 // AddCredential adds an environment keyed off the credential,
-// and creates a corresponding EnvStreamProvider.
+// and creates a corresponding EnvStreamProvider. After Close, it does nothing.
 func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	if credential == nil {
+		return
+	}
+	es.lock.RLock()
+	closed := es.closed
+	es.lock.RUnlock()
+	if closed {
 		return
 	}
 	scopedCred := credential
 	for _, sp := range es.streamProviders {
 		if esp := sp.RegisterV1(scopedCred, es.storeQueries, es.logger); esp != nil {
-			es.lock.Lock()
-			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
-			es.lock.Unlock()
+			es.addStream(streamInfo{scopedCred, esp})
 		}
 		if esp := sp.RegisterV2(scopedCred, es.storeQueries, es.logger); esp != nil {
-			es.lock.Lock()
-			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
-			es.lock.Unlock()
+			es.addStream(streamInfo{scopedCred, esp})
 		}
+	}
+}
+
+// addStream records a stream that AddCredential registered. If Close ran after AddCredential
+// checked for it, Close did not see the stream, so addStream closes it instead.
+func (es *EnvStreams) addStream(s streamInfo) {
+	es.lock.Lock()
+	closed := es.closed
+	if !closed {
+		es.activeStreams = append(es.activeStreams, s)
+	}
+	es.lock.Unlock()
+	if closed {
+		s.envStreamProvider.Close()
 	}
 }
 
@@ -154,10 +171,25 @@ func (es *EnvStreams) InvalidateClientSideState() {
 }
 
 // Close shuts down all currently active streams for this environment and releases its resources.
+//
+// The streams are also forgotten, so updates that arrive after Close go to no stream. An update
+// can still arrive: a data system that the environment has not stopped yet can deliver one. A
+// closed stream provider would still publish it to its eventsource server, and when that server
+// has closed too, the publish blocks forever.
 func (es *EnvStreams) Close() error {
+	es.lock.Lock()
+	if es.closed {
+		es.lock.Unlock()
+		return nil
+	}
+	es.closed = true
+	streams := es.activeStreams
+	es.activeStreams = nil
+	es.lock.Unlock()
+
 	close(es.closeCh)
-	for _, esp := range es.getEnvStreamProviders() {
-		esp.Close()
+	for _, s := range streams {
+		s.envStreamProvider.Close()
 	}
 	return nil
 }
