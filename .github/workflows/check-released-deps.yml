@@ -32,11 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Pinned to a commit until gh-actions releases the action (see
-      # launchdarkly/gh-actions#123); then pin the check-released-go-deps-v0.1.0
-      # release tag instead.
       - name: Verify go.mod references released LaunchDarkly module versions
-        uses: launchdarkly/gh-actions/actions/check-released-go-deps@5348acde6c487916234ecd544adc528b99754eac # unreleased
+        uses: launchdarkly/gh-actions/actions/check-released-go-deps@check-released-go-deps-v0.1.0
         with:
           # cmd/fdv2-integration/ (v9 only) is an unpublished placeholder
           # module (module path `fdv2-integration`, no dependencies, not built
