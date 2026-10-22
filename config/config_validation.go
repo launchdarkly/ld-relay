@@ -18,12 +18,15 @@ var (
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
+	errRedisConnectTimeout             = errors.New("connect timeout for Redis must be greater than zero")
+	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
 	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
+	errRedisClientCertWithoutKey               = errors.New("Redis client certificate and key must be specified together (REDIS_CLIENT_CERT_FILE and REDIS_CLIENT_KEY_FILE, or ClientCertificateFile and ClientKeyFile)") //nolint:staticcheck
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
@@ -31,6 +34,9 @@ var (
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
+
+const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file was set, but TLS is not enabled " +
+	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
 
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
@@ -216,6 +222,7 @@ func validateMaxClientRequestBodySize(result *ct.ValidationResult, c *Config) {
 
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slog.Logger) {
 	normalizeRedisConfig(result, c)
+	validateRedisTimeouts(result, c)
 
 	databases := []string{}
 	if c.Redis.URL.IsDefined() {
@@ -234,6 +241,15 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 	if len(databases) > 1 {
 		result.AddError(nil, errMultipleDatabases(databases))
 		return // no point doing further database config validation if it's in this state
+	}
+
+	if c.Redis.URL.IsDefined() {
+		if (c.Redis.ClientCertificateFile == "") != (c.Redis.ClientKeyFile == "") {
+			result.AddError(nil, errRedisClientCertWithoutKey)
+		}
+		if c.Redis.hasTLSFiles() && !c.Redis.TLSEnabled() {
+			logger.Warn(warnRedisTLSFilesWithoutTLS)
+		}
 	}
 
 	if c.Consul.Host != "" {
@@ -304,6 +320,15 @@ func warnUnrecognizedSignalExporters(c *Config, logger *slog.Logger) {
 			continue
 		}
 		logger.Warn(warnUnrecognizedSignalExporter(exporter.varName, exporter.value))
+	}
+}
+
+func validateRedisTimeouts(result *ct.ValidationResult, c *Config) {
+	if c.Redis.ConnectTimeout.IsDefined() && c.Redis.ConnectTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errRedisConnectTimeout)
+	}
+	if c.Redis.ReadTimeout.IsDefined() && c.Redis.ReadTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errRedisReadTimeout)
 	}
 }
 

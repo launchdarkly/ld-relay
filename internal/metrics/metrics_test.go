@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 // With OpenTelemetry disabled there are no instruments at all, rather than instruments backed by a
@@ -339,7 +340,7 @@ func TestRecordRequestDuration(t *testing.T) {
 		found := false
 		for _, dp := range hist.DataPoints {
 			routeVal, routeOK := dp.Attributes.Value(httpRouteAttrKey)
-			methodVal, methodOK := dp.Attributes.Value(httpRequestMethodAttrKey)
+			methodVal, methodOK := dp.Attributes.Value(semconv.HTTPRequestMethodKey)
 			if routeOK && methodOK && routeVal.AsString() == "someRoute" && methodVal.AsString() == "GET" {
 				assert.Equal(t, uint64(1), dp.Count)
 				assert.InDelta(t, 0.05, dp.Sum, 0.01, "expected ~50ms duration")
@@ -636,13 +637,12 @@ func TestSanitizeVerbatimValue(t *testing.T) {
 func TestRequestMetricAttributeKeys(t *testing.T) {
 	envKVs := []attribute.KeyValue{envNameAttrKey.String("testenv")}
 	ri := RequestInfo{
-		UserAgent:          userAgentValue,
-		Route:              "/sdk/poll",
-		Method:             "GET",
-		URLScheme:          "https",
-		ApplicationID:      "my-app",
-		ApplicationVersion: "1.0.0",
-		EndpointType:       EndpointTypePoll,
+		UserAgent:     userAgentValue,
+		Route:         "/sdk/poll",
+		Method:        "GET",
+		URLScheme:     "https",
+		ApplicationID: "my-app",
+		EndpointType:  EndpointTypePoll,
 	}
 
 	assert.ElementsMatch(t, []string{
@@ -652,7 +652,6 @@ func TestRequestMetricAttributeKeys(t *testing.T) {
 		"http.request.method",
 		"url.scheme",
 		"launchdarkly.application.id",
-		"launchdarkly.application.version",
 		"launchdarkly.relay.endpoint.type",
 	}, attributeKeys(buildRequestAttributes(envKVs, ri)))
 
@@ -668,7 +667,6 @@ func TestRequestMetricAttributeKeys(t *testing.T) {
 		"http.request.method",
 		"url.scheme",
 		"launchdarkly.application.id",
-		"launchdarkly.application.version",
 		"launchdarkly.relay.endpoint.type",
 		"network.protocol.version",
 		"http.response.status_code",
@@ -699,21 +697,79 @@ func TestUserAgentUsesSemconvKeyAndVerbatimValue(t *testing.T) {
 }
 
 // OTLP places no restriction on attribute values, and altering one that a customer supplied corrupts it:
-// an application version can be a date, and an environment name can contain a slash.
+// an application ID can contain a slash, and so can an environment name.
 func TestClientSuppliedAttributesKeepSlashes(t *testing.T) {
-	attrs := buildRequestAttributes(nil, RequestInfo{
-		ApplicationID:      "checkout/web",
-		ApplicationVersion: "2026/08/01",
-	})
+	attrs := buildRequestAttributes(nil, RequestInfo{ApplicationID: "checkout/web"})
 
-	for key, want := range map[string]string{
-		"launchdarkly.application.id":      "checkout/web",
-		"launchdarkly.application.version": "2026/08/01",
+	value, ok := attrs.Value(applicationIDAttrKey)
+	require.True(t, ok, "launchdarkly.application.id attribute not present")
+	assert.Equal(t, "checkout/web", value.AsString())
+}
+
+// http.request.method takes the semantic convention's known methods as-is and folds everything else into
+// _OTHER, so a caller cannot mint a series per invented method.
+func TestRequestMethodIsNormalized(t *testing.T) {
+	for method, want := range map[string]string{
+		"GET":           "GET",
+		"POST":          "POST",
+		"QUERY":         "QUERY",
+		"get":           "_OTHER",
+		"PROPFIND":      "_OTHER",
+		"X-RANDOM-1234": "_OTHER",
+		"":              "_OTHER",
 	} {
-		value, ok := attrs.Value(attribute.Key(key))
-		require.True(t, ok, "%s attribute not present", key)
-		assert.Equal(t, want, value.AsString(), key)
+		attrs := buildRequestAttributes(nil, RequestInfo{Method: method})
+		value, ok := attrs.Value(semconv.HTTPRequestMethodKey)
+		require.True(t, ok, "http.request.method attribute not present")
+		assert.Equal(t, want, value.AsString(), "method %q", method)
 	}
+}
+
+// Requests with no environment need no credentials, so their user agent and application tags are
+// whatever the caller sent. They are recorded as absent; an environment's requests keep them.
+func TestUnscopedRequestsDropClientSuppliedAttributes(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		manager, err := NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
+		require.NoError(t, err)
+		defer manager.Close()
+		manager.SetInstrumentsForTest(p.instruments)
+
+		ri := RequestInfo{UserAgent: "scanner/1.0", Route: "/status", Method: "GET", EndpointType: EndpointTypeStatus,
+			ApplicationID: "made-up-app"}
+		StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), ri)()
+		RecordRequestDuration(context.Background(), manager.GetInstruments(), manager.GetUnscopedEnvironment(), ri, time.Millisecond)
+		StartActiveRequest(p.instruments, p.env, ri)()
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+
+		clientSupplied := []attribute.Key{userAgentAttrKey, applicationIDAttrKey}
+		requests := findMetric(rm, requestsMeasureName)
+		require.NotNil(t, requests, "requests metric not found")
+		points := requests.Data.(metricdata.Sum[int64]).DataPoints
+		require.Len(t, points, 2)
+		for _, dp := range points {
+			envName, _ := dp.Attributes.Value(envNameAttrKey)
+			for _, key := range clientSupplied {
+				value, ok := dp.Attributes.Value(key)
+				require.True(t, ok, "%s attribute not present", key)
+				if envName.AsString() == notProvidedValue {
+					assert.Equal(t, notProvidedValue, value.AsString(), "unscoped %s", key)
+				} else {
+					assert.NotEqual(t, notProvidedValue, value.AsString(), "scoped %s", key)
+				}
+			}
+		}
+
+		duration := findMetric(rm, requestDurationMeasureName)
+		require.NotNil(t, duration, "duration metric not found")
+		durationPoints := duration.Data.(metricdata.Histogram[float64]).DataPoints
+		require.Len(t, durationPoints, 1)
+		for _, key := range clientSupplied {
+			value, _ := durationPoints[0].Attributes.Value(key)
+			assert.Equal(t, notProvidedValue, value.AsString(), "unscoped duration %s", key)
+		}
+	})
 }
 
 func TestEnvironmentNameKeepsSlashes(t *testing.T) {

@@ -2,8 +2,12 @@ package sdks
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -11,7 +15,7 @@ import (
 
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v4"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
@@ -56,7 +60,19 @@ func ConfigureDataStore(
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
+		redisURL, prefix, dialOptions, err := getRedisBuilderOptions(allConfig, envConfig)
+		if err != nil {
+			return nil, DataStoreEnvironmentInfo{}, err
+		}
+		upsertMode := ldredis.UpsertModeWatch
+		if allConfig.Redis.AtomicUpsert {
+			upsertMode = ldredis.UpsertModeAtomicScript
+		}
+		redisBuilder := ldredis.DataStore().
+			URL(redisURL).
+			Prefix(prefix).
+			DialOptions(dialOptions...).
+			UpsertMode(upsertMode)
 		redactedURL := util.RedactURL(redisURL)
 
 		logger.Info("using Redis data store", "url", redactedURL, "prefix", envConfig.Prefix)
@@ -147,26 +163,81 @@ func GetRedisBasicProperties(
 	return
 }
 
-func makeRedisDataStoreBuilder[T any](
-	constructor func() *ldredis.StoreBuilder[T],
+// CreateTLSConfig creates a TLS configuration for Redis based on the provided RedisConfig.
+// It returns nil if TLS is not enabled in the configuration (neither REDIS_TLS nor a rediss:// URL).
+// If TLS is enabled, it sets the server name and a minimum version of TLS 1.2. It loads the client
+// certificate and key if both are set, and uses the CA file as the root CAs if it is set.
+func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
+	if !config.TLSEnabled() {
+		return nil, nil
+	}
+
+	tlsConfig := &tls.Config{
+		ServerName: config.URL.Get().Hostname(),
+		MinVersion: tls.VersionTLS12,
+	}
+
+	if config.ClientCertificateFile != "" && config.ClientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(config.ClientCertificateFile, config.ClientKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("loading Redis client certificate %q and key %q: %w",
+				config.ClientCertificateFile, config.ClientKeyFile, err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	if config.CAFile != "" {
+		caCert, err := os.ReadFile(config.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading Redis CA file: %w", err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("no valid PEM certificates in Redis CA file %q", config.CAFile)
+		}
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	return tlsConfig, nil
+}
+
+// getRedisBuilderOptions returns the parameters that the Redis data store and the Redis big segment
+// store both use.
+func getRedisBuilderOptions(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-) (builder *ldredis.StoreBuilder[T], url string) {
-	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
+) (redisURL, prefix string, dialOptions []redigo.DialOption, err error) {
+	redisURL, prefix = GetRedisBasicProperties(allConfig.Redis, envConfig)
 
+	dialOptions = redisDialOptions(allConfig.Redis)
+
+	tlsOpts, err := CreateTLSConfig(allConfig.Redis)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if tlsOpts != nil {
+		dialOptions = append(dialOptions, redigo.DialTLSConfig(tlsOpts))
+	}
+	return
+}
+
+func redisDialOptions(redisConfig config.RedisConfig) []redigo.DialOption {
 	var dialOptions []redigo.DialOption
-	if allConfig.Redis.Password != "" {
-		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
+	if redisConfig.Password != "" {
+		dialOptions = append(dialOptions, redigo.DialPassword(redisConfig.Password))
 	}
-	if allConfig.Redis.Username != "" {
-		dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
+	if redisConfig.Username != "" {
+		dialOptions = append(dialOptions, redigo.DialUsername(redisConfig.Username))
 	}
-
-	b := constructor().
-		URL(redisURL).
-		Prefix(prefix).
-		DialOptions(dialOptions...)
-	return b, redisURL
+	// If a timeout is not set, redigo uses its own default. The default connect timeout is 30 seconds.
+	// The default read timeout is none, so a read can wait forever.
+	if redisConfig.ConnectTimeout.IsDefined() {
+		dialOptions = append(dialOptions, redigo.DialConnectTimeout(redisConfig.ConnectTimeout.GetOrElse(0)))
+	}
+	if redisConfig.ReadTimeout.IsDefined() {
+		dialOptions = append(dialOptions, redigo.DialReadTimeout(redisConfig.ReadTimeout.GetOrElse(0)))
+	}
+	return dialOptions
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters

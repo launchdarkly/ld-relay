@@ -263,19 +263,18 @@ func TestEventBytesMetrics(t *testing.T) {
 	})
 }
 
-func TestParseApplicationTags(t *testing.T) {
+func TestParseApplicationID(t *testing.T) {
 	tests := []struct {
-		name    string
-		header  string
-		wantID  string
-		wantVer string
+		name   string
+		header string
+		wantID string
 	}{
-		{"both present", "application-id/my-app application-version/1.0.0", "my-app", "1.0.0"},
-		{"only id", "application-id/my-app", "my-app", ""},
-		{"only version", "application-version/2.0.0", "", "2.0.0"},
-		{"empty header", "", "", ""},
-		{"unknown keys ignored", "foo/bar application-id/my-app baz/qux", "my-app", ""},
-		{"extra spaces", "application-id/my-app  application-version/1.0.0", "my-app", "1.0.0"},
+		{"both present", "application-id/my-app application-version/1.0.0", "my-app"},
+		{"only id", "application-id/my-app", "my-app"},
+		{"only version", "application-version/2.0.0", ""},
+		{"empty header", "", ""},
+		{"unknown keys ignored", "foo/bar application-id/my-app baz/qux", "my-app"},
+		{"extra spaces", "application-version/1.0.0  application-id/my-app", "my-app"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -283,9 +282,7 @@ func TestParseApplicationTags(t *testing.T) {
 			if tt.header != "" {
 				req.Header.Set("X-LaunchDarkly-Tags", tt.header)
 			}
-			gotID, gotVer := parseApplicationTags(req)
-			assert.Equal(t, tt.wantID, gotID)
-			assert.Equal(t, tt.wantVer, gotVer)
+			assert.Equal(t, tt.wantID, parseApplicationID(req))
 		})
 	}
 }

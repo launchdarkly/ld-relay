@@ -98,7 +98,7 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 	if r := mux.CurrentRoute(req); r != nil {
 		route, _ = r.GetPathTemplate()
 	}
-	appID, appVersion := parseApplicationTags(req)
+	appID := parseApplicationID(req)
 
 	urlScheme := "http"
 	if req.TLS != nil {
@@ -117,14 +117,13 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 	}
 
 	return metrics.RequestInfo{
-		UserAgent:          getUserAgent(req),
-		SDKWrapper:         getSDKWrapper(req),
-		Route:              route,
-		Method:             req.Method,
-		ApplicationID:      appID,
-		ApplicationVersion: appVersion,
-		URLScheme:          urlScheme,
-		ProtocolVersion:    protocolVersion,
+		UserAgent:       getUserAgent(req),
+		SDKWrapper:      getSDKWrapper(req),
+		Route:           route,
+		Method:          req.Method,
+		ApplicationID:   appID,
+		URLScheme:       urlScheme,
+		ProtocolVersion: protocolVersion,
 	}
 }
 

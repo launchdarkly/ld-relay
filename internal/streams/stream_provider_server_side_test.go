@@ -135,7 +135,33 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
+			verifyHandlerEndsStream(t, sp, validCredential)
+		})
+	})
+
+	t.Run("initial event - stream after a store error reads the store again", func(t *testing.T) {
+		store := newMockStoreQueries()
+		store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+			return nil, subsystems.NoSelector(), fakeError
+		})
+
+		withStreamProvider(t, 0, func(sp StreamProvider) {
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
+			require.NotNil(t, esp)
+			defer esp.Close()
+
+			verifyHandlerEndsStream(t, sp, validCredential)
+
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+				return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+					ldstoreimpl.Features(): {},
+					ldstoreimpl.Segments(): {},
+				}, subsystems.NoSelector(), nil
+			})
+			verifyHandlerInitialEvent(t, sp, validCredential, MakeServerSidePutEvent([]ldstoretypes.Collection{
+				{Kind: ldstoreimpl.Features(), Items: nil},
+				{Kind: ldstoreimpl.Segments(), Items: nil},
+			}))
 		})
 	})
 
@@ -785,8 +811,10 @@ func TestStreamReplayPostAdmissionReadErrorReleasesSlot(t *testing.T) {
 	hold, ok := limiter.Acquire(context.Background())
 	require.True(t, ok)
 
+	var closed atomic.Bool
+	ctx := context.WithValue(context.Background(), closeConnectionKey{}, func() { closed.Store(true) })
 	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
-	eventCh := repo.ReplayWithContext(context.Background(), "", "s9")
+	eventCh := repo.ReplayWithContext(ctx, "", "s9")
 	deadline := time.Now().Add(2 * time.Second)
 	for limiter.Stats().Waiting != 1 {
 		if time.Now().After(deadline) {
@@ -802,6 +830,7 @@ func TestStreamReplayPostAdmissionReadErrorReleasesSlot(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		require.Fail(t, "replay channel was not closed after the read error")
 	}
+	assert.True(t, closed.Load(), "a failed replay must close the connection so the SDK reconnects")
 
 	// The slot must come back despite the error.
 	deadline = time.Now().Add(2 * time.Second)

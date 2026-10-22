@@ -57,6 +57,23 @@ type EnvironmentManager struct {
 	envKVs    []attribute.KeyValue
 	collector *RelayMetricsCollector
 	closeOnce sync.Once
+	// unscoped marks the EnvironmentManager for requests with no LD environment. See scope.
+	unscoped bool
+}
+
+// scope returns the RequestInfo to record for a request in this environment.
+//
+// Requests with no environment (the status endpoints and anything that matched no route) need no
+// credentials, so their client-supplied attributes are whatever the caller chose to send. Recording
+// them would let any caller mint a series per distinct user agent or application tag, and on the
+// cumulative instruments those series last until the process restarts. Such requests carry no SDK
+// identity worth reporting either: a status check comes from a load balancer or an operator, not an
+// SDK. So the user agent and application ID are recorded as absent.
+func (em *EnvironmentManager) scope(ri RequestInfo) RequestInfo {
+	if em.unscoped {
+		ri.UserAgent, ri.ApplicationID = "", ""
+	}
+	return ri
 }
 
 // NewManager creates a Manager instance.
@@ -114,7 +131,8 @@ func NewManager(
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
 		unscopedEnv: &EnvironmentManager{
-			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeVerbatimValue(""))},
+			envKVs:   []attribute.KeyValue{envNameAttrKey.String(sanitizeVerbatimValue(""))},
+			unscoped: true,
 		},
 	}
 	if m.flushInterval <= 0 {

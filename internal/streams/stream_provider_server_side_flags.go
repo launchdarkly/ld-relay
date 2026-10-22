@@ -43,14 +43,14 @@ func (s *serverSideFlagsOnlyStreamProvider) HandlerV1(params credential.SDKCrede
 	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
-	return s.fdv1Server.Handler(params.String())
+	return withCloseConnection(s.fdv1Server.Handler(params.String()))
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) HandlerV2(params credential.SDKCredential) http.HandlerFunc {
 	if _, ok := params.(config.SDKKey); !ok {
 		return nil
 	}
-	return s.fdv2Server.Handler(params.String())
+	return withCloseConnection(s.fdv2Server.Handler(params.String()))
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(
@@ -172,7 +172,11 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) replay(ctx context.Context) cha
 		default:
 		}
 		event, err := r.getReplayEvent(ctx)
-		if err != nil || event == nil {
+		if err != nil {
+			closeConnection(ctx) // See serverSideEnvStreamRepository.replay
+			return
+		}
+		if event == nil {
 			return
 		}
 		select {

@@ -18,3 +18,7 @@ func errNewClientContextFailed(envName string, err error) error {
 func errNewMetricsManagerFailed(err error) error {
 	return fmt.Errorf("unable to create metrics manager: %w", err)
 }
+
+func errRedisTLSConfig(err error) error {
+	return fmt.Errorf("invalid Redis TLS configuration: %w", err)
+}

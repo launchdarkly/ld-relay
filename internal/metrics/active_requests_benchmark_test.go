@@ -12,15 +12,14 @@ import (
 // populate it, so the attribute set being built is representative in size.
 func benchRequestInfo() RequestInfo {
 	return RequestInfo{
-		UserAgent:          "GoClient/7.15.4",
-		SDKWrapper:         "flutter-client/2.0.0",
-		Route:              "/sdk/evalx/{envId}/contexts/{context}",
-		Method:             "GET",
-		ApplicationID:      "my-app",
-		ApplicationVersion: "1.2.3",
-		EndpointType:       EndpointTypePoll,
-		URLScheme:          "https",
-		ProtocolVersion:    "1.1",
+		UserAgent:       "GoClient/7.15.4",
+		SDKWrapper:      "flutter-client/2.0.0",
+		Route:           "/sdk/evalx/{envId}/contexts/{context}",
+		Method:          "GET",
+		ApplicationID:   "my-app",
+		EndpointType:    EndpointTypePoll,
+		URLScheme:       "https",
+		ProtocolVersion: "1.1",
 	}
 }
 

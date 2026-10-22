@@ -36,6 +36,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigRedisInvalidDockerPort(),
 		makeInvalidConfigRedisConflictingParams(),
 		makeInvalidConfigRedisNoPrefix(),
+		makeInvalidConfigRedisClientCertWithoutKey(),
 		makeInvalidConfigRedisAutoConfNoPrefix(),
 		makeInvalidConfigConsulNoPrefix(),
 		makeInvalidConfigConsulAutoConfNoPrefix(),
@@ -46,7 +47,21 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigOTLPInvalidProtocol(),
 		makeInvalidConfigOTLPNegativeCardinalityLimit(),
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
+		makeInvalidConfigRedisTimeout("ConnectTimeout", "REDIS_CONNECT_TIMEOUT", errRedisConnectTimeout),
+		makeInvalidConfigRedisTimeout("ReadTimeout", "REDIS_READ_TIMEOUT", errRedisReadTimeout),
 	}
+}
+
+func makeInvalidConfigRedisTimeout(fileKey, envVar string, err error) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis " + fileKey + " of zero"}
+	c.envVarsError = err.Error()
+	c.envVars = map[string]string{"USE_REDIS": "1", envVar: "0s"}
+	c.fileContent = `
+[Redis]
+Host = "localhost"
+` + fileKey + ` = 0s
+`
+	return c
 }
 
 func makeInvalidConfigMaxClientRequestBodySize(size string) testDataInvalidConfig {
@@ -318,6 +333,22 @@ func makeInvalidConfigRedisConflictingParams() testDataInvalidConfig {
 [Redis]
 Host = "redishost"
 Url = "http://redishost:6400"
+`
+	return c
+}
+
+func makeInvalidConfigRedisClientCertWithoutKey() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - client certificate without key"}
+	c.envVarsError = errRedisClientCertWithoutKey.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":              "1",
+		"REDIS_URL":              "rediss://localhost:6379",
+		"REDIS_CLIENT_CERT_FILE": "/certs/client.pem",
+	}
+	c.fileContent = `
+[Redis]
+URL = rediss://localhost:6379
+ClientCertificateFile = /certs/client.pem
 `
 	return c
 }

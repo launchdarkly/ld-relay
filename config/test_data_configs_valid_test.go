@@ -83,6 +83,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOfflineModeWithMonitoringInterval("5m"),
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
+		makeValidConfigRedisMTLS(),
 		makeValidConfigRedisURL(),
 		makeValidConfigRedisPortOnly(),
 		makeValidConfigRedisDockerPort(),
@@ -447,6 +448,11 @@ func makeValidConfigRedisAll() testDataValidConfig {
 			TLS:      true,
 			Password: "pass",
 			Username: "user",
+
+			AtomicUpsert: true,
+
+			ConnectTimeout: ct.NewOptDuration(2 * time.Second),
+			ReadTimeout:    ct.NewOptDuration(4 * time.Second),
 		}
 	}
 	c.envVars = map[string]string{
@@ -457,6 +463,10 @@ func makeValidConfigRedisAll() testDataValidConfig {
 		"REDIS_PASSWORD": "pass",
 		"REDIS_USERNAME": "user",
 		"CACHE_TTL":      "3s",
+
+		"REDIS_ATOMIC_UPSERT":   "1",
+		"REDIS_CONNECT_TIMEOUT": "2s",
+		"REDIS_READ_TIMEOUT":    "4s",
 	}
 	c.fileContent = `
 [Redis]
@@ -466,6 +476,36 @@ TLS = 1
 Password = "pass"
 Username = "user"
 LocalTTL = 3s
+AtomicUpsert = true
+ConnectTimeout = 2s
+ReadTimeout = 4s
+`
+	return c
+}
+
+func makeValidConfigRedisMTLS() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - mTLS files"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL:                   newOptURLAbsoluteMustBeValid("rediss://redishost:6400"),
+			ClientCertificateFile: "/certs/client.pem",
+			ClientKeyFile:         "/certs/client.key",
+			CAFile:                "/certs/ca.pem",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":              "1",
+		"REDIS_URL":              "rediss://redishost:6400",
+		"REDIS_CLIENT_CERT_FILE": "/certs/client.pem",
+		"REDIS_CLIENT_KEY_FILE":  "/certs/client.key",
+		"REDIS_CA_FILE":          "/certs/ca.pem",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://redishost:6400"
+ClientCertificateFile = "/certs/client.pem"
+ClientKeyFile = "/certs/client.key"
+CAFile = "/certs/ca.pem"
 `
 	return c
 }

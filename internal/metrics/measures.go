@@ -130,13 +130,12 @@ func newInstruments(meter metric.Meter) (*Instruments, error) {
 
 // RequestInfo contains per-request metadata used as metric attributes.
 type RequestInfo struct {
-	UserAgent          string
-	SDKWrapper         string
-	Route              string
-	Method             string
-	ApplicationID      string
-	ApplicationVersion string
-	EndpointType       EndpointType
+	UserAgent     string
+	SDKWrapper    string
+	Route         string
+	Method        string
+	ApplicationID string
+	EndpointType  EndpointType
 	// Semconv fields populated after handler execution
 	StatusCode      int
 	URLScheme       string
@@ -164,7 +163,7 @@ func StartActiveRequest(instruments *Instruments, em *EnvironmentManager, ri Req
 	}
 
 	// Built once and shared by every call, so that they can't drift apart.
-	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, ri))
+	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, em.scope(ri)))
 	instruments.requests.Add(context.Background(), 1, attrs)
 	instruments.connections.Add(context.Background(), 1, attrs)
 	return func() {
@@ -206,7 +205,7 @@ func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	attrs := buildRequestAttributes(em.envKVs, ri)
+	attrs := buildRequestAttributes(em.envKVs, em.scope(ri))
 	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
@@ -216,7 +215,7 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 	if em == nil || instruments == nil {
 		return
 	}
-	attrs := buildDurationAttributes(em.envKVs, ri)
+	attrs := buildDurationAttributes(em.envKVs, em.scope(ri))
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }
 

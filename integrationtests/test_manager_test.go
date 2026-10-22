@@ -457,12 +457,19 @@ func (m *integrationTestManager) withExtraContainer(
 	t *testing.T,
 	imageName string,
 	args []string, hostnamePrefix string,
+	mountFn func(hostname string) (hostDir, containerDir string, err error),
 	action func(*docker.Container),
 ) {
 	image, err := docker.PullImage(imageName)
 	require.NoError(t, err)
 	hostname := hostnamePrefix + "-" + uuid.New()
-	container, err := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork).ContainerParams(args...).Build()
+	builder := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork)
+	if mountFn != nil {
+		hostDir, containerDir, err := mountFn(hostname)
+		require.NoError(t, err)
+		builder = builder.SharedVolume(hostDir, containerDir)
+	}
+	container, err := builder.ContainerParams(args...).Build()
 	require.NoError(t, err)
 	container.Start()
 	go container.FollowLogs(oshelpers.NewLogWriter(os.Stdout, hostnamePrefix))

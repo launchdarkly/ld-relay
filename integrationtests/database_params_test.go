@@ -5,11 +5,14 @@ package integrationtests
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v9/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v9/internal/api"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/stretchr/testify/require"
 )
@@ -22,16 +25,23 @@ const (
 )
 
 type databaseTestParams struct {
-	dbImageName      string
-	dbDockerParams   []string
-	hostnamePrefix   string
+	dbImageName    string
+	dbDockerParams []string
+	hostnamePrefix string
+	// mountFn, if set, is called with the database container's hostname before the container is
+	// created, and returns a host directory to mount into it.
+	mountFn          func(t *testing.T, m *integrationTestManager, hostname string) (hostDir, containerDir string, err error)
 	setupFn          func(*integrationTestManager, *docker.Container) error
 	envVarsFn        func(*docker.Container) map[string]string
 	expectedStatusFn func(*docker.Container) api.DataStoreStatusRep
 }
 
 func (p databaseTestParams) withContainer(t *testing.T, manager *integrationTestManager, action func(*docker.Container)) {
-	manager.withExtraContainer(t, p.dbImageName, p.dbDockerParams, p.hostnamePrefix, func(dbContainer *docker.Container) {
+	var mountFn func(string) (string, string, error)
+	if p.mountFn != nil {
+		mountFn = func(hostname string) (string, string, error) { return p.mountFn(t, manager, hostname) }
+	}
+	manager.withExtraContainer(t, p.dbImageName, p.dbDockerParams, p.hostnamePrefix, mountFn, func(dbContainer *docker.Container) {
 		containersOnNetwork, err := manager.dockerNetwork.GetContainerIDs()
 		require.NoError(t, err)
 		require.Len(t, containersOnNetwork, 1, "database container did not start or did not attach to the test network")
@@ -151,6 +161,53 @@ var redisWithACLDatabaseTestParams = databaseTestParams{
 		return api.DataStoreStatusRep{
 			Database: "redis",
 			DBServer: fmt.Sprintf("redis://%s:6379", dbContainer.GetName()),
+		}
+	},
+}
+
+// Redis with TLS and required client certificates. The certificates are generated per test run in a
+// subdirectory of the Relay shared directory, so Relay sees them under relayContainerSharedDir and the
+// Redis container sees them under /tls.
+const (
+	redisMTLSSubdir            = "redis-mtls"
+	redisMTLSContainerTLSDir   = "/tls"
+	redisMTLSRelayContainerDir = relayContainerSharedDir + "/" + redisMTLSSubdir
+)
+
+var redisMTLSDatabaseTestParams = databaseTestParams{
+	dbImageName: "redis",
+	dbDockerParams: []string{
+		"--port", "0",
+		"--tls-port", "6379",
+		"--tls-cert-file", redisMTLSContainerTLSDir + "/server.pem",
+		"--tls-key-file", redisMTLSContainerTLSDir + "/server.key",
+		"--tls-ca-cert-file", redisMTLSContainerTLSDir + "/ca.pem",
+		"--tls-auth-clients", "yes",
+	},
+	hostnamePrefix: "redis",
+	mountFn: func(t *testing.T, m *integrationTestManager, hostname string) (string, string, error) {
+		hostDir := filepath.Join(m.relaySharedDir, redisMTLSSubdir)
+		if err := os.MkdirAll(hostDir, 0o755); err != nil {
+			return "", "", err
+		}
+		// The server certificate must be valid for the container hostname, since Relay verifies it.
+		sharedtest.NewMTLSFilesInDir(t, hostDir, []string{hostname}, nil)
+		return hostDir, redisMTLSContainerTLSDir, nil
+	},
+	envVarsFn: func(dbContainer *docker.Container) map[string]string {
+		return map[string]string{
+			"USE_REDIS":              "true",
+			"REDIS_HOST":             dbContainer.GetName(),
+			"REDIS_TLS":              "true",
+			"REDIS_CA_FILE":          redisMTLSRelayContainerDir + "/ca.pem",
+			"REDIS_CLIENT_CERT_FILE": redisMTLSRelayContainerDir + "/client.pem",
+			"REDIS_CLIENT_KEY_FILE":  redisMTLSRelayContainerDir + "/client.key",
+		}
+	},
+	expectedStatusFn: func(dbContainer *docker.Container) api.DataStoreStatusRep {
+		return api.DataStoreStatusRep{
+			Database: "redis",
+			DBServer: fmt.Sprintf("rediss://%s:6379", dbContainer.GetName()),
 		}
 	},
 }
