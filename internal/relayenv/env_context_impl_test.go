@@ -260,9 +260,9 @@ func TestRotatingTheSDKKeyRekeysTheSameClient(t *testing.T) {
 	}
 }
 
-// TestReanchorKeepsThePreviousKeyWhenTheSDKRejectsTheNewOne covers the one way a re-anchor can fail.
-// SetSDKKey rejects a key that is not valid in an HTTP header, which no retry would fix, so the
-// environment parks on the key it has rather than losing its upstream connection.
+// TestReanchorKeepsThePreviousKeyWhenTheSDKRejectsTheNewOne covers the one way a re-anchor can
+// fail. LDRelayApplySDKKey rejects a key that is not valid in an HTTP header, which no retry would
+// fix, so the environment parks on the key it has rather than losing its upstream connection.
 func TestReanchorKeepsThePreviousKeyWhenTheSDKRejectsTheNewOne(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	readyCh := make(chan EnvContext, 1)
@@ -274,7 +274,7 @@ func TestReanchorKeepsThePreviousKeyWhenTheSDKRejectsTheNewOne(t *testing.T) {
 	requireEnvReady(t, readyCh)
 	client := requireClientReady(t, clientCh)
 
-	client.SetSDKKeyErr = errors.New("SDK key contains invalid characters")
+	client.LDRelayApplySDKKeyErr = errors.New("SDK key contains invalid characters")
 
 	rejected := config.SDKKey("bad key")
 	impl := env.(*envContextImpl)

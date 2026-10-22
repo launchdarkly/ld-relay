@@ -50,11 +50,12 @@ type EnvContext interface {
 	// which bakes its key in at construction, the event dispatcher, and the usage metrics publisher --
 	// plus the rotator's own record of which key is the anchor.
 	//
-	// It does not move the environment's upstream connection. SetSDKKey changes the credential future
-	// requests carry, and a stream that is already open keeps the previous key until it reconnects.
-	// During a graceful rotation that matters: the outgoing key is kept alive for its grace period
-	// precisely so it stays usable, and a healthy stream can outlast that window, so Relay may go on
-	// consuming flag data on the deprecated key well after reporting the rotation applied.
+	// It does not move the environment's upstream connection. LDRelayApplySDKKey changes the
+	// credential future requests carry, and a stream that is already open keeps the previous key
+	// until it reconnects. During a graceful rotation that matters: the outgoing key is kept alive
+	// for its grace period precisely so it stays usable, and a healthy stream can outlast that
+	// window, so Relay may go on consuming flag data on the deprecated key well after reporting the
+	// rotation applied.
 	//
 	// newSet is assumed well-formed, because envfactory.BuildAcceptedSet validated it.
 	ReconcileCredentials(newSet credential.AcceptedSet)
@@ -134,7 +135,8 @@ type EnvContext interface {
 	// SetTTL changes the configured cache TTL for PHP SDK endpoints for this environment.
 	SetTTL(time.Duration)
 
-	// GetInitError returns an error if initialization has failed, or nil otherwise.
+	// GetInitError returns an error if initialization has failed, or nil otherwise. An
+	// ld.ErrInitializationFailed is returned only until the SDK client receives data.
 	GetInitError() error
 
 	// IsSecureMode returns true if client-side evaluation requests for this environment must have a valid

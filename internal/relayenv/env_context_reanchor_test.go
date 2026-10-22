@@ -1,7 +1,7 @@
 package relayenv
 
-// Tests for the two components a re-anchor has to re-point itself, because SetSDKKey only covers what
-// the SDK client owns, plus the accepted-set re-check that guards stream handlers.
+// Tests for the two components a re-anchor has to re-point itself, because LDRelayApplySDKKey only
+// covers what the SDK client owns, plus the accepted-set re-check that guards stream handlers.
 
 import (
 	"errors"
@@ -63,9 +63,10 @@ func (f *capturingBigSegmentSynchronizerFactory) snapshot() ([]config.SDKKey, []
 	return append([]config.SDKKey{}, f.keys...), append([]*mockBigSegmentSynchronizer{}, f.synchronizers...)
 }
 
-// TestReanchorRebuildsTheBigSegmentSynchronizerOnTheNewKey covers one of the two things SetSDKKey does
-// not reach. The synchronizer bakes in its SDK key and its own HTTP configuration at construction and
-// is not re-keyable, so a re-anchor has to replace it and retire the previous one.
+// TestReanchorRebuildsTheBigSegmentSynchronizerOnTheNewKey covers one of the two things
+// LDRelayApplySDKKey does not reach. The synchronizer bakes in its SDK key and its own HTTP
+// configuration at construction and is not re-keyable, so a re-anchor has to replace it and retire
+// the previous one.
 func TestReanchorRebuildsTheBigSegmentSynchronizerOnTheNewKey(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	allConfig := config.Config{}
@@ -270,7 +271,7 @@ func TestAFailedReanchorLeavesNoMappingForTheKeyItCouldNotMoveTo(t *testing.T) {
 	defer env.Close()
 
 	client := helpers.RequireValue(t, clientCh, time.Second, "timed out waiting for the client")
-	client.SetSDKKeyErr = errors.New("SDK key contains invalid characters")
+	client.LDRelayApplySDKKeyErr = errors.New("SDK key contains invalid characters")
 
 	refused := config.SDKKey("sdk-refused")
 	env.(*envContextImpl).reconcileCredentials(mustAcceptedSet(t, refused, "", ""), time.Unix(1000, 0))
