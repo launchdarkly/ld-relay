@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify go.mod references released LaunchDarkly module versions
-        uses: launchdarkly/gh-actions/actions/check-released-go-deps@check-released-go-deps-v0.1.0
+        uses: launchdarkly/gh-actions/actions/check-released-go-deps@check-released-go-deps-v0
         with:
           # cmd/fdv2-integration/ (v9 only) is an unpublished placeholder
           # module (module path `fdv2-integration`, no dependencies, not built
