@@ -77,6 +77,15 @@ func newArchiveReader(filePath string) (*archiveReader, error) {
 	if err != nil {
 		return nil, err // COVERAGE: can't cause this condition in unit tests (unexpected OS error)
 	}
+	ar, err := expandArchive(filePath, dirPath)
+	if err != nil {
+		_ = os.RemoveAll(dirPath)
+		return nil, err
+	}
+	return ar, nil
+}
+
+func expandArchive(filePath, dirPath string) (*archiveReader, error) {
 	if err := readCompressedArchive(filePath, dirPath); err != nil {
 		if err := readUncompressedArchive(filePath, dirPath); err != nil {
 			return nil, err
