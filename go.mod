@@ -25,7 +25,7 @@ require (
 	github.com/launchdarkly/go-configtypes v1.2.2
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.2
 	github.com/launchdarkly/go-sdk-common/v3 v3.6.0
-	github.com/launchdarkly/go-sdk-events/v3 v3.7.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.8.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.2.0
@@ -123,3 +123,8 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+// TEMPORARY, remove before merge: unreleased SDK support for changing an SDK key at run time.
+// go-server-sdk#466 (restarting synchronizers after a key change), which is stacked on
+// go-server-sdk#457 (LDClient.LDRelayApplySDKKey).
+replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk/v7 v7.19.2-0.20261019201520-086599f5c44b

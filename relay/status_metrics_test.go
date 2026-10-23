@@ -59,7 +59,7 @@ func assertSnapshotMatchesDocument(t *testing.T, relay *Relay) metrics.StatusSna
 			string(env.Rep.ConnectionStatus.State))
 		assert.Equal(t, entry.GetByKey("dataStoreStatus").GetByKey("state").StringValue(),
 			env.Rep.DataStoreStatus.State)
-		assert.Equal(t, entry.GetByKey("expiringSdkKey").StringValue(), env.Rep.ExpiringSDKKey)
+		assert.Equal(t, entry.GetByKey("sdkKeys").Count(), len(env.Rep.SDKKeys))
 	}
 	return snapshot
 }
@@ -158,8 +158,13 @@ func TestStatusSnapshotReportsTheDisplayNameInAutoConfigMode(t *testing.T) {
 
 		expiring := findSnapshotEnvironment(t, snapshot,
 			testEnvWithExpiringKey.ProjName+" "+testEnvWithExpiringKey.EnvName)
-		assert.NotEmpty(t, expiring.Rep.ExpiringSDKKey,
-			"an expiring key must be visible to the instruments")
+		var expiringCount int
+		for _, k := range expiring.Rep.SDKKeys {
+			if k.Expiry != nil {
+				expiringCount++
+			}
+		}
+		assert.Positive(t, expiringCount, "an expiring key must be visible to the instruments")
 
 		require.NotNil(t, snapshot.AutoConfig, "auto-config mode must report its stream")
 		assert.Equal(t, interfaces.DataSourceStateValid, snapshot.AutoConfig.State)
