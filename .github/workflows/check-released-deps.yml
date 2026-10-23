@@ -1,0 +1,55 @@
+name: Check Released Dependencies
+
+# Fails when a published module's go.mod pins a LaunchDarkly module to
+# anything other than a final released version (a pseudo-version, a
+# pre-release tag such as v3.6.0-rc1, or a `replace`), so that unreleased
+# components cannot be merged onto a release branch.
+#
+# This only runs for release branches. Feature branches (feat/**) routinely
+# pin unreleased components during development, so a feature-to-feature merge
+# is never gated; once a feature branch is ready, merging it to a release
+# branch is gated here.
+#
+# A pull_request workflow is read from the PR's merge commit, so this file
+# must exist on every branch it gates. Keep it identical on v8 and v9, and
+# extend the branch lists below as new release branches open.
+#
+# The check is the shared check-released-go-deps action from
+# launchdarkly/gh-actions, which go-server-sdk also uses; its README lists the
+# rules. It parses go.mod files directly, so no Go toolchain is needed.
+
+on:
+  push:
+    branches: ["v8", "v9"]
+  pull_request:
+    branches: ["v8", "v9"]
+
+permissions:
+  contents: read
+
+jobs:
+  check-released-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify go.mod references released LaunchDarkly module versions
+        uses: launchdarkly/gh-actions/actions/check-released-go-deps@check-released-go-deps-v0
+        with:
+          # cmd/fdv2-integration/ (v9 only) is an unpublished placeholder
+          # module (module path `fdv2-integration`, no dependencies, not built
+          # or released by any workflow or Makefile target).
+          exclude: cmd/fdv2-integration/
+          # Each entry exempts one exact module@version pin. Any other version
+          # of the module, and any `replace` of it, still fails.
+          #
+          # api-client-go is the LaunchDarkly REST API client, not an SDK
+          # component. Only the integrationtests package imports it, and only
+          # behind the `integrationtests` build tag, so it is not compiled into
+          # the Relay binary. This pseudo-version is commit f5469391a13e on
+          # api-client-go's temp-beta-branch-for-SDK-payload-filter-testing
+          # branch (v13.0.0 plus a generated Payload Filters API). It has been
+          # pinned since Relay v8.0.0. No release contains that commit:
+          # v13.0.0 is the only v13 tag, and v14+ is a new major version with
+          # a different module path.
+          allowed: |
+            github.com/launchdarkly/api-client-go/v13@v13.0.1-0.20230420175109-f5469391a13e
