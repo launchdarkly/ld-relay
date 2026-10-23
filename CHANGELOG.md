@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.23.3](https://github.com/launchdarkly/ld-relay/compare/v8.23.2...v8.23.3) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** update Dockerfiles from 3.24.2 to alpine:3.24.3 ([#937](https://github.com/launchdarkly/ld-relay/issues/937)) ([08400c8](https://github.com/launchdarkly/ld-relay/commit/08400c88c05025479465b5e2ebb2ff8bea88969e))
+* Update golang.org/x/net to v0.61.0 ([#931](https://github.com/launchdarkly/ld-relay/issues/931)) ([c2cc27c](https://github.com/launchdarkly/ld-relay/commit/c2cc27ce5193189eeb744515c818c686fd6c417d))
+
 ## [8.23.2](https://github.com/launchdarkly/ld-relay/compare/v8.23.1...v8.23.2) (2026-10-20)
 
 
