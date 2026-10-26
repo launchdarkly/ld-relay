@@ -5,7 +5,7 @@ package integrationtests
 import (
 	"fmt"
 
-	ldapi "github.com/launchdarkly/api-client-go/v13"
+	ldapi "github.com/launchdarkly/api-client-go/v24"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 )
 
