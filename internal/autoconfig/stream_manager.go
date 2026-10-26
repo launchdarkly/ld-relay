@@ -571,9 +571,9 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 
 	outcome := eventOutcome{}
 	malformed := false
-	// partiallyRefused means the event applied something and refused something. Its status is decided
-	// with every other status decision below, so it goes through the same generation check.
-	partiallyRefused := false
+	// anyRefused means the event carried a credential payload relay could not use. Its status is
+	// decided with every other status decision below, so it goes through the same generation check.
+	anyRefused := false
 	// The stream delivered an event, which is what proves the connection works. Only malformed data
 	// takes that back, the same as the SDK streaming data source.
 	processedEvent := true
@@ -589,16 +589,18 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 
 	// gotMalformedCredentials reports a payload that parsed but whose credentials cannot produce a
 	// usable set. The environment keeps the credentials it already had.
+	//
+	// The stream is left alone. Relay read the payload correctly and refused what was in it, so the
+	// same bytes arrive again on a new connection and are refused again. Only a new version for the
+	// environment can change the outcome, and that arrives on the connection relay already has.
 	gotMalformedCredentials := func(envID config.EnvironmentID, err error) {
 		s.logger.Error("received malformed credential payload for environment; "+
-			"keeping the previous credentials and restarting the stream",
+			"keeping the previous credentials and leaving the stream connected",
 			"envID", envID,
 			"error", err,
 		)
 		s.handler.EnvironmentRefused(envID, refusedReason)
-		malformed = true
-		processedEvent = false
-		outcome.restart = true
+		anyRefused = true
 	}
 
 	switch event.Event() {
@@ -620,24 +622,18 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		}
 		putMessage.Data.Persist = true
 		malformedEnvIDs, applied := s.handlePut(putMessage.Data)
-		switch {
-		case len(malformedEnvIDs) == 0:
-		case applied > 0:
-			// A partial refusal. The environments that applied are fine, and the refused one would
-			// come back identical on a new connection, so a restart buys nothing and would take
-			// every healthy environment's updates down with it. Record the error and keep serving.
-			// The refused environment returns when the service sends a new version for it.
+		if len(malformedEnvIDs) > 0 {
+			// A refused environment comes back identical on a new connection, so a restart buys
+			// nothing however many of them there were. It would also take every healthy
+			// environment's updates down with it, and on a configuration of one environment every
+			// refusal is a refusal of all of them. Record the error and keep serving. A refused
+			// environment returns when the service sends a new version for it.
 			s.logger.Error("refused one or more environments in this configuration; "+
-				"the rest of the configuration was applied and the stream is still connected",
+				"every environment relay can serve keeps serving and the stream is still connected",
 				"refusedCount", len(malformedEnvIDs),
 				"appliedCount", applied,
 			)
-			partiallyRefused = true
-		default:
-			// Nothing in the event was usable, so ask for it again.
-			malformed = true
-			processedEvent = false
-			outcome.restart = true
+			anyRefused = true
 		}
 
 	case PatchEvent:
@@ -729,7 +725,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) eventOutcome {
 		})
 	case processedEvent:
 		errorInfo := interfaces.DataSourceErrorInfo{}
-		if partiallyRefused {
+		if anyRefused {
 			errorInfo = interfaces.DataSourceErrorInfo{
 				Kind: interfaces.DataSourceErrorKindInvalidData,
 				Time: time.Now(),

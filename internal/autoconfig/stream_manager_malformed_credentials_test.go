@@ -36,7 +36,10 @@ func envWithUnusableCredentials(env envfactory.EnvironmentRep) envfactory.Enviro
 	return env
 }
 
-func TestMalformedCredentialPayloadIsRefusedAndRestartsTheStream(t *testing.T) {
+func TestMalformedCredentialPayloadIsRefusedAndKeepsTheStream(t *testing.T) {
+	// Relay read the payload correctly and refused what was in it, so the same bytes would arrive
+	// again on a new connection. Reconnecting buys nothing and costs every other environment on the
+	// stream its updates, so the connection stays up and the refusal is recorded against it.
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
 		awaitStreamRequest(t, p)
@@ -46,37 +49,35 @@ func TestMalformedCredentialPayloadIsRefusedAndRestartsTheStream(t *testing.T) {
 		// Nothing is handed to the relay: the environment keeps what it had.
 		p.requireNoMoreMessages()
 
-		// The stream reconnects, because the service has no way to learn that relay refused the
-		// payload and would otherwise send nothing further.
-		awaitStreamRequest(t, p)
+		if !helpers.AssertNoMoreValues(t, p.requestsCh, 300*time.Millisecond,
+			"the stream must not reconnect because a credential payload was refused") {
+			t.FailNow()
+		}
+
+		// The refusal is visible without claiming the connection is broken.
+		status := p.streamManager.Status()
+		assert.Equal(t, interfaces.DataSourceErrorKindInvalidData, status.LastError.Kind)
+		assert.Equal(t, interfaces.DataSourceStateValid, status.State)
 	})
 }
 
 // TestReplayOfTheSameVersionIsAppliedAfterARefusal is the reason validation runs before Upsert.
 //
-// Upsert deduplicates by version. If a refused payload had already recorded its version, the replay
-// that follows the reconnect would carry the same version and be dropped as a no-op, leaving the
-// environment on credentials it should have replaced with no path back short of a restart.
+// Upsert deduplicates by version. If a refused payload had already recorded its version, a later
+// payload carrying that same version would be dropped as a no-op, leaving the environment on
+// credentials it should have replaced with no path back short of a restart.
+//
+// The refusal no longer reconnects, so the corrected payload arrives on the connection relay
+// already has, which is also how the service would deliver a correction in production.
 func TestReplayOfTheSameVersionIsAppliedAfterARefusal(t *testing.T) {
 	refused := envWithUnusableCredentials(testEnv1)
 	refused.Version = testEnv1.Version + 1
 
-	// The service replays the same version on the reconnect, this time in a shape relay can use.
-	// Serving it as the second connection's initial event, rather than enqueueing it after the
-	// refusal, guarantees it reaches the new connection. An enqueued event can be written to the old
-	// connection before the server notices it closed, and is then lost.
 	replayed := testEnv1
 	replayed.Version = testEnv1.Version + 1
 	replayed.EnvName = "renamed-by-the-replay"
-	replayEvent := makeEnvPutEvent(replayed)
 
-	firstHandler, stream := httphelpers.SSEHandler(nil)
-	defer stream.Close()
-	replayHandler, replayStream := httphelpers.SSEHandler(&replayEvent)
-	defer replayStream.Close()
-
-	handler := httphelpers.SequentialHandler(firstHandler, replayHandler)
-	streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
+	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
 		awaitStreamRequest(t, p)
 
@@ -86,17 +87,15 @@ func TestReplayOfTheSameVersionIsAppliedAfterARefusal(t *testing.T) {
 		require.NotNil(t, msg.add)
 		p.requireReceivedAllMessage()
 
-		// The reconnect is immediate, so the replay can arrive within any quiet window this test
-		// could wait for. The refused patch handing anything to the relay shows up instead as a first
-		// message that is not the replay.
 		p.stream.Enqueue(makePatchEnvEvent(refused))
+		p.requireNoMoreMessages()
 
-		// The refusal reconnects, and the replay must be applied rather than deduplicated away.
-		awaitStreamRequest(t, p)
+		// The same version again, this time in a shape relay can use. It must be applied rather than
+		// deduplicated away.
+		p.stream.Enqueue(makePatchEnvEvent(replayed))
 		msg = p.requireMessage()
 		require.NotNil(t, msg.update, "the replay of a refused version must be applied")
 		assert.Equal(t, "renamed-by-the-replay", msg.update.Identifiers.EnvName)
-		p.requireReceivedAllMessage()
 	})
 }
 
@@ -242,30 +241,27 @@ func TestRefusedCredentialPayloadRecordsAnInvalidDataError(t *testing.T) {
 	})
 }
 
-func TestRepeatedRefusalsStayOnTheShortRetryCurve(t *testing.T) {
-	// Unusable data restarts the stream on the short curve however often it arrives. eventsource
-	// grows its own delay for each restart, up to streamMaxRetryDelay, which bounds the reconnects;
-	// the extended delays belong to a failing connection. A payload relay cannot use is fixed
-	// upstream, and a stream parked on the extended delays is disconnected, so it cannot learn that
-	// the payload was fixed.
-	const extendedBase = 2 * time.Second
-
+func TestRepeatedRefusalsNeverReconnect(t *testing.T) {
+	// However many refusals arrive, none of them takes the connection down. Nothing counts them, so
+	// there is no threshold at which relay changes its mind and starts reconnecting.
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
-		p.streamManager.extendedRetryDelay = extendedBase
 		p.startStream()
 		awaitStreamRequest(t, p)
 
 		for i := 0; i < 3; i++ {
 			p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv1)))
-			awaitStreamRequest(t, p)
+		}
+		p.requireNoMoreMessages()
+
+		if !helpers.AssertNoMoreValues(t, p.requestsCh, 300*time.Millisecond,
+			"no number of refused payloads may reconnect the stream") {
+			t.FailNow()
 		}
 
-		delays := reconnectDelays(p.mockLog)
-		require.GreaterOrEqual(t, len(delays), 3, "expected a logged delay for each restart")
-		for i, d := range delays {
-			assert.Less(t, d, extendedBase/2,
-				"restart %d must stay on the short curve", i+1)
-		}
+		status := p.streamManager.Status()
+		assert.Equal(t, interfaces.DataSourceStateValid, status.State,
+			"the connection carried every event, so it is not the thing that failed")
+		assert.Equal(t, interfaces.DataSourceErrorKindInvalidData, status.LastError.Kind)
 	})
 }
 
@@ -299,8 +295,9 @@ func TestAUsableEventReturnsTheStreamToTheShortRetryCurve(t *testing.T) {
 
 		before := len(reconnectDelays(p.mockLog))
 
-		// A refused patch restarts the stream. The delay it waits is the one under test.
-		p.stream.Enqueue(makePatchEnvEvent(envWithUnusableCredentials(testEnv2)))
+		// Malformed JSON restarts the stream, which a refused credential payload no longer does. The
+		// delay that restart waits is the one under test.
+		p.stream.Enqueue(httphelpers.SSEEvent{Event: PatchEvent, Data: malformedJSON})
 
 		var latest time.Duration
 		require.Eventually(t, func() bool {
@@ -513,7 +510,6 @@ func TestDeletingAnEnvironmentThatWasOnlyEverRefusedRetiresItsRefusal(t *testing
 		require.Eventually(t, func() bool {
 			return len(p.messageHandler.refusedEnvironments()) == 1
 		}, time.Second, 10*time.Millisecond, "the refused patch must be reported")
-		awaitStreamRequest(t, p)
 
 		p.stream.Enqueue(makeDeleteEnvEvent(testEnv1.EnvID, testEnv1.Version+1))
 
@@ -541,7 +537,6 @@ func TestDeletingAnEnvironmentThatWasServingAlsoRetiresItsRefusal(t *testing.T) 
 		require.Eventually(t, func() bool {
 			return len(p.messageHandler.refusedEnvironments()) == 1
 		}, time.Second, 10*time.Millisecond, "the refused patch must be reported")
-		awaitStreamRequest(t, p)
 
 		p.stream.Enqueue(makeDeleteEnvEvent(testEnv1.EnvID, refused.Version+1))
 
