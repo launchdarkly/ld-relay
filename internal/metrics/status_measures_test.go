@@ -119,12 +119,19 @@ func healthyEnvironment(name string) EnvironmentStatusSnapshot {
 	}
 }
 
+// testExpiryMillis is the expiry carried by an expiring SDK key in the fixtures below. It is a var
+// rather than a const because KeyStatus.Expiry is a pointer.
+var testExpiryMillis = int64(1700000900000)
+
 func TestStatusObserversReportTheWholeSnapshot(t *testing.T) {
 	broken := EnvironmentStatusSnapshot{
 		Name: "Broken Env",
 		Rep: api.EnvironmentStatusRep{
-			Status:         api.EnvStatusDisconnected,
-			ExpiringSDKKey: "sdk-***",
+			Status: api.EnvStatusDisconnected,
+			SDKKeys: []api.KeyStatus{
+				{Value: "sdk-anchor-***"},
+				{Value: "sdk-expiring-***", Expiry: &testExpiryMillis},
+			},
 			ConnectionStatus: api.ConnectionStatusRep{
 				State:      interfaces.DataSourceStateInterrupted,
 				StateSince: testStateSince,

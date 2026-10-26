@@ -21,6 +21,46 @@ import (
 )
 
 func TestEndpointsStatus(t *testing.T) {
+	t.Run("key arrays carry the whole accepted set", func(t *testing.T) {
+		var config c.Config
+		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
+
+		withStartedRelay(t, config, func(p relayTestParams) {
+			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+			result, body := st.DoRequest(r, p.relay)
+			require.Equal(t, http.StatusOK, result.StatusCode)
+			status := ldvalue.Parse(body)
+
+			// A server-side-only environment reports its one SDK key and an empty mobileKeys. The
+			// arrays are always present, never null, so a consumer can iterate without a nil check.
+			main := status.GetByKey("environments").GetByKey(st.EnvMain.Name)
+			mainSDKKeys := main.GetByKey("sdkKeys")
+			require.Equal(t, 1, mainSDKKeys.Count())
+			assert.Equal(t, sdks.ObscureKey(string(st.EnvMain.Config.SDKKey)),
+				mainSDKKeys.GetByIndex(0).GetByKey("value").StringValue())
+			assert.True(t, mainSDKKeys.GetByIndex(0).GetByKey("expiry").IsNull(),
+				"a permanent key carries no expiry")
+			assert.Equal(t, 0, main.GetByKey("mobileKeys").Count(),
+				"an environment with no mobile key reports an empty array rather than omitting it")
+
+			// The scalar fields still designate which entry owns the connection and which mobile key
+			// is the primary.
+			mobile := status.GetByKey("environments").GetByKey(st.EnvMobile.Name)
+			assert.Equal(t, sdks.ObscureKey(string(st.EnvMobile.Config.SDKKey)),
+				mobile.GetByKey("sdkKey").StringValue())
+			mobileKeys := mobile.GetByKey("mobileKeys")
+			require.Equal(t, 1, mobileKeys.Count())
+			assert.Equal(t, sdks.ObscureKey(string(st.EnvMobile.Config.MobileKey)),
+				mobileKeys.GetByIndex(0).GetByKey("value").StringValue())
+			assert.Equal(t, mobile.GetByKey("mobileKey").StringValue(),
+				mobileKeys.GetByIndex(0).GetByKey("value").StringValue(),
+				"the scalar field designates an entry of the array")
+
+			// The field the arrays replaced is gone.
+			assert.True(t, main.GetByKey("expiringSdkKey").IsNull())
+		})
+	})
+
 	t.Run("basic properties", func(t *testing.T) {
 		var config c.Config
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvClientSide, st.EnvMobile)

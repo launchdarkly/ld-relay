@@ -7,6 +7,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/api"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 
@@ -26,11 +27,16 @@ func statusHandler(relay *Relay) http.Handler {
 		}
 
 		envs, healthy := relay.collectEnvironmentStatuses()
+		servedEnvIDs := make(map[string]bool, len(envs))
 		for _, env := range envs {
 			resp.Environments[env.key] = env.rep
+			if env.rep.EnvID != "" {
+				servedEnvIDs[env.rep.EnvID] = true
+			}
 		}
 
 		resp.AutoConfigStatus = relay.buildAutoConfigStatus()
+		resp.RefusedEnvironments = relay.getRefusedEnvironments(servedEnvIDs)
 
 		if healthy {
 			resp.Status = api.StatusHealthy
@@ -187,6 +193,19 @@ func (r *Relay) buildAutoConfigStatus() *api.AutoConfigStatusRep {
 	return rep
 }
 
+// keyStatus converts one accepted credential into its status representation.
+func keyStatus(value string, info credential.AcceptedKey) api.KeyStatus {
+	ks := api.KeyStatus{Value: sdks.ObscureKey(value)}
+	if info.Key != nil {
+		ks.Key = *info.Key
+	}
+	if info.Expiry != nil {
+		ms := info.Expiry.UnixMilli()
+		ks.Expiry = &ms
+	}
+	return ks
+}
+
 // buildEnvironmentStatus constructs an EnvironmentStatusRep for a single environment.
 // Returns the status and a boolean indicating whether the environment is healthy.
 //
@@ -202,21 +221,30 @@ func (r *Relay) buildEnvironmentStatus(clientCtx relayenv.EnvContext) (api.Envir
 		ProjName: identifiers.ProjName,
 	}
 
+	// One snapshot drives every credential field, so they cannot disagree with each other under a
+	// concurrent reconcile. Iterating GetCredentials for these would also be nondeterministic now that
+	// an environment accepts a set of SDK and mobile keys rather than one of each.
+	accepted := clientCtx.GetAcceptedKeys()
+	if accepted.Anchor.Defined() {
+		status.SDKKey = sdks.ObscureKey(string(accepted.Anchor))
+	}
+	if accepted.PrimaryMobile.Defined() {
+		status.MobileKey = sdks.ObscureKey(string(accepted.PrimaryMobile))
+	}
 	for _, c := range clientCtx.GetCredentials() {
-		switch c := c.(type) {
-		case config.SDKKey:
-			status.SDKKey = sdks.ObscureKey(string(c))
-		case config.MobileKey:
-			status.MobileKey = sdks.ObscureKey(string(c))
-		case config.EnvironmentID:
-			status.EnvID = string(c)
+		if envID, ok := c.(config.EnvironmentID); ok {
+			status.EnvID = string(envID)
 		}
 	}
-
-	for _, c := range clientCtx.GetDeprecatedCredentials() {
-		if key, ok := c.(config.SDKKey); ok {
-			status.ExpiringSDKKey = sdks.ObscureKey(string(key))
-		}
+	// The arrays are always present, never null: an environment with no mobile key reports an empty
+	// mobileKeys rather than omitting it.
+	status.SDKKeys = make([]api.KeyStatus, 0, len(accepted.Server))
+	for value, info := range accepted.Server {
+		status.SDKKeys = append(status.SDKKeys, keyStatus(string(value), info))
+	}
+	status.MobileKeys = make([]api.KeyStatus, 0, len(accepted.Mobile))
+	for value, info := range accepted.Mobile {
+		status.MobileKeys = append(status.MobileKeys, keyStatus(string(value), info))
 	}
 
 	healthy := true
