@@ -10,12 +10,13 @@ import (
 // UpdateHandler defines the methods that ArchiveManager will call after processing new or updated file data.
 type UpdateHandler interface {
 	// AddEnvironment is called when the file data has provided a configuration for an environment
-	// that ArchiveManager has not seen before.
-	AddEnvironment(env ArchiveEnvironment)
+	// that ArchiveManager has not seen before. It returns an error if it refused the environment, so
+	// ArchiveManager does not record the archive's version as applied.
+	AddEnvironment(env ArchiveEnvironment) error
 
 	// UpdateEnvironment is called when a change in the file data has provided a new configuration
-	// for an existing environment.
-	UpdateEnvironment(env ArchiveEnvironment)
+	// for an existing environment. It returns an error if it refused the update. See AddEnvironment.
+	UpdateEnvironment(env ArchiveEnvironment) error
 
 	// EnvironmentFailed is called when the ArchiveManager was unable to load the data for an
 	// environment.
