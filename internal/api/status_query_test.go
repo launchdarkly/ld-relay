@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -708,11 +710,325 @@ func TestEvaluateExpectationsRefusedEnvironmentsRecipe(t *testing.T) {
 		})
 	}
 
-	// The docs say no clause can hold only while nothing is refused. A selector that matches no entry is
-	// unsatisfied whichever operator is used, so the negated form cannot serve as a healthy-is-200 probe.
+	// A selector that matches no entry is unsatisfied whichever operator is used, so the negated form
+	// cannot serve as a healthy-is-200 probe.
 	t.Run("the negated form does not hold on an empty list", func(t *testing.T) {
 		_, code := EvaluateExpectations(bodyWith(t),
 			[]string{"refusedEnvironments[serving=false].serving!=false"}, SchemaAllEnvironments)
 		assert.Equal(t, http.StatusPreconditionFailed, code)
 	})
+
+	// The docs give this as the healthy-is-200 form: it holds only while nothing is refused.
+	t.Run("the count form holds only while nothing is refused", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			refused []RefusedEnvironmentRep
+			want    int
+		}{
+			"nothing refused":                  {refused: []RefusedEnvironmentRep{}, want: http.StatusOK},
+			"a refused update, still serving":  {refused: []RefusedEnvironmentRep{served}, want: http.StatusPreconditionFailed},
+			"a refused environment not served": {refused: []RefusedEnvironmentRep{unserved}, want: http.StatusPreconditionFailed},
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, code := EvaluateExpectations(bodyWith(t, tc.refused...),
+					[]string{"refusedEnvironments[count]=0"}, SchemaAllEnvironments)
+				assert.Equal(t, tc.want, code)
+			})
+		}
+	})
+}
+
+// readinessProbe is the readiness probe that docs/endpoints.md gives for automatic configuration mode.
+var readinessProbe = []string{
+	"environments[count]!=0",
+	"environments[*].connectionStatus.state!=INITIALIZING",
+	"environments[*].dataStoreStatus.state!=INITIALIZING",
+	"autoConfigStatus.state!=INITIALIZING",
+}
+
+// envWithStates is an environment fixture with the given connection and data store states.
+func envWithStates(connection, dataStore string) EnvironmentStatusRep {
+	return EnvironmentStatusRep{
+		Status:           "connected",
+		SDKKeys:          []KeyStatus{{Key: "default", Value: "sdk-***"}},
+		ConnectionStatus: ConnectionStatusRep{State: interfaces.DataSourceState(connection)},
+		DataStoreStatus:  DataStoreStatusRep{State: dataStore},
+	}
+}
+
+func TestEvaluateExpectationsWildcard(t *testing.T) {
+	marshal := func(t *testing.T, rep StatusRep) []byte {
+		t.Helper()
+		data, err := json.Marshal(rep)
+		require.NoError(t, err)
+		return data
+	}
+	valid := envWithStates("VALID", "VALID")
+	initializing := envWithStates("INITIALIZING", "VALID")
+	withoutBigSegments := envWithStates("VALID", "VALID")
+	withBigSegments := envWithStates("VALID", "VALID")
+	withBigSegments.BigSegmentStatus = &BigSegmentStatusRep{Available: true}
+	twoKeys := envWithStates("VALID", "VALID")
+	twoKeys.SDKKeys = []KeyStatus{{Key: "default", Value: "sdk-a"}, {Key: "old", Value: "sdk-b"}}
+
+	for _, tc := range []struct {
+		name   string
+		envs   map[string]EnvironmentStatusRep
+		clause string
+		want   int
+		at     string
+		actual string
+	}{
+		{
+			name:   "every entry holds",
+			envs:   map[string]EnvironmentStatusRep{"a": valid, "b": valid},
+			clause: "environments[*].connectionStatus.state!=INITIALIZING",
+			want:   http.StatusOK,
+		},
+		{
+			name:   "one entry fails and is named",
+			envs:   map[string]EnvironmentStatusRep{"a": valid, "My Project b": initializing, "c": valid},
+			clause: "environments[*].connectionStatus.state!=INITIALIZING",
+			want:   http.StatusPreconditionFailed,
+			at:     "environments.My Project b",
+			actual: "INITIALIZING",
+		},
+		{
+			name:   "the first failing entry in key order is named",
+			envs:   map[string]EnvironmentStatusRep{"c": initializing, "b": valid, "a": initializing},
+			clause: "environments[*].connectionStatus.state!=INITIALIZING",
+			want:   http.StatusPreconditionFailed,
+			at:     "environments.a",
+			actual: "INITIALIZING",
+		},
+		{
+			name:   "a key the grammar cannot read as a segment is bracket-quoted",
+			envs:   map[string]EnvironmentStatusRep{"proj.env": initializing},
+			clause: "environments[*].connectionStatus.state!=INITIALIZING",
+			want:   http.StatusPreconditionFailed,
+			at:     `environments["proj.env"]`,
+			actual: "INITIALIZING",
+		},
+		{
+			name:   "an empty map holds",
+			envs:   map[string]EnvironmentStatusRep{},
+			clause: "environments[*].connectionStatus.state!=INITIALIZING",
+			want:   http.StatusOK,
+		},
+		{
+			name:   "an absent collection fails",
+			envs:   map[string]EnvironmentStatusRep{"a": valid},
+			clause: "environments.b.sdkKeys[*].value!=x",
+			want:   http.StatusPreconditionFailed,
+		},
+		{
+			name:   "an entry missing the field fails",
+			envs:   map[string]EnvironmentStatusRep{"a": withBigSegments, "b": withoutBigSegments},
+			clause: "environments[*].bigSegmentStatus.available=true",
+			want:   http.StatusPreconditionFailed,
+			at:     "environments.b",
+		},
+		{
+			name:   "nested wildcards hold",
+			envs:   map[string]EnvironmentStatusRep{"a": twoKeys, "b": valid},
+			clause: "environments[*].sdkKeys[*].value!=sdk-c",
+			want:   http.StatusOK,
+		},
+		{
+			name:   "nested wildcards name the inner entry",
+			envs:   map[string]EnvironmentStatusRep{"a": twoKeys, "b": valid},
+			clause: "environments[*].sdkKeys[*].value!=sdk-b",
+			want:   http.StatusPreconditionFailed,
+			at:     "environments.a.sdkKeys[1]",
+			actual: "sdk-b",
+		},
+		{
+			name:   "an empty inner collection holds",
+			envs:   map[string]EnvironmentStatusRep{"a": valid},
+			clause: "environments[*].mobileKeys[*].value!=x",
+			want:   http.StatusOK,
+		},
+		{
+			name:   "a count after a wildcard applies to each entry",
+			envs:   map[string]EnvironmentStatusRep{"a": twoKeys, "b": valid},
+			clause: "environments[*].sdkKeys[count]=2",
+			want:   http.StatusPreconditionFailed,
+			at:     "environments.b",
+			actual: "1",
+		},
+		{
+			name:   "a quoted star is a map key, not a wildcard",
+			envs:   map[string]EnvironmentStatusRep{"a": valid},
+			clause: `environments["*"].status=connected`,
+			want:   http.StatusPreconditionFailed,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, code := EvaluateExpectations(marshal(t, StatusRep{Environments: tc.envs}),
+				[]string{tc.clause}, SchemaAllEnvironments)
+			assert.Equal(t, tc.want, code)
+			require.Len(t, res.Results, 1)
+			assert.Empty(t, res.Results[0].Problem)
+			assert.Equal(t, tc.at, res.Results[0].At)
+			assert.Equal(t, tc.actual, res.Results[0].Actual)
+		})
+	}
+
+	t.Run("arrays", func(t *testing.T) {
+		body := marshal(t, StatusRep{RefusedEnvironments: []RefusedEnvironmentRep{
+			{EnvID: "env-a", Serving: true},
+			{EnvID: "env-b", Serving: false},
+		}})
+		res, code := EvaluateExpectations(body, []string{"refusedEnvironments[*].serving=true"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusPreconditionFailed, code)
+		assert.Equal(t, "refusedEnvironments[1]", res.Results[0].At)
+
+		_, code = EvaluateExpectations(body, []string{"refusedEnvironments[*].envId!=env-c"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+	})
+
+	// "Every refused environment is still served" is the healthy answer when nothing is refused.
+	t.Run("an empty array holds", func(t *testing.T) {
+		body := marshal(t, StatusRep{RefusedEnvironments: []RefusedEnvironmentRep{}})
+		_, code := EvaluateExpectations(body, []string{"refusedEnvironments[*].serving=true"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+	})
+
+	t.Run("a null array holds", func(t *testing.T) {
+		_, code := EvaluateExpectations(marshal(t, StatusRep{}),
+			[]string{"refusedEnvironments[*].serving=true"}, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+	})
+
+	t.Run("readiness probe", func(t *testing.T) {
+		ready := StatusRep{
+			Environments:     map[string]EnvironmentStatusRep{"a": valid, "b": valid},
+			AutoConfigStatus: &AutoConfigStatusRep{State: "VALID"},
+		}
+		_, code := EvaluateExpectations(marshal(t, ready), readinessProbe, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+
+		// An outage after startup does not make the relay unready.
+		interrupted := ready
+		interrupted.Environments = map[string]EnvironmentStatusRep{"a": envWithStates("INTERRUPTED", "INTERRUPTED")}
+		interrupted.AutoConfigStatus = &AutoConfigStatusRep{State: "INTERRUPTED"}
+		_, code = EvaluateExpectations(marshal(t, interrupted), readinessProbe, SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+
+		// Only the count clause catches this case, because the wildcard clauses hold on an empty map.
+		for name, rep := range map[string]StatusRep{
+			"no environments yet": {
+				Environments: map[string]EnvironmentStatusRep{}, AutoConfigStatus: ready.AutoConfigStatus,
+			},
+			"an environment is connecting": {
+				Environments:     map[string]EnvironmentStatusRep{"a": valid, "b": initializing},
+				AutoConfigStatus: ready.AutoConfigStatus,
+			},
+			"a data store is initializing": {
+				Environments:     map[string]EnvironmentStatusRep{"a": envWithStates("VALID", "INITIALIZING")},
+				AutoConfigStatus: ready.AutoConfigStatus,
+			},
+			"the configuration stream is initializing": {
+				Environments: ready.Environments, AutoConfigStatus: &AutoConfigStatusRep{State: "INITIALIZING"},
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, code := EvaluateExpectations(marshal(t, rep), readinessProbe, SchemaAllEnvironments)
+				assert.Equal(t, http.StatusPreconditionFailed, code)
+			})
+		}
+	})
+}
+
+func TestEvaluateExpectationsCount(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		rep    StatusRep
+		clause string
+		want   int
+		actual string
+	}{
+		{
+			name:   "map count not equal to zero",
+			rep:    StatusRep{Environments: map[string]EnvironmentStatusRep{"a": {}, "b": {}}},
+			clause: "environments[count]!=0",
+			want:   http.StatusOK,
+			actual: "2",
+		},
+		{
+			name:   "empty map count not equal to zero",
+			rep:    StatusRep{Environments: map[string]EnvironmentStatusRep{}},
+			clause: "environments[count]!=0",
+			want:   http.StatusPreconditionFailed,
+			actual: "0",
+		},
+		{
+			name:   "array count equal to zero",
+			rep:    StatusRep{RefusedEnvironments: []RefusedEnvironmentRep{}},
+			clause: "refusedEnvironments[count]=0",
+			want:   http.StatusOK,
+			actual: "0",
+		},
+		{
+			name:   "non-empty array count equal to zero",
+			rep:    StatusRep{RefusedEnvironments: []RefusedEnvironmentRep{{EnvID: "env-a"}}},
+			clause: "refusedEnvironments[count]=0",
+			want:   http.StatusPreconditionFailed,
+			actual: "1",
+		},
+		{
+			name:   "a null array has no entries",
+			rep:    StatusRep{},
+			clause: "refusedEnvironments[count]=0",
+			want:   http.StatusOK,
+			actual: "0",
+		},
+		{
+			name:   "count under an absent environment is unsatisfied",
+			rep:    StatusRep{Environments: map[string]EnvironmentStatusRep{}},
+			clause: "environments.a.sdkKeys[count]=0",
+			want:   http.StatusPreconditionFailed,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := json.Marshal(tc.rep)
+			require.NoError(t, err)
+			res, code := EvaluateExpectations(body, []string{tc.clause}, SchemaAllEnvironments)
+			assert.Equal(t, tc.want, code)
+			require.Len(t, res.Results, 1)
+			assert.Empty(t, res.Results[0].Problem)
+			assert.Equal(t, tc.actual, res.Results[0].Actual)
+		})
+	}
+
+	t.Run("single-environment schema", func(t *testing.T) {
+		res, code := EvaluateExpectations(envRepBody(t), []string{"mobileKeys[count]=0"}, SchemaSingleEnvironment)
+		assert.Equal(t, http.StatusOK, code)
+		assert.Equal(t, "0", res.Results[0].Actual)
+	})
+}
+
+// Each placement here parses, but cannot be evaluated against the schema.
+func TestEvaluateExpectationsWildcardAndCountPlacement(t *testing.T) {
+	for _, tc := range []struct {
+		clause  string
+		problem string
+	}{
+		{"environments[count].status=connected", "must be the last step"},
+		{"environments[count][count]=0", "must be the last step"},
+		{"autoConfigStatus[*].state=VALID", "is an object"},
+		{"autoConfigStatus[count]=0", "is an object"},
+		{"[*].status=healthy", "is an object"},
+		{"status[*]=healthy", "has none"},
+		{"status[count]=0", "has none"},
+		{"environments[*]=x", "not a single value"},
+		{"environments[*].sdkKeys[*]=x", "not a single value"},
+		{"environments[*].statuz=connected", "unknown field"},
+	} {
+		t.Run(tc.clause, func(t *testing.T) {
+			res, code := EvaluateExpectations(statusRepBody(t), []string{tc.clause}, SchemaAllEnvironments)
+			assert.Equal(t, http.StatusUnprocessableEntity, code)
+			require.Len(t, res.Results, 1)
+			assert.Contains(t, res.Results[0].Problem, tc.problem)
+		})
+	}
 }

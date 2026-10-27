@@ -283,6 +283,22 @@ func TestAutoConfigStatusEndpoints(t *testing.T) {
 		})
 	})
 
+	// The readiness probe that docs/endpoints.md gives for automatic configuration mode. It must
+	// hold against the body a started relay serves.
+	t.Run("readiness probe", func(t *testing.T) {
+		config := c.Config{Environment: st.MakeEnvConfigs(testEnvBasic)}
+		withStartedAutoConfigRelay(t, config, func(p relayTestParams) {
+			r, _ := http.NewRequest("GET", statusURL("/status",
+				"environments[count]!=0",
+				"environments[*].connectionStatus.state!=INITIALIZING",
+				"environments[*].dataStoreStatus.state!=INITIALIZING",
+				"autoConfigStatus.state!=INITIALIZING",
+			), nil)
+			result, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode, string(body))
+		})
+	})
+
 	t.Run("expiring SDK key", func(t *testing.T) {
 		envConfig := testEnvWithExpiringKey
 		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}

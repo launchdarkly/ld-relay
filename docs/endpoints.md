@@ -136,7 +136,7 @@ The status properties are defined as follows:
     - Because a broken configuration stream leaves flag serving intact, the top-level `status` does **not** become `"degraded"` for it. A monitor that cares about configuration freshness should check this property directly, for example with `?expect=autoConfigStatus.state=VALID`.
 - The `refusedEnvironments` property lists environments whose configuration the Relay Proxy would not accept. Each entry has an `envId`, a short `reason` (the detail is in the Relay Proxy's log, because this endpoint is unauthenticated), and a `serving` boolean. Entries are sorted by `envId`.
     - **Read `serving` before treating an entry as an outage.** `false` means the Relay Proxy has no configuration for that environment at all: it is absent from `environments` and SDKs presenting its credentials get `401`. `true` means the Relay Proxy refused an *update* for an environment it already had, so that environment also appears under `environments` and goes on serving the credentials it had before; its flag data is current and only the refused configuration is unapplied.
-    - Nothing else in this document reports either case: the connection to LaunchDarkly is working, the rest of the configuration applied, and so both the top-level `status` and `autoConfigStatus.state` stay healthy. Check this property to detect the condition, for example with `?expect=refusedEnvironments[serving=false].serving=false`, which returns `200` when at least one environment is refused and not served, and `412` when none is. This check runs the other way round from the others on this page: `412` is the healthy answer, so alert on `200`. No clause can instead be written that holds only while nothing is refused, because a selector that matches no entry is unsatisfied with either operator.
+    - Nothing else in this document reports either case: the connection to LaunchDarkly is working, the rest of the configuration applied, and so both the top-level `status` and `autoConfigStatus.state` stay healthy. Check this property to detect the condition, for example with `?expect=refusedEnvironments[count]=0`, which returns `200` while nothing is refused and `412` when anything is. To alert only on environments that are not served, use `?expect=refusedEnvironments[serving=false].serving=false` instead. That check runs the other way round from the others on this page: it returns `200` when at least one environment is refused and not served, and `412` when none is, so alert on `200`.
     - The property is always present, and is an empty array when nothing is refused, so a monitor does not have to tell an empty list apart from a Relay Proxy too old to report one.
     - The Relay Proxy retires an entry as soon as it receives a configuration for that environment that it can use, or when the environment is removed from the configuration.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
@@ -259,6 +259,21 @@ curl -fsS 'http://localhost:8030/status?expect=autoConfigStatus.state=VALID'
 
 With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script can branch on the exit code with no body parsing at all.
 
+**Readiness probes.** Because the status code is the verdict, a Kubernetes `httpGet` probe can use `expect` directly. This matters for the distroless Docker images, which have no shell for an `exec` probe. The following probe marks a pod ready once the Relay Proxy has at least one environment and nothing is still starting up:
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /status?expect=environments[count]!=0&expect=environments[*].connectionStatus.state!=INITIALIZING&expect=environments[*].dataStoreStatus.state!=INITIALIZING&expect=autoConfigStatus.state!=INITIALIZING
+    port: 8030
+```
+
+The `environments[count]!=0` clause is necessary. The wildcard clauses hold on an empty `environments` map, so without it a Relay Proxy in automatic configuration mode would be marked ready before it received any environments.
+
+The `autoConfigStatus` clause applies only in [automatic configuration mode](configuration.md#file-section-autoconfig). In manual configuration mode the property is absent, so that clause never holds; leave it out there.
+
+Prefer this over `expect=status=healthy` for readiness. The top-level `status` also becomes `"degraded"` when an environment has been disconnected for longer than `disconnectedStatusTime`, so during a LaunchDarkly outage every pod would be removed from the Service at once. The probe above checks only for startup, so a pod that has initialized stays ready while it keeps serving the flag data it already has.
+
 **Encode the query string properly.** A clause containing a raw `;`, or a `%` that does not begin a valid escape, makes the query string undecodable, and the Relay Proxy answers `400` rather than evaluating the clauses that happened to survive. This matters most where you are hand-encoding a bracket-quoted environment key; let your tooling encode the value (`curl --get --data-urlencode "expect=..."`) instead of assembling the URL by hand.
 
 **Path syntax:**
@@ -269,6 +284,9 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 - `autoConfigStatus` is only addressable on `/status`, since the per-environment routes return a single environment object. Outside automatic configuration mode the Relay Proxy omits the block, so a clause on it returns `412` (see the `422`-versus-`412` note below) rather than `422`.
 - For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
 - Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`). The array fields are `sdkKeys` and `mobileKeys` on an environment, and `refusedEnvironments` on `/status`. Addressing a field that is not an array returns `422`. Prefer the matching form over the index form for `sdkKeys` and `mobileKeys`: the order of their entries is unspecified, so an index addresses a different key from one request to the next.
+- `[*]` addresses every entry of a map or an array: `environments[*].connectionStatus.state!=INITIALIZING` holds only if it holds for each environment. An entry that is missing the field does not satisfy the clause, the same as any absent field. An empty map or array satisfies the clause, because no entry fails it: `refusedEnvironments[*].serving=true` holds when nothing is refused. If an empty collection should fail, add a `[count]!=0` clause, as the readiness probe below does. If the collection itself is absent, for example under an environment that is not configured, the clause does not hold. Wildcards can be nested, for example `environments[*].sdkKeys[*].value`. To address a map key that is literally `*`, quote it: `environments["*"]`.
+- `[count]` is the number of entries in a map or an array, compared as an integer: `environments[count]!=0`, `refusedEnvironments[count]=0`. It must be the last step of the path. It can follow a wildcard, as in `environments[*].sdkKeys[count]=1`.
+- `[*]` or `[count]` on an object or a single value returns `422`, and so does `[count]` anywhere except at the end of the path.
 
 **Operators and comparison:**
 
@@ -280,7 +298,7 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 Every clause is evaluated, so one request reports everything you need to fix. The response code is the most serious outcome across all of the clauses, in the order below.
 
 - `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these. This also covers a query string the Relay Proxy cannot decode: if any part of it is unreadable, the whole request is rejected rather than the clauses that survived being judged on their own, so an assertion is never silently skipped.
-- `422 Unprocessable Content` - a clause was read successfully, but names something the Relay Proxy cannot evaluate: an operator other than `=` or `!=`, a field that does not exist in the status document, or a path that stops on an object rather than on a single value.
+- `422 Unprocessable Content` - a clause was read successfully, but names something the Relay Proxy cannot evaluate: an operator other than `=` or `!=`, a field that does not exist in the status document, a path that stops on an object rather than on a single value, or a `[*]` or `[count]` in a place it cannot apply.
 - `412 Precondition Failed` - every clause was evaluable and at least one did not hold. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
 - `200 OK` - every clause held.
 
@@ -293,13 +311,14 @@ On the per-environment routes, an unknown environment or filter (`404`) or an un
 - `bigSegmentStatus.available=true` returns `412` on an environment with no big segment store, and `mobileKey=...` returns `412` on an environment with no mobile key. Both fields are real but are omitted when they have no value.
 - `sdkKeys[key=some-name].value=...` returns `412` when the environment accepts no key by that name. The array is real and addressable, so a selector that matches nothing is a well-formed question rather than a caller error.
 
-When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging. Clauses appear in the order you supplied them. A clause that was evaluated reports `expected`, `actual`, and `ok`; a clause that could not be evaluated reports `problem` instead:
+When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging. Clauses appear in the order you supplied them. A clause that was evaluated reports `expected`, `actual`, and `ok`; a clause that could not be evaluated reports `problem` instead. A `[*]` clause that did not hold also reports `at`, the path to the first entry that failed, with map keys in sorted order; `actual` is then that entry's value. A `[*]` clause that held omits `actual`, since the entries can differ:
 
 ```json
 {
   "satisfied": false,
   "results": [
     { "expr": "status=healthy", "expected": "healthy", "actual": "degraded", "ok": false },
+    { "expr": "environments[*].connectionStatus.state!=INITIALIZING", "expected": "INITIALIZING", "actual": "INITIALIZING", "at": "environments.env2", "ok": false },
     { "expr": "connexionStatus.state=VALID", "problem": "unknown field \"connexionStatus\"", "ok": false },
     { "expr": "status>=healthy", "problem": "operator \">=\" is not supported; use \"=\" or \"!=\"", "ok": false }
   ]
