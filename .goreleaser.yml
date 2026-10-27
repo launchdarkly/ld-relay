@@ -348,3 +348,46 @@ docker_manifests:
       - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
       - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
       - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-arm64v8"
+
+  # Aliases with "distroless" in the tag name
+  - name_template: "launchdarkly/ld-relay:{{ .Version}}-distroless-static-debian12-nonroot"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-arm64v8"
+
+  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-distroless-static-debian12-nonroot"
+    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
+    image_templates:
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-arm64v8"
+
+  - name_template: "launchdarkly/ld-relay:latest-distroless-static-debian12-nonroot"
+    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
+    image_templates:
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-arm64v8"
+
+  - name_template: "launchdarkly/ld-relay:{{ .Version}}-distroless-static-debian12-debug-nonroot"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-arm64v8"
+
+  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-distroless-static-debian12-debug-nonroot"
+    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
+    image_templates:
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-arm64v8"
+
+  - name_template: "launchdarkly/ld-relay:latest-distroless-static-debian12-debug-nonroot"
+    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
+    image_templates:
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-arm64v8"
