@@ -2,12 +2,8 @@
 
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
-FROM golang:1.27.3-alpine3.24 as builder
+FROM golang:1.27.3-bookworm as builder
 # See "Runtime platform versions" in CONTRIBUTING.md
-
-RUN apk --no-cache add \
-    libc-dev \
- && rm -rf /var/cache/apk/*
 
 ARG SRC_DIR=/go/ld-relay
 
@@ -23,24 +19,11 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr .
 
-FROM alpine:3.24.3
-
-RUN addgroup -g 1000 -S ldr-user && \
-    adduser -u 1000 -S ldr-user -G ldr-user && \
-    mkdir /ldr && \
-    chown 1000:1000 /ldr
-
-RUN apk add --no-cache \
-    ca-certificates \
- && apk add --upgrade libcrypto3 libssl3 \
- && update-ca-certificates \
- && rm -rf /var/cache/apk/*
+FROM gcr.io/distroless/static-debian12:nonroot
 
 ARG SRC_DIR=/go/ld-relay
 
 COPY --from=builder ${SRC_DIR}/ldr /usr/bin/ldr
-
-USER 1000
 
 EXPOSE 8030
 ENV PORT=8030
