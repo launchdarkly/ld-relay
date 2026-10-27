@@ -2,6 +2,33 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.8](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.7...v9.0.0-rc.8) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* Stop publishing the i386 Docker image
+* Publish only distroless Docker images ([#942](https://github.com/launchdarkly/ld-relay/issues/942))
+* Report an environment's whole key set in the status resource ([#898](https://github.com/launchdarkly/ld-relay/issues/898))
+
+### Features
+
+* Add distroless-prefixed aliases for the Docker image tags ([eefa721](https://github.com/launchdarkly/ld-relay/commit/eefa721131e0b13c944f06fa212a7f7fc3b75214))
+* Add the accepted-credential-set model to the rotator ([#893](https://github.com/launchdarkly/ld-relay/issues/893)) ([a692c81](https://github.com/launchdarkly/ld-relay/commit/a692c8107897bea9413be49ce33b40a4611e74d4))
+* Carry a concurrent key set through the auto-config wire format ([#894](https://github.com/launchdarkly/ld-relay/issues/894)) ([a692c81](https://github.com/launchdarkly/ld-relay/commit/a692c8107897bea9413be49ce33b40a4611e74d4))
+* Move an environment between SDK keys without rebuilding its client ([#896](https://github.com/launchdarkly/ld-relay/issues/896)) ([a692c81](https://github.com/launchdarkly/ld-relay/commit/a692c8107897bea9413be49ce33b40a4611e74d4))
+* Publish only distroless Docker images ([#942](https://github.com/launchdarkly/ld-relay/issues/942)) ([eefa721](https://github.com/launchdarkly/ld-relay/commit/eefa721131e0b13c944f06fa212a7f7fc3b75214))
+* Refuse a malformed credential payload without losing the environment ([#897](https://github.com/launchdarkly/ld-relay/issues/897)) ([a692c81](https://github.com/launchdarkly/ld-relay/commit/a692c8107897bea9413be49ce33b40a4611e74d4))
+* Report an environment's whole key set in the status resource ([#898](https://github.com/launchdarkly/ld-relay/issues/898)) ([a692c81](https://github.com/launchdarkly/ld-relay/commit/a692c8107897bea9413be49ce33b40a4611e74d4))
+* Stop publishing the i386 Docker image ([eefa721](https://github.com/launchdarkly/ld-relay/commit/eefa721131e0b13c944f06fa212a7f7fc3b75214))
+
+
+### Bug Fixes
+
+* **deps:** Update Dockerfiles from 3.24.2 to alpine:3.24.3 ([#939](https://github.com/launchdarkly/ld-relay/issues/939)) ([a5915f2](https://github.com/launchdarkly/ld-relay/commit/a5915f27e304387c41ca9e6c26df36a948e11423))
+* Let an environment recover after LaunchDarkly rejects its SDK key ([#899](https://github.com/launchdarkly/ld-relay/issues/899)) ([a692c81](https://github.com/launchdarkly/ld-relay/commit/a692c8107897bea9413be49ce33b40a4611e74d4))
+* Update golang.org/x/net to v0.61.0 ([#932](https://github.com/launchdarkly/ld-relay/issues/932)) ([8b6c32e](https://github.com/launchdarkly/ld-relay/commit/8b6c32ece750c80a6afde0b17bc8da68ae37a7f6))
+
 ## [9.0.0-rc.7](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.6...v9.0.0-rc.7) (2026-10-20)
 
 
