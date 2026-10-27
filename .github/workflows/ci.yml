@@ -74,7 +74,7 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/386
+          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
       - name: Build Docker Images
         run: make products-for-release
       - name: Get current Relay version
@@ -84,18 +84,6 @@ jobs:
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_RO_TOKEN }}
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
-        id: scan-alpine
-        continue-on-error: true
-        with:
-          command: cves
-          # Using an explicit tag rather than ld-relay:latest to ensure we're scanning the local image that we just built.
-          # It's not clear why, but it seems goreleaser doesn't create the :latest tag when skipping the publish step
-          # as we do for CI, so the scan will end up checking the public image instead of the one we just built.
-          image: local://launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-amd64
-          exit-code: true
-          only-fixed: true
-          write-comment: false
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         id: scan-distroless
         continue-on-error: true
@@ -114,6 +102,6 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-      - name: Fail if any of scan-alpine, scan-distroless, or scan-distroless-debug failed
-        if: ${{ steps.scan-alpine.outcome != 'success' || steps.scan-distroless.outcome != 'success' || steps.scan-debug-distroless.outcome != 'success' }}
+      - name: Fail if either scan-distroless or scan-debug-distroless failed
+        if: ${{ steps.scan-distroless.outcome != 'success' || steps.scan-debug-distroless.outcome != 'success' }}
         run: exit 1

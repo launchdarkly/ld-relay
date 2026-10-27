@@ -62,13 +62,12 @@ As this is a larger codebase than most LaunchDarkly open-source projects, we hav
 * No packages outside of `internal/` should export any symbols other than the ones that are necessary to support usage of the Relay Proxy [as a library](./docs/in-app.md). Anything else that is visible becomes part of the supported external API for this project and can't be changed without a new major version, so be careful not to export any irrelevant implementation details. Anything within `internal/` can safely be changed.
 * Package imports should be grouped as follows: 1. all built-in Go packages; 2. all packages that are part of this repository (`github.com/launchdarkly/ld-relay/...`); 3. all other LaunchDarkly packages (`github.com/launchdarkly/...`, `gopkg.in/launchdarkly/...`); 4. all third-party packages.
 
-### Runtime platform versions (Go and Alpine) for Docker
+### Runtime platform versions (Go) for Docker
 
-The published `ld-relay` Docker image embeds specific versions of the Alpine OS and the Go runtime. We update these to take advantage of patch releases for both Alpine and Go.
+The published `ld-relay` Docker images are based on Google's distroless `static-debian12` images, which we pull at build time. The Go runtime version is pinned, and we update it to take advantage of Go patch releases.
 
-These versions are specified in several places. To ensure that they're updated consistently, and that the CI builds are using the same, use the following scripts:
+The Go version is specified in several places. To ensure that they're updated consistently, and that the CI builds are using the same, use the following script:
 
-* `./scripts/update-go-version.sh VERSION` - updates CI and Docker configuration to use the specified Go version (do not include the `v` prefix).
-* `./scripts/update-alpine-version.sh VERSION` - updates CI and Docker configuration to use the specified Alpine version.
+* `./scripts/update-go-release-version.sh LATEST PENULTIMATE` - updates CI and Docker configuration to use the specified Go versions (do not include the `v` prefix).
 
-The script `./scripts/verify-release-versions.sh` verifies that the current configurations are consistent. This is run automatically in CI, and also whenever you use the scripts above.
+The script `./scripts/verify-release-versions.sh` verifies that the current configurations are consistent. This is run automatically in CI, and also whenever you use the script above.
