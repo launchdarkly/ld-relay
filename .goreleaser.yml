@@ -68,10 +68,6 @@ release:
   # (we want Releaser to be responsible for doing all the GitHub release manipulations)
 
 dockers:
-  #
-  # The following image templates are for the nonroot debian12 distroless image.
-  #
-
   # AMD64
   - image_templates:
     - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-amd64"

@@ -16,20 +16,6 @@ Distroless base images.
 The tags without a suffix (`latest`, `v9`, and `9.x.y`) point at the Distroless image. They are the same as the
 `-static-debian12-nonroot` tags.
 
-### Changes from Relay Proxy v8
-
-Relay Proxy v8 and earlier also published an Alpine Linux image, and the tags without a suffix pointed at it. Relay
-Proxy v9 does not publish an Alpine image or an i386 image. If you move from an Alpine image, note these differences:
-
-* The image does not contain a shell or utilities such as `wget`. Health checks and probes that run a command in the
-  container do not work. Use an HTTP health check on the `/status` endpoint instead. The debug variant contains a
-  busybox shell at `/busybox/sh`.
-* The image runs as the `nonroot` user (UID 65532) instead of UID 1000. Make sure that this user can read files that
-  you mount into the container, such as the configuration file.
-* The image does not contain a package manager. Images that you build `FROM launchdarkly/ld-relay` cannot use `apk`.
-* For i386 systems, use the `linux_386` archive or the i386 deb and rpm packages from the
-  [GitHub releases](https://github.com/launchdarkly/ld-relay/releases).
-
 ## Local Development
 
 When developing locally, you can build the `ld-relay` container with the following command:
