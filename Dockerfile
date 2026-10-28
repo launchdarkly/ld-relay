@@ -19,7 +19,7 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr .
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 
 ARG SRC_DIR=/go/ld-relay
 

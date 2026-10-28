@@ -64,7 +64,7 @@ As this is a larger codebase than most LaunchDarkly open-source projects, we hav
 
 ### Runtime platform versions (Go) for Docker
 
-The published `ld-relay` Docker images are based on Google's distroless `static-debian12` images, which we pull at build time. The Go runtime version is pinned, and we update it to take advantage of Go patch releases.
+The published `ld-relay` Docker images are based on Google's distroless `static-debian13` images, which we pull at build time. The Go runtime version is pinned, and we update it to take advantage of Go patch releases.
 
 The Go version is specified in several places. To ensure that they're updated consistently, and that the CI builds are using the same, use the following script:
 
