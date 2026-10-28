@@ -2,6 +2,20 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.9](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.8...v9.0.0-rc.9) (2026-10-28)
+
+
+### Features
+
+* Accept the OpenTelemetry-specified values for OTEL_EXPORTER_OTLP_PROTOCOL ([#950](https://github.com/launchdarkly/ld-relay/issues/950)) ([559985a](https://github.com/launchdarkly/ld-relay/commit/559985afbfd9538893a292a23cd6075777eca7b4))
+* Allow status expect clauses to check every entry of a collection and count its entries ([#943](https://github.com/launchdarkly/ld-relay/issues/943)) ([354b3c3](https://github.com/launchdarkly/ld-relay/commit/354b3c3948f2ed279f168f5069c11aab4f9df527))
+
+
+### Bug Fixes
+
+* Prevent a leaked streaming connection after back-to-back malformed events ([#949](https://github.com/launchdarkly/ld-relay/issues/949)) ([9211d8c](https://github.com/launchdarkly/ld-relay/commit/9211d8c03eaf810fbe73b79f1298209afe7a6685))
+* Update golang.org/x/net to v0.62.0 to address CVE-2026-78661 and CVE-2026-97045 ([#944](https://github.com/launchdarkly/ld-relay/issues/944)) ([b37f422](https://github.com/launchdarkly/ld-relay/commit/b37f422217c0f24ddef99fbe58a3864678bfdac9))
+
 ## [9.0.0-rc.8](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.7...v9.0.0-rc.8) (2026-10-27)
 
 
