@@ -44,7 +44,8 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBNoPrefixOrTableName(),
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
-		makeInvalidConfigOTLPInvalidProtocol(),
+		makeInvalidConfigOTLPInvalidProtocol("websocket"),
+		makeInvalidConfigOTLPInvalidProtocol("http"),
 		makeInvalidConfigOTLPNegativeCardinalityLimit(),
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
 		makeInvalidConfigRedisTimeout("ConnectTimeout", "REDIS_CONNECT_TIMEOUT", errRedisConnectTimeout),
@@ -492,17 +493,17 @@ Enabled = true
 	return c
 }
 
-func makeInvalidConfigOTLPInvalidProtocol() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "OTLP - invalid protocol"}
+func makeInvalidConfigOTLPInvalidProtocol(protocol string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "OTLP - invalid protocol " + protocol}
 	c.envVarsError = errOTLPInvalidProtocol.Error()
 	c.envVars = map[string]string{
 		"USE_OTLP":                    "1",
-		"OTEL_EXPORTER_OTLP_PROTOCOL": "websocket",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": protocol,
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
-Protocol = websocket
+Protocol = ` + protocol + `
 `
 	return c
 }

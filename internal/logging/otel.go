@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
@@ -14,7 +13,7 @@ import (
 
 // OTelLogConfig holds configuration for OTel log export.
 type OTelLogConfig struct {
-	// Protocol is "grpc" or "http". Defaults to "grpc" if empty.
+	// Protocol is "grpc" or "http/protobuf".
 	Protocol string
 }
 
@@ -28,10 +27,7 @@ type OTelLogProvider struct {
 // passed to NewLogger via WithOTelHandler. The caller must call Shutdown on the returned
 // provider when the application exits.
 func NewOTelLogProvider(cfg OTelLogConfig) (*OTelLogProvider, error) {
-	protocol := strings.ToLower(cfg.Protocol)
-	if protocol == "" {
-		protocol = "grpc"
-	}
+	protocol := cfg.Protocol
 
 	ctx := context.Background()
 
@@ -41,10 +37,10 @@ func NewOTelLogProvider(cfg OTelLogConfig) (*OTelLogProvider, error) {
 	switch protocol {
 	case "grpc":
 		exporter, err = otlploggrpc.New(ctx)
-	case "http":
+	case "http/protobuf":
 		exporter, err = otlploghttp.New(ctx)
 	default:
-		return nil, fmt.Errorf("unsupported OTLP protocol for logs: %q (must be \"grpc\" or \"http\")", protocol)
+		return nil, fmt.Errorf("unsupported OTLP protocol for logs: %q (must be \"grpc\" or \"http/protobuf\")", protocol)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP %s log exporter: %w", protocol, err)

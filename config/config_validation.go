@@ -22,7 +22,7 @@ var (
 	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
+	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc", "http/protobuf" or "http/json" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
 	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
@@ -39,6 +39,9 @@ const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file wa
 	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
 
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
+
+const warnOTLPHTTPJSONProtocol = `OTEL_EXPORTER_OTLP_PROTOCOL is set to "http/json", which Relay does not` +
+	` implement; exporting protobuf over HTTP ("http/protobuf") instead`
 
 func warnUnrecognizedSignalExporter(varName, value string) string {
 	return fmt.Sprintf("%s is set to %q, which Relay does not implement; ignoring it and exporting"+
@@ -287,9 +290,11 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 
 func validateConfigMetrics(result *ct.ValidationResult, c *Config, logger *slog.Logger) {
 	if c.OpenTelemetry.Enabled {
-		protocol := strings.ToLower(c.OpenTelemetry.Protocol)
-		if protocol != "" && protocol != "grpc" && protocol != "http" {
+		protocol := c.OpenTelemetry.ExportProtocol()
+		if protocol != OTLPProtocolGRPC && protocol != OTLPProtocolHTTPProtobuf {
 			result.AddError(nil, errOTLPInvalidProtocol)
+		} else if strings.EqualFold(strings.TrimSpace(c.OpenTelemetry.Protocol), otlpProtocolHTTPJSON) {
+			logger.Warn(warnOTLPHTTPJSONProtocol)
 		}
 		if limit := c.OpenTelemetry.MetricsCardinalityLimit; limit.IsDefined() && limit.GetOrElse(0) < 0 {
 			result.AddError(nil, errOTLPNegativeCardinalityLimit)

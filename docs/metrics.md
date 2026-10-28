@@ -297,7 +297,7 @@ Prometheus supports OTLP ingestion natively since v2.47.0. Enable it with `--web
 ```
 USE_OTLP=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://<prometheus-host>:9090/api/v1/otlp
-OTEL_EXPORTER_OTLP_PROTOCOL=http
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
 
 `OTEL_EXPORTER_OTLP_ENDPOINT` is a base URL -- the SDK appends `/v1/metrics` -- so it is the root

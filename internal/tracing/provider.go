@@ -12,7 +12,7 @@ import (
 
 // TracingConfig holds configuration for OTel trace export.
 type TracingConfig struct {
-	// Protocol is "grpc" or "http". Defaults to "grpc" if empty.
+	// Protocol is "grpc" or "http/protobuf".
 	Protocol string
 }
 

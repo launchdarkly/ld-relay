@@ -114,3 +114,27 @@ func TestSignalExportDecisions(t *testing.T) {
 		})
 	}
 }
+
+// Relay passes only two transports to the exporters, and the specification's three values map onto
+// them. Validation warns about "http/json" and rejects any other value. Relay v9 release candidates
+// accepted "http", but 9.0.0 does not.
+func TestExportProtocol(t *testing.T) {
+	tests := []struct {
+		protocol string
+		expected string
+	}{
+		{"", OTLPProtocolGRPC},
+		{"grpc", OTLPProtocolGRPC},
+		{"http/protobuf", OTLPProtocolHTTPProtobuf},
+		{"http", "http"},
+		{"http/json", OTLPProtocolHTTPProtobuf},
+		{"  HTTP/Protobuf  ", OTLPProtocolHTTPProtobuf},
+		{"websocket", "websocket"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.protocol, func(t *testing.T) {
+			assert.Equal(t, test.expected, OpenTelemetryConfig{Protocol: test.protocol}.ExportProtocol())
+		})
+	}
+}

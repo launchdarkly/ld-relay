@@ -102,6 +102,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOTLPUnlimitedCardinality(),
 		makeValidConfigOTLPSignalsDisabled(),
 		makeValidConfigOTLPUnrecognizedSignalExporter(),
+		makeValidConfigOTLPProtocol("http/protobuf"),
+		makeValidConfigOTLPHTTPJSONProtocol(),
 		makeValidConfigOTLPNoEnvironmentStatus(),
 		makeValidConfigProxy(),
 	}
@@ -933,6 +935,34 @@ Enabled = true
 TracesExporter = zipkin
 `
 	c.warnings = []string{warnUnrecognizedSignalExporter("OTEL_TRACES_EXPORTER", "zipkin")}
+	return c
+}
+
+func makeValidConfigOTLPProtocol(protocol string) testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - protocol " + protocol}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:  true,
+			Protocol: protocol,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":                    "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": protocol,
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+Protocol = ` + protocol + `
+`
+	return c
+}
+
+// Relay does not implement "http/json", but the value is valid in the specification. It must not stop
+// Relay from starting, so validation only warns about it.
+func makeValidConfigOTLPHTTPJSONProtocol() testDataValidConfig {
+	c := makeValidConfigOTLPProtocol("http/json")
+	c.warnings = []string{warnOTLPHTTPJSONProtocol}
 	return c
 }
 
