@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -37,6 +38,11 @@ import (
 
 // ExpectParam is the query parameter that carries the assertion clauses.
 const ExpectParam = "expect"
+
+// MaxExpectClauses is the most "expect" clauses one request can carry. The status endpoints are
+// unauthenticated, and each clause walks the status document, so the limit bounds the work that one
+// request can cause.
+const MaxExpectClauses = 100
 
 // ParseExpectQuery reads the "expect" clauses out of a raw URL query string. requested reports
 // whether the caller used the parameter at all; malformed reports whether the query string could be
@@ -112,6 +118,10 @@ type ExpectationResult struct {
 	// Actual is the value found at the clause's path, rendered as a string. It is omitted for a
 	// clause that was not evaluated, and empty when the path is absent from the body.
 	Actual string `json:"actual,omitempty"`
+	// At names the first entry that failed a clause with a "[*]" step, as a concrete path with each
+	// wildcard replaced by that entry's key or index. It is empty for every other result, and for a
+	// wildcard clause that failed because the collection itself is absent.
+	At string `json:"at,omitempty"`
 	// Problem describes why the clause could not be evaluated. It is empty for a clause that was.
 	Problem string `json:"problem,omitempty"`
 	// OK reports whether the clause held. It is false for a clause that was not evaluated.
@@ -133,7 +143,8 @@ type ExpectationsResult struct {
 // is evaluated, so one request reports every problem the caller needs to fix; the response code is
 // the most serious outcome across all of them:
 //
-//   - http.StatusBadRequest (400) when any clause does not parse.
+//   - http.StatusBadRequest (400) when any clause does not parse, or when there are more than
+//     MaxExpectClauses clauses. In the second case no clause is evaluated.
 //   - http.StatusUnprocessableEntity (422) when any clause parses but names an operator or a field
 //     that cannot be evaluated against the schema.
 //   - http.StatusPreconditionFailed (412) when every clause is evaluable but at least one does not
@@ -144,6 +155,11 @@ type ExpectationsResult struct {
 // body is the JSON the handler would otherwise have written, so a clause path matches exactly
 // what the caller sees in the response. schema says which document that is.
 func EvaluateExpectations(body []byte, clauses []string, schema StatusSchema) (ExpectationsResult, int) {
+	if len(clauses) > MaxExpectClauses {
+		return ExpectationsResult{
+			Error: fmt.Sprintf("%d expect clauses were supplied; the limit is %d", len(clauses), MaxExpectClauses),
+		}, http.StatusBadRequest
+	}
 	var doc interface{}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		// The body is the relay's own freshly-marshaled output, so this is not reachable in
@@ -200,29 +216,130 @@ func evaluateClause(doc interface{}, root reflect.Type, clause string) (Expectat
 }
 
 func compare(doc interface{}, steps []pathStep, op, expected, clause string) (ExpectationResult, int) {
-	// A path that passed validation addresses a scalar, so anything found here renders as one.
-	actual, found := walkPath(doc, steps)
-	actualStr := ""
-	if found {
-		actualStr, _ = scalarToString(actual)
-	}
-
-	ok := false
-	switch {
-	case !found:
-		// An absent field cannot satisfy the clause, for either operator: the caller asserted
-		// something about a field the relay is not currently reporting.
-	case op == opEquals:
-		ok = actualStr == expected
-	case op == opNotEquals:
-		ok = actualStr != expected
-	}
-
-	result := ExpectationResult{Expr: clause, Expected: expected, Actual: actualStr, OK: ok}
+	ok, actual, failedAt := evaluatePath(doc, steps, nil, op, expected)
+	result := ExpectationResult{Expr: clause, Expected: expected, Actual: actual, OK: ok}
 	if ok {
 		return result, http.StatusOK
 	}
+	if failedAt != nil {
+		result.At = renderPath(failedAt)
+	}
 	return result, http.StatusPreconditionFailed
+}
+
+// evaluatePath reports whether the clause holds for the value that steps address from cur. at is the
+// concrete path from the document root to cur.
+//
+// A "[*]" step splits the path. The prefix before it must resolve to a collection, and the remainder
+// must hold for each entry of that collection. A later "[*]" in the remainder recurses again, so
+// nested wildcards need no special handling.
+//
+// The work is bounded by the size of the document. Each wildcard descends one level into distinct
+// subtrees, so no value is visited twice at the same step. This is why the grammar does not cap the
+// number of wildcards in a clause.
+//
+// actual is the value that decided the result. It is empty when the path is absent, and when every
+// entry of a wildcard held, because the entries can hold different values. failedAt is the concrete
+// path to the first entry that failed, or nil when no single entry is to blame.
+func evaluatePath(cur interface{}, steps []pathStep, at []pathStep, op, expected string) (
+	ok bool, actual string, failedAt []pathStep) {
+	wildcard := -1
+	for i, step := range steps {
+		if step.kind == stepWildcard {
+			wildcard = i
+			break
+		}
+	}
+	if wildcard < 0 {
+		ok, actual = compareValue(cur, steps, op, expected)
+		return ok, actual, nil
+	}
+
+	collection, found := walkPath(cur, steps[:wildcard])
+	if !found {
+		return false, "", nil
+	}
+	// An empty collection holds: no entry fails. A caller that needs at least one entry adds a
+	// "[count]!=0" clause. The other choice would make "every entry holds, or there are none"
+	// impossible to express, because clauses cannot be combined with OR.
+	prefix := append(append([]pathStep{}, at...), steps[:wildcard]...)
+	for _, member := range entries(collection) {
+		memberAt := append(append([]pathStep{}, prefix...), member.step)
+		ok, actual, failedAt = evaluatePath(member.value, steps[wildcard+1:], memberAt, op, expected)
+		if !ok {
+			if failedAt == nil {
+				failedAt = memberAt
+			}
+			return false, actual, failedAt
+		}
+	}
+	return true, "", nil
+}
+
+// compareValue reports whether the value that steps address from cur satisfies the operator. The steps
+// contain no wildcard.
+func compareValue(cur interface{}, steps []pathStep, op, expected string) (ok bool, actual string) {
+	// A path that passed validation addresses a scalar, so anything found here renders as one.
+	value, found := walkPath(cur, steps)
+	if !found {
+		// An absent field cannot satisfy the clause, for either operator: the caller asserted
+		// something about a field the relay is not currently reporting.
+		return false, ""
+	}
+	actual, _ = scalarToString(value)
+	if op == opNotEquals {
+		return actual != expected, actual
+	}
+	return actual == expected, actual
+}
+
+// entry is one member of a decoded map or array, with the step that addresses it.
+type entry struct {
+	step  pathStep
+	value interface{}
+}
+
+// entries lists the members of a decoded map or array. Map keys are sorted, so the first failing
+// entry is the same on every request. A null collection has no members, because Go marshals a nil
+// slice as null.
+func entries(collection interface{}) []entry {
+	var result []entry
+	switch c := collection.(type) {
+	case map[string]interface{}:
+		keys := make([]string, 0, len(c))
+		for key := range c {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			result = append(result, entry{step: pathStep{kind: stepKey, key: key}, value: c[key]})
+		}
+	case []interface{}:
+		for i, value := range c {
+			result = append(result, entry{step: pathStep{kind: stepIndex, index: i}, value: value})
+		}
+	}
+	return result
+}
+
+// renderPath writes concrete steps back out in the path grammar, for the At field of a result. A key
+// that the grammar could not read as a dotted segment is bracket-quoted.
+func renderPath(steps []pathStep) string {
+	var b strings.Builder
+	for _, step := range steps {
+		switch {
+		case step.kind != stepKey:
+			b.WriteString(step.label())
+		case strings.ContainsAny(step.key, ".[]"+operatorChars):
+			fmt.Fprintf(&b, `["%s"]`, step.key)
+		default:
+			if b.Len() > 0 {
+				b.WriteByte('.')
+			}
+			b.WriteString(step.key)
+		}
+	}
+	return b.String()
 }
 
 // clauseProblem is a reason a clause could not be evaluated, carrying the status code that reason
@@ -300,9 +417,12 @@ const (
 	stepKey = iota
 	stepIndex
 	stepFilter
+	stepWildcard
+	stepCount
 )
 
-// pathStep is one segment of a parsed path: a map key, an array index, or an array field-filter.
+// pathStep is one segment of a parsed path: a map key, an array index, an array field-filter, every
+// entry of a map or array, or the number of entries in a map or array.
 type pathStep struct {
 	kind  int
 	key   string // stepKey, and the field name for stepFilter
@@ -317,6 +437,10 @@ func (s pathStep) label() string {
 		return fmt.Sprintf("[%d]", s.index)
 	case stepFilter:
 		return fmt.Sprintf("[%s=%s]", s.key, s.value)
+	case stepWildcard:
+		return "[*]"
+	case stepCount:
+		return "[count]"
 	default:
 		return s.key
 	}
@@ -328,6 +452,8 @@ func (s pathStep) label() string {
 //	a["b.c"] / a['b.c']      bracket-quoted key (for keys containing dots or other punctuation)
 //	a[0]                     array index
 //	a[field=value]           first array element whose field equals value
+//	a[*].b                   every entry of a map or array; the clause must hold for each one
+//	a[count]                 the number of entries in a map or array; only valid as the last step
 //
 // The bracket forms allow the path to address the concurrent-keys arrays that the status
 // representation will grow (e.g. sdkKeys[key=new-production-default].value).
@@ -378,6 +504,16 @@ func parseBracket(inner string) (pathStep, *clauseProblem) {
 			(inner[0] == '\'' && inner[len(inner)-1] == '\'')) {
 		return pathStep{kind: stepKey, key: inner[1 : len(inner)-1]}, nil
 	}
+	// Every entry: [*]. A map key or a filter value of "*" is still reachable by quoting it.
+	if inner == "*" {
+		return pathStep{kind: stepWildcard}, nil
+	}
+	// Entry count: [count]. The bracket form keeps a field or map key named "count" addressable as a
+	// dotted segment. "#" is not used for this, because it starts a URL fragment and a client drops
+	// everything after it.
+	if inner == "count" {
+		return pathStep{kind: stepCount}, nil
+	}
 	// Field filter: [field=value].
 	if eq := strings.IndexByte(inner, '='); eq >= 0 {
 		field := inner[:eq]
@@ -413,12 +549,22 @@ func unquote(s string) string {
 // The check walks the Go types the handlers marshal, matching each step against the json tags. A map
 // accepts any key, which is what makes environments.<any environment>.<field> addressable while
 // still checking <field>.
+//
+// A "[count]" step ends the path on a number, so it is the one case where the path does not have to
+// end on a scalar field.
 func validatePath(root reflect.Type, steps []pathStep) *clauseProblem {
 	t := root
-	for _, step := range steps {
+	for i, step := range steps {
 		t = deref(t)
+		if step.kind == stepCount && i != len(steps)-1 {
+			return semanticProblem(`"[count]" must be the last step of a path`)
+		}
 		switch t.Kind() {
 		case reflect.Struct:
+			if step.kind == stepWildcard || step.kind == stepCount {
+				return semanticProblem("%s addresses the entries of a map or an array, but that part of the status is an object",
+					strconv.Quote(step.label()))
+			}
 			if step.kind != stepKey {
 				return semanticProblem("%s addresses an array, but that part of the status is an object",
 					strconv.Quote(step.label()))
@@ -430,15 +576,21 @@ func validatePath(root reflect.Type, steps []pathStep) *clauseProblem {
 			t = field
 		case reflect.Map:
 			// Any key is addressable; the value type is what the remaining steps must match.
-			if step.kind != stepKey {
+			switch step.kind {
+			case stepKey, stepWildcard:
+				t = t.Elem()
+			case stepCount:
+				return nil
+			default:
 				return semanticProblem("%s addresses an array, but that part of the status is a map",
 					strconv.Quote(step.label()))
 			}
-			t = t.Elem()
 		case reflect.Slice, reflect.Array:
 			switch step.kind {
-			case stepIndex:
+			case stepIndex, stepWildcard:
 				t = t.Elem()
+			case stepCount:
+				return nil
 			case stepFilter:
 				if element := deref(t.Elem()); element.Kind() != reflect.Struct {
 					return semanticProblem("cannot filter on field %s: the array does not hold objects",
@@ -509,7 +661,7 @@ func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 }
 
 // walkPath follows steps into a decoded JSON document, returning the value reached and whether the
-// path resolved.
+// path resolved. The steps contain no "[*]": evaluatePath splits the path at each one first.
 func walkPath(doc interface{}, steps []pathStep) (interface{}, bool) {
 	cur := doc
 	for _, step := range steps {
@@ -539,6 +691,19 @@ func walkPath(doc interface{}, steps []pathStep) (interface{}, bool) {
 				return nil, false
 			}
 			cur = match
+		case stepCount:
+			// Validation allows this only as the last step, on a map or an array. A null there is a
+			// collection with no entries.
+			switch c := cur.(type) {
+			case map[string]interface{}:
+				return strconv.Itoa(len(c)), true
+			case []interface{}:
+				return strconv.Itoa(len(c)), true
+			case nil:
+				return "0", true
+			default:
+				return nil, false
+			}
 		}
 	}
 	return cur, true
