@@ -543,6 +543,30 @@ func TestScalarToString(t *testing.T) {
 	}
 }
 
+func TestEvaluateExpectationsClauseLimit(t *testing.T) {
+	clauses := func(n int) []string {
+		result := make([]string, n)
+		for i := range result {
+			result[i] = "status=healthy"
+		}
+		return result
+	}
+
+	t.Run("at the limit, every clause is evaluated", func(t *testing.T) {
+		res, code := EvaluateExpectations(statusRepBody(t), clauses(MaxExpectClauses), SchemaAllEnvironments)
+		assert.Equal(t, http.StatusOK, code)
+		assert.Len(t, res.Results, MaxExpectClauses)
+	})
+
+	t.Run("over the limit, no clause is evaluated", func(t *testing.T) {
+		res, code := EvaluateExpectations(statusRepBody(t), clauses(MaxExpectClauses+1), SchemaAllEnvironments)
+		assert.Equal(t, http.StatusBadRequest, code)
+		assert.False(t, res.Satisfied)
+		assert.Empty(t, res.Results)
+		assert.Contains(t, res.Error, "the limit is")
+	})
+}
+
 func TestEvaluateExpectationsUnparseableBody(t *testing.T) {
 	res, code := EvaluateExpectations([]byte("not json"), []string{"status=healthy"}, SchemaAllEnvironments)
 	assert.Equal(t, http.StatusInternalServerError, code)

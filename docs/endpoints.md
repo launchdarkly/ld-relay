@@ -244,7 +244,7 @@ Each `expect` clause is a path into the response body, a comparison operator, an
 expect=<path><operator><value>
 ```
 
-The parameter can be repeated; all clauses must hold for the request to be considered satisfied (they are combined with logical AND).
+The parameter can be repeated, up to 20 times per request; all clauses must hold for the request to be considered satisfied (they are combined with logical AND).
 
 ```shell
 # Is the whole Relay Proxy healthy?
@@ -297,7 +297,7 @@ Prefer this over `expect=status=healthy` for readiness. The top-level `status` a
 
 Every clause is evaluated, so one request reports everything you need to fix. The response code is the most serious outcome across all of the clauses, in the order below.
 
-- `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these. This also covers a query string the Relay Proxy cannot decode: if any part of it is unreadable, the whole request is rejected rather than the clauses that survived being judged on their own, so an assertion is never silently skipped.
+- `400 Bad Request` - a clause could not be read as `<path><operator><value>` at all: no operator, no path before the operator, or a malformed `[...]` selector. A present-but-empty value (`?expect=`) is one of these. It is also the answer when a request has more than 20 clauses; then no clause is evaluated, and the body reports the reason in `error`. This also covers a query string the Relay Proxy cannot decode: if any part of it is unreadable, the whole request is rejected rather than the clauses that survived being judged on their own, so an assertion is never silently skipped.
 - `422 Unprocessable Content` - a clause was read successfully, but names something the Relay Proxy cannot evaluate: an operator other than `=` or `!=`, a field that does not exist in the status document, a path that stops on an object rather than on a single value, or a `[*]` or `[count]` in a place it cannot apply.
 - `412 Precondition Failed` - every clause was evaluable and at least one did not hold. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
 - `200 OK` - every clause held.

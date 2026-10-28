@@ -39,6 +39,11 @@ import (
 // ExpectParam is the query parameter that carries the assertion clauses.
 const ExpectParam = "expect"
 
+// MaxExpectClauses is the most "expect" clauses one request can carry. The status endpoints are
+// unauthenticated, and each clause walks the status document, so the limit bounds the work that one
+// request can cause.
+const MaxExpectClauses = 20
+
 // ParseExpectQuery reads the "expect" clauses out of a raw URL query string. requested reports
 // whether the caller used the parameter at all; malformed reports whether the query string could be
 // parsed.
@@ -138,7 +143,8 @@ type ExpectationsResult struct {
 // is evaluated, so one request reports every problem the caller needs to fix; the response code is
 // the most serious outcome across all of them:
 //
-//   - http.StatusBadRequest (400) when any clause does not parse.
+//   - http.StatusBadRequest (400) when any clause does not parse, or when there are more than
+//     MaxExpectClauses clauses. In the second case no clause is evaluated.
 //   - http.StatusUnprocessableEntity (422) when any clause parses but names an operator or a field
 //     that cannot be evaluated against the schema.
 //   - http.StatusPreconditionFailed (412) when every clause is evaluable but at least one does not
@@ -149,6 +155,11 @@ type ExpectationsResult struct {
 // body is the JSON the handler would otherwise have written, so a clause path matches exactly
 // what the caller sees in the response. schema says which document that is.
 func EvaluateExpectations(body []byte, clauses []string, schema StatusSchema) (ExpectationsResult, int) {
+	if len(clauses) > MaxExpectClauses {
+		return ExpectationsResult{
+			Error: fmt.Sprintf("%d expect clauses were supplied; the limit is %d", len(clauses), MaxExpectClauses),
+		}, http.StatusBadRequest
+	}
 	var doc interface{}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		// The body is the relay's own freshly-marshaled output, so this is not reachable in
