@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
@@ -17,10 +16,7 @@ func newOTLPExporters(
 	otlpConfig config.OpenTelemetryConfig,
 	logger *slog.Logger,
 ) ([]sdkmetric.Option, error) {
-	protocol := strings.ToLower(otlpConfig.Protocol)
-	if protocol == "" {
-		protocol = "grpc"
-	}
+	protocol := otlpConfig.ExportProtocol()
 
 	ctx := context.Background()
 
@@ -28,12 +24,12 @@ func newOTLPExporters(
 	var err error
 
 	switch protocol {
-	case "grpc":
+	case config.OTLPProtocolGRPC:
 		metricExporter, err = otlpmetricgrpc.New(ctx)
-	case "http":
+	case config.OTLPProtocolHTTPProtobuf:
 		metricExporter, err = otlpmetrichttp.New(ctx)
 	default:
-		return nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http\")", protocol)
+		return nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http/protobuf\")", protocol)
 	}
 
 	if err != nil {

@@ -413,6 +413,29 @@ const (
 	SignalExporterNone = "none"
 )
 
+// The OTEL_EXPORTER_OTLP_PROTOCOL values Relay accepts, with their specification names. The Go SDK
+// has no "http/json" exporter, so Relay warns about that value and sends protobuf over HTTP. An
+// OTLP/HTTP receiver must accept both encodings, so the configured endpoint still works.
+const (
+	OTLPProtocolGRPC         = "grpc"
+	OTLPProtocolHTTPProtobuf = "http/protobuf"
+	otlpProtocolHTTPJSON     = "http/json"
+)
+
+// ExportProtocol returns the OTLP transport for the exporters: OTLPProtocolGRPC or
+// OTLPProtocolHTTPProtobuf. Relay uses gRPC when the protocol is unset. Validation rejects
+// any value that this function does not map.
+func (c OpenTelemetryConfig) ExportProtocol() string {
+	switch protocol := strings.ToLower(strings.TrimSpace(c.Protocol)); protocol {
+	case "":
+		return OTLPProtocolGRPC
+	case otlpProtocolHTTPJSON:
+		return OTLPProtocolHTTPProtobuf
+	default:
+		return protocol
+	}
+}
+
 // ExportLogs reports whether Relay should export logs over OTLP.
 func (c OpenTelemetryConfig) ExportLogs() bool {
 	return c.Enabled && signalExported(c.LogsExporter)

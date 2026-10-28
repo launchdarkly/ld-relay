@@ -67,7 +67,7 @@ func run() int {
 	// the console and the collector.
 	if c.OpenTelemetry.ExportLogs() {
 		otelLog, err := logging.NewOTelLogProvider(logging.OTelLogConfig{
-			Protocol: c.OpenTelemetry.Protocol,
+			Protocol: c.OpenTelemetry.ExportProtocol(),
 		})
 		if err != nil {
 			logger.Error("failed to initialize OTLP log exporter", "error", err)
@@ -79,12 +79,12 @@ func run() int {
 			logging.WithLevel(levelVar),
 			logging.WithOTelHandler(otelLog.Handler),
 		)
-		logger.Info("OTLP log export enabled", "protocol", c.OpenTelemetry.Protocol)
+		logger.Info("OTLP log export enabled", "protocol", c.OpenTelemetry.ExportProtocol())
 	}
 
 	if c.OpenTelemetry.ExportTraces() {
 		tp, err := tracing.NewTracingProvider(tracing.TracingConfig{
-			Protocol: c.OpenTelemetry.Protocol,
+			Protocol: c.OpenTelemetry.ExportProtocol(),
 		}, logger)
 		if err != nil {
 			logger.Error("failed to initialize OTLP trace exporter", "error", err)
@@ -92,7 +92,7 @@ func run() int {
 		}
 		defer tp.Shutdown(context.Background()) //nolint:errcheck
 
-		logger.Info("OTLP trace export enabled", "protocol", c.OpenTelemetry.Protocol)
+		logger.Info("OTLP trace export enabled", "protocol", c.OpenTelemetry.ExportProtocol())
 	}
 
 	r, err := relay.NewRelay(c, logger, nil)
