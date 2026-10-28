@@ -42,7 +42,7 @@ const ExpectParam = "expect"
 // MaxExpectClauses is the most "expect" clauses one request can carry. The status endpoints are
 // unauthenticated, and each clause walks the status document, so the limit bounds the work that one
 // request can cause.
-const MaxExpectClauses = 20
+const MaxExpectClauses = 100
 
 // ParseExpectQuery reads the "expect" clauses out of a raw URL query string. requested reports
 // whether the caller used the parameter at all; malformed reports whether the query string could be
