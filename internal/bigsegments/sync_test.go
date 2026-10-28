@@ -707,6 +707,7 @@ func TestSyncReturnsToNormalDelaysAfterHealthyPeriod(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 
 	patch1 := newPatchBuilder("segment.g1", "1", "").build()
+	patch2 := newPatchBuilder("segment.g1", "2", "1").build()
 
 	pollHandler, requestsCh := httphelpers.RecordingHandler(
 		httphelpers.SequentialHandler(
@@ -740,13 +741,23 @@ func TestSyncReturnsToNormalDelaysAfterHealthyPeriod(t *testing.T) {
 			// The first health mark starts the healthy period.
 			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the first health mark")
 
-			// Advance past the reset threshold, then cause a second mark. Advancing here rather
-			// than on every clock read keeps the assertion independent of how often the
-			// implementation reads the clock.
-			clock.advance(fastRetryConfig().ResetThreshold)
+			// setSynced writes the mark to the store before it tells the retry strategy, so
+			// receiving the mark does not prove that the healthy period has started. If the clock
+			// advances in that gap, the period starts at the advanced time and the reset never
+			// happens. The supervisor reads the next stream event only after setSynced returns, so
+			// a patch applied from the stream proves that the strategy has recorded the first mark.
 			sseControl.Enqueue(*makePatchEvent(patch1))
 			requirePatch(t, storeMock, patch1)
-			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the second health mark")
+
+			// Advance past the reset threshold, then cause another mark. Advancing here rather
+			// than on every clock read keeps the assertion independent of how often the
+			// implementation reads the clock. The strategy can record the mark for patch1 on
+			// either side of the advance, but it always records the mark for patch2 after it.
+			clock.advance(fastRetryConfig().ResetThreshold)
+			sseControl.Enqueue(*makePatchEvent(patch2))
+			requirePatch(t, storeMock, patch2)
+			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the health mark for patch1")
+			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second, "expected the health mark after the threshold")
 
 			// Drop the healthy stream. That is an ordinary failure, so the wait must come from
 			// the normal curve, not the extended one it was on before the reset.

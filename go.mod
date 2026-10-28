@@ -23,7 +23,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
-	github.com/launchdarkly/eventsource v1.14.0
+	github.com/launchdarkly/eventsource v1.14.2
 	github.com/launchdarkly/go-configtypes v1.2.2
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.2
 	github.com/launchdarkly/go-sdk-common/v3 v3.6.0
@@ -127,7 +127,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
