@@ -4,17 +4,17 @@
 
 Using Docker is not required, but if you prefer using a Docker container we provide a Docker entrypoint to make this as easy as possible.
 
-We provide images based on Google's ["distroless"](https://github.com/GoogleContainerTools/distroless) Debian12
+We provide images based on Google's ["distroless"](https://github.com/GoogleContainerTools/distroless) Debian 13
 images. Because Relay Proxy is a statically linked Go binary, it can take advantage of the reduced dependencies in the
 Distroless base images.
 
 | Image              | Version                                                                                                                       | Size                                                                                                                                                          | Platforms              |
 |--------------------|-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------|
-| Distroless         | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-nonroot)][dockerhub-distroless]             | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-nonroot)][dockerhub-distroless]             | amd64, armv7, arm64v8 |
-| Distroless (debug) | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot)][dockerhub-distroless-debug] | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot)][dockerhub-distroless-debug] | amd64, armv7, arm64v8 |
+| Distroless         | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian13-nonroot)][dockerhub-distroless]             | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian13-nonroot)][dockerhub-distroless]             | amd64, armv7, arm64v8 |
+| Distroless (debug) | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian13-debug-nonroot)][dockerhub-distroless-debug] | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian13-debug-nonroot)][dockerhub-distroless-debug] | amd64, armv7, arm64v8 |
 
 The tags without a suffix (`latest`, `v9`, and `9.x.y`) point at the Distroless image. They are the same as the
-`-static-debian12-nonroot` tags.
+`-static-debian13-nonroot` tags.
 
 ## Local Development
 
@@ -27,8 +27,8 @@ Please note that this [Dockerfile](../Dockerfile) is **not** the same one that i
 [DockerHub](https://hub.docker.com/r/launchdarkly/ld-relay).
 
 It is a convenience for local development, whereas the images published to DockerHub are built during our release 
-process and are based on [Dockerfile-static-debian12-nonroot.goreleaser](../Dockerfile-static-debian12-nonroot.goreleaser)
-and [Dockerfile-static-debian12-debug-nonroot.goreleaser](../Dockerfile-static-debian12-debug-nonroot.goreleaser).
+process and are based on [Dockerfile-static-debian13-nonroot.goreleaser](../Dockerfile-static-debian13-nonroot.goreleaser)
+and [Dockerfile-static-debian13-debug-nonroot.goreleaser](../Dockerfile-static-debian13-debug-nonroot.goreleaser).
 
 In Docker, the config file is expected to be found at `/ldr/ld-relay.conf`, unless you are using environment variables 
 to configure the Relay Proxy. To learn more, read [Configuration](./configuration.md).
@@ -68,11 +68,11 @@ second is for debugging and contains a shell.
 
 | Docker image tag suffix          | Alias                                       | Based on [Distroless](https://github.com/GoogleContainerTools/distroless) image | Purpose                  |
 |----------------------------------|---------------------------------------------|---------------------------------------------------------------------------------|--------------------------|
-| `-static-debian12-nonroot`       | `-distroless-static-debian12-nonroot`       | `gcr.io/distroless/static-debian12:nonroot`                                     | Normal usage             |
-| `-static-debian12-debug-nonroot` | `-distroless-static-debian12-debug-nonroot` | `gcr.io/distroless/static-debian12:debug-nonroot`                               | Contains a busybox shell |
+| `-static-debian13-nonroot`       | `-distroless-static-debian13-nonroot`       | `gcr.io/distroless/static-debian13:nonroot`                                     | Normal usage             |
+| `-static-debian13-debug-nonroot` | `-distroless-static-debian13-debug-nonroot` | `gcr.io/distroless/static-debian13:debug-nonroot`                               | Contains a busybox shell |
 
-Each alias points at the same image as its suffix. For example, `v9-distroless-static-debian12-nonroot` and
-`v9-static-debian12-nonroot` are the same image.
+Each alias points at the same image as its suffix. For example, `v9-distroless-static-debian13-nonroot` and
+`v9-static-debian13-nonroot` are the same image.
 
 To enter the busybox shell for debugging purposes on a running container (only available in the `-debug-nonroot` 
 variant):
@@ -80,6 +80,6 @@ variant):
 docker exec -it [container name] /busybox/sh
 ```
 
-[dockerhub-distroless]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=static-debian12-nonroot
-[dockerhub-distroless-debug]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=static-debian12-debug-nonroot
+[dockerhub-distroless]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=static-debian13-nonroot
+[dockerhub-distroless-debug]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=static-debian13-debug-nonroot
 

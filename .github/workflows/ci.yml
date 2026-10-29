@@ -89,7 +89,7 @@ jobs:
         continue-on-error: true
         with:
           command: cves
-          image: local://launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-nonroot-amd64
+          image: local://launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian13-nonroot-amd64
           exit-code: true
           only-fixed: true
           write-comment: false
@@ -98,7 +98,7 @@ jobs:
         id: scan-debug-distroless
         with:
           command: cves
-          image: local://launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-debug-nonroot-amd64
+          image: local://launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian13-debug-nonroot-amd64
           exit-code: true
           only-fixed: true
           write-comment: false
