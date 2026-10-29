@@ -153,7 +153,7 @@ note over LD: LaunchDarkly is down
 note over Relay Proxy: Backoff and retry
 Relay Proxy-xLD: Streaming request /all - FAILED
 SDK1-xRelay Proxy: Streaming request /all - FAILED
-note over Relay Proxy: 10 second initTimeout elapses, stop retry
+note over Relay Proxy: 10 second initTimeout elapses, keep retrying in background
 Relay Proxy->>Persistent Store: Get all flags
 SDK1->>Relay Proxy: Streaming request /all
 note over Relay Proxy: TTL fresh, serve from memory

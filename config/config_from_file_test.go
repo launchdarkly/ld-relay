@@ -63,31 +63,31 @@ Unknown = x`,
 
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
+			makeConfig: func(c *Config) { c.Main.ExitAlways = true },
 			fileContent: `[Main]
-ExitOnError = true`,
+ExitAlways = true`,
 		})
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
+			makeConfig: func(c *Config) { c.Main.ExitAlways = true },
 			fileContent: `[Main]
-ExitOnError = 1`,
+ExitAlways = 1`,
 		})
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
+			makeConfig: func(c *Config) { c.Main.ExitAlways = false },
 			fileContent: `[Main]
-ExitOnError = false`,
+ExitAlways = false`,
 		})
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
+			makeConfig: func(c *Config) { c.Main.ExitAlways = false },
 			fileContent: `[Main]
-ExitOnError = 0`,
+ExitAlways = 0`,
 		})
 	})
 
 	t.Run("rejects invalid boolean value", func(t *testing.T) {
 		testFileWithInvalidConfig(t,
 			`[Main]
-ExitOnError = "x"`,
+ExitAlways = "x"`,
 			"failed to parse bool `x`",
 		)
 	})

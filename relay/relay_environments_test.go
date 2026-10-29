@@ -237,6 +237,31 @@ func TestRelayWaitForAllEnvironments(t *testing.T) {
 	})
 }
 
+func TestRelayExitAlways(t *testing.T) {
+	config := c.Config{
+		Main:        c.MainConfig{ExitAlways: true},
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
+	}
+
+	t.Run("succeeds if all environments initialize successfully", func(t *testing.T) {
+		relay, err := makeBasicRelay(config)
+		require.NoError(t, err)
+		relay.Close()
+	})
+
+	t.Run("fails if any environment does not initialize successfully", func(t *testing.T) {
+		for _, badEnv := range []st.TestEnv{st.EnvMain, st.EnvMobile} {
+			t.Run(badEnv.Name, func(t *testing.T) {
+				_, err := newRelayInternal(config, relayInternalOptions{
+					clientFactory: oneEnvFails(badEnv.Config.SDKKey, false, nil),
+					logger:        slog.Default(),
+				})
+				assert.ErrorIs(t, err, errSomeEnvironmentFailed)
+			})
+		}
+	})
+}
+
 func TestRelayUninitializedEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
