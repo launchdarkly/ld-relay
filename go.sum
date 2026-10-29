@@ -208,8 +208,8 @@ github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.2.0 h1:yT3skSXnTMPvcIt/Oz
 github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.2.0/go.mod h1:TlNMB48dwNz+sewt+zsCrboZLMJj4Dov8Msg/cLv5GM=
 github.com/launchdarkly/go-server-sdk-redis-redigo/v4 v4.0.1 h1:mHHM0mzgo1lQuKobe12TPf7saSCWiDTBj6eLoRu1IJY=
 github.com/launchdarkly/go-server-sdk-redis-redigo/v4 v4.0.1/go.mod h1:+2sP9gBpizv76Yt1Kz5GlvbLk6lIICycDw7Y6PlB3ww=
-github.com/launchdarkly/go-server-sdk/v7 v7.21.1 h1:UcdGGZ7coe+nWKah8ImVc1tkkqcSkmjcLlTlSTXMc9s=
-github.com/launchdarkly/go-server-sdk/v7 v7.21.1/go.mod h1:r74+BfJfMRrfrEZ6ftZA8kviw+2tzvAAyXN5g6jwSxA=
+github.com/launchdarkly/go-server-sdk/v7 v7.21.2 h1:jfWME+RjPntxbT4CkgcBH6ugA9XYmlxDUTYUHgIDcZw=
+github.com/launchdarkly/go-server-sdk/v7 v7.21.2/go.mod h1:nNElVXH1q2NQgsfwiWy2n7QVWSqvyEG9mZIFVgtnYew=
 github.com/launchdarkly/go-test-helpers/v2 v2.3.2 h1:WX6qSzt7v8xz6d94nVcoil9ljuLTC/6OzQt0MhWYxsQ=
 github.com/launchdarkly/go-test-helpers/v2 v2.3.2/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
 github.com/launchdarkly/go-test-helpers/v3 v3.1.0 h1:E3bxJMzMoA+cJSF3xxtk2/chr1zshl1ZWa0/oR+8bvg=
