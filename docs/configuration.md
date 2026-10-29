@@ -70,7 +70,7 @@ For **Duration** settings, the value should be be an integer followed by `ms`, `
 
 _(1)_ The default values for `streamUri`, `baseUri`, and `clientSideBaseUri` are `https://stream.launchdarkly.com`, `https://sdk.launchdarkly.com`, and `https://clientsdk.launchdarkly.com`, respectively. You should never need to change these URIs unless you are either using a special instance of the LaunchDarkly service, in which case Support will tell you how to set them, or you are accessing LaunchDarkly using a reverse proxy or some other mechanism that rewrites URLs.
 
-_(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags. This is only useful if you have enabled Redis or another database, so that it will store the flags there.
+_(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags. This is only useful if you have enabled Redis or another database, so that it will store the flags there. In this mode, if `initTimeout` elapses before an environment has connected, that environment is treated as having failed, and the Relay Proxy exits with a non-zero code.
 
 _(3)_ The optional `maxClientConnectionTime` setting may be useful in load-balanced environments, to avoid having stream connections pile up excessively on one instance when other instances are removed or restarted. If you tell the Relay Proxy to automatically close every stream connection after some amount of time, this will cause the SDK client that made the connection to reconnect, so that the load balancer can potentially direct it to a different instance.
 

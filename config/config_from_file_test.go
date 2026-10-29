@@ -61,6 +61,20 @@ Unknown = x`,
 		)
 	})
 
+	// these options were removed, so they now fail like any other unknown field
+	t.Run("raises error for removed config fields", func(t *testing.T) {
+		testFileWithInvalidConfig(t,
+			`[Main]
+ExitOnError = true`,
+			`unsupported or misspelled section "Main", variable "ExitOnError"`,
+		)
+		testFileWithInvalidConfig(t,
+			`[Main]
+IgnoreConnectionErrors = true`,
+			`unsupported or misspelled section "Main", variable "IgnoreConnectionErrors"`,
+		)
+	})
+
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
 		testFileWithValidConfig(t, testDataValidConfig{
 			makeConfig: func(c *Config) { c.Main.ExitAlways = true },

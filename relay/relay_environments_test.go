@@ -260,6 +260,19 @@ func TestRelayExitAlways(t *testing.T) {
 			})
 		}
 	})
+
+	// the failing environment doesn't finish until the successful one already has, so Relay would
+	// exit too soon (with a nil error) if it stopped waiting at the first environment
+	t.Run("waits for all environments to finish before exiting", func(t *testing.T) {
+		gateCh := make(chan struct{})
+		time.AfterFunc(100*time.Millisecond, func() { close(gateCh) })
+
+		_, err := newRelayInternal(config, relayInternalOptions{
+			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, false, gateCh),
+			logger:        slog.Default(),
+		})
+		assert.ErrorIs(t, err, errSomeEnvironmentFailed)
+	})
 }
 
 func TestRelayUninitializedEnvironment(t *testing.T) {
