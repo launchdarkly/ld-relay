@@ -20,6 +20,7 @@ var (
 	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
 	errRedisConnectTimeout             = errors.New("connect timeout for Redis must be greater than zero")
 	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
+	errExitAlwaysWithoutInitTimeout    = errors.New("init timeout must be greater than zero when exitAlways is enabled")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc", "http/protobuf" or "http/json" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
@@ -85,6 +86,7 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 
 	validateConfigDefaultURLs(c)
 	validateConfigTLS(&result, c)
+	validateExitAlwaysInitTimeout(&result, c)
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, logger)
 	validateAutoConfigCache(&result, c)
@@ -126,6 +128,15 @@ func validateConfigDefaultURLs(c *Config) {
 func validateConfigTLS(result *ct.ValidationResult, c *Config) {
 	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
 		result.AddError(nil, errTLSEnabledWithoutCertOrKey)
+	}
+}
+
+// validateExitAlwaysInitTimeout rejects a non-positive initTimeout in one-shot mode. The SDK does not
+// wait at all for such a timeout and reports success, so Relay would exit 0 before any environment
+// had received flag data.
+func validateExitAlwaysInitTimeout(result *ct.ValidationResult, c *Config) {
+	if c.Main.ExitAlways && c.Main.InitTimeout.IsDefined() && c.Main.InitTimeout.GetOrElse(0) <= 0 {
+		result.AddError(nil, errExitAlwaysWithoutInitTimeout)
 	}
 }
 

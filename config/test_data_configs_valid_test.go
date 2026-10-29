@@ -74,6 +74,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
+		makeValidConfigZeroInitTimeoutWithoutExitAlways(),
 		makeValidConfigMaxInboundPayloadSize("50KiB"),
 		makeValidConfigMaxInboundPayloadSize("7MiB"),
 		makeValidConfigMaxInboundPayloadSize("10GiB"),
@@ -369,6 +370,21 @@ func makeValidConfigOfflineModeMinimal() testDataValidConfig {
 [OfflineMode]
 FileDataSource = my-file-path
 `
+	return c
+}
+
+func makeValidConfigZeroInitTimeoutWithoutExitAlways() testDataValidConfig {
+	c := testDataValidConfig{name: "init timeout of zero without exitAlways"}
+	c.makeConfig = func(c *Config) {
+		c.Main.InitTimeout = ct.NewOptDuration(0)
+	}
+	c.envVars = map[string]string{
+		"INIT_TIMEOUT": "0s",
+	}
+	c.fileContent = `
+[Main]
+InitTimeout = 0s`
+
 	return c
 }
 
