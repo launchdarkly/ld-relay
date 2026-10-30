@@ -94,7 +94,7 @@ jobs:
           dry-run: 'false'
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.release-please.outputs.tag_name }}
-          update-major-tag: ${{ env.IS_DEFAULT_BRANCH }}
+          update-major-tag: 'true'
           update-latest-tag: ${{ env.IS_DEFAULT_BRANCH }}
 
       - name: Attest binary artifacts
