@@ -207,9 +207,7 @@ func TestFileUpdatedWithInvalidDataAndThenValidData(t *testing.T) {
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
-		// Because writeArchive updates the file in-place, we expect several file watch events to be triggered
-		// in a row as the data is written incrementally, so this should exercise our logic for retrying after
-		// consecutive errors.
+		// The valid archive replaces the malformed one, so the manager must recover from the failed reload.
 
 		p.expectEnvironmentsUpdated(testEnv1a)
 		p.expectReloaded()

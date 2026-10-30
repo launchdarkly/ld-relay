@@ -10,6 +10,13 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 )
 
+// projEnvKey is a composite key for looking up environments by project key and environment key.
+// This is only available in auto-config mode where environments have project and environment metadata.
+type projEnvKey struct {
+	projKey string
+	envKey  string
+}
+
 // EnvironmentLookup is responsible for maintaining a mapping between incoming requests from SDKs, and
 // outbound connections to LaunchDarkly.
 //
@@ -33,21 +40,13 @@ import (
 // and conns holds the two environments themselves. An environment that accepts several SDK keys
 // (from a concurrent-keys payload or a rotation in progress) has one entry per accepted key, all
 // pointing at the same environment.
-// projEnvKey is a composite key for looking up environments by project key and environment key.
-// This is only available in auto-config mode where environments have project and environment metadata.
-type projEnvKey struct {
-	projKey string
-	envKey  string
-}
-
 type EnvironmentLookup struct {
-	// mapping maps {credential, filter} keys to environment connections.
+	// mapping maps each accepted credential to its environment connection.
 	mapping map[credential.SDKCredential]relayenv.EnvContext
 	// conns is the set of unique environment connections
 	conns map[relayenv.EnvContext]struct{}
 
 	// Identifier-based indexes for status endpoint lookups.
-	// Each environment can have multiple filter variants, so values are slices.
 	// envIDIndex maps an environment ID to its environment (auto-config mode)
 	envIDIndex map[config.EnvironmentID]relayenv.EnvContext
 	// configNameIndex maps a configured name to its environment (manual config mode)
