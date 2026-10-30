@@ -1,0 +1,27 @@
+name: Security Scan (Alpine, v8)
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+
+jobs:
+  scan-relay:
+    strategy:
+      matrix:
+        tag: ['v8', 'v8-alpine']
+      fail-fast: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_RO_TOKEN }}
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
+        with:
+          command: cves
+          image: launchdarkly/ld-relay:${{ matrix.tag }}
+          exit-code: true
+          only-fixed: true
+          write-comment: false
