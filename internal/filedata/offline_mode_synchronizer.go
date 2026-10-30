@@ -12,6 +12,12 @@ import (
 )
 
 // simpleBroadcaster is a simple implementation of a broadcaster for changeSets and status updates.
+//
+// Each listener has a one-slot mailbox. Every update made visible to a listener replaces any
+// still-unread one, so a listener that cannot keep up loses only intermediate updates, never the
+// newest one. The synchronizers this serves both carry fully-replacing snapshots -- a changeSet and
+// a status each describe the whole current state -- so what a listener reads next after any burst
+// is the newest broadcast, which is what correctness depends on here.
 type simpleBroadcaster[T any] struct {
 	mu        sync.RWMutex
 	listeners []chan T
@@ -26,7 +32,7 @@ func newSimpleBroadcaster[T any]() *simpleBroadcaster[T] {
 func (b *simpleBroadcaster[T]) AddListener() <-chan T {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	ch := make(chan T, 10)
+	ch := make(chan T, 1)
 	b.listeners = append(b.listeners, ch)
 	return ch
 }
@@ -45,14 +51,32 @@ func (b *simpleBroadcaster[T]) RemoveListener(ch <-chan T) {
 	}
 }
 
+// Broadcast makes value visible to every listener. It never blocks on a slow listener: a listener
+// whose mailbox still holds an unread older update has that update replaced, so the listener's
+// next receive yields the newest value. To keep the replace atomic across concurrent broadcasts
+// it takes the write lock rather than a read lock; the broadcaster has few listeners and the
+// broadcasts are rare, so the cost is nil in practice.
 func (b *simpleBroadcaster[T]) Broadcast(value T) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	for _, ch := range b.listeners {
 		select {
 		case ch <- value:
 		default:
-			// If channel is full, skip this listener
+			// The mailbox holds an unread older update. Replace it, so the listener's next receive
+			// yields this newest value. Holding the write lock makes the pop-then-send atomic
+			// against other Broadcast calls and against RemoveListener; a receiving consumer reads
+			// by value and never mutates the mailbox contents, so it cannot race the swap.
+			select {
+			case <-ch:
+			default:
+			}
+			select {
+			case ch <- value:
+			default:
+				// Unreachable while the mailbox is one slot. Fall back to silently skipping the
+				// value rather than blocking if that ever stops holding.
+			}
 		}
 	}
 }
