@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -256,6 +257,32 @@ func makeChecksumFileInvalidInArchive(dirPath string) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+// renameEnvFilesInArchive gives an environment's files a name that does not match the envID
+// embedded in its JSON, and recomputes the checksum over the resulting file names.
+func renameEnvFilesInArchive(dirPath string, from, to config.EnvironmentID, otherEnvIDs ...config.EnvironmentID) {
+	for _, paths := range [][2]string{
+		{envMetadataFilePath(dirPath, from), envMetadataFilePath(dirPath, to)},
+		{envSDKDataFilePath(dirPath, from), envSDKDataFilePath(dirPath, to)},
+	} {
+		if err := os.Rename(paths[0], paths[1]); err != nil {
+			panic(err)
+		}
+	}
+	rehash(dirPath, append([]config.EnvironmentID{to}, otherEnvIDs...)...)
+}
+
+func countTempArchiveDirs(t *testing.T, tempDirPath string) int {
+	entries, err := os.ReadDir(tempDirPath)
+	require.NoError(t, err)
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "ld-relay-") {
+			count++
+		}
+	}
+	return count
 }
 
 func rehash(dirPath string, envIDs ...config.EnvironmentID) {
