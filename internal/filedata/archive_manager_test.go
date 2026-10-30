@@ -102,7 +102,7 @@ func TestFileUpdatedWithValidDataAddedEnvironment(t *testing.T) {
 
 		p.expectEnvironmentsAdded(testEnv1)
 
-		writeArchive(t, p.filePath, false, nil, testEnv1, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1, testEnv2)
 
 		p.expectEnvironmentsAdded(testEnv2)
 		p.expectReloaded()
@@ -138,7 +138,7 @@ func TestFileUpdatedWithValidDataUpdatedEnvironmentMetadataOnly(t *testing.T) {
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		testEnv1a := testEnv1.withMetadataChange()
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a.withoutSDKData())
 		p.expectReloaded()
@@ -154,7 +154,7 @@ func TestFileUpdatedWithValidDataUpdatedEnvironmentSDKData(t *testing.T) {
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		testEnv1a := testEnv1.withSDKDataChange()
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a)
 		p.expectReloaded()
@@ -169,7 +169,7 @@ func TestFileUpdatedWithValidDataDeletedEnvironment(t *testing.T) {
 
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
-		writeArchive(t, p.filePath, false, nil, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv2)
 
 		p.expectEnvironmentsDeleted(testEnv1.rep.EnvID)
 		p.expectReloaded()
@@ -205,7 +205,7 @@ func TestFileUpdatedWithInvalidDataAndThenValidData(t *testing.T) {
 		requireLogMessage(t, p.mockLog, slog.LevelWarn, "file is invalid")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		// Because writeArchive updates the file in-place, we expect several file watch events to be triggered
 		// in a row as the data is written incrementally, so this should exercise our logic for retrying after
@@ -229,7 +229,7 @@ func TestFileDeletedAndThenRecreatedWithValidData(t *testing.T) {
 		requireLogMessage(t, p.mockLog, slog.LevelError, "not found")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a)
 		p.expectReloaded()
@@ -253,7 +253,7 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 		requireLogMessage(t, p.mockLog, slog.LevelWarn, "file is invalid")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a)
 		p.expectReloaded()
@@ -287,14 +287,14 @@ func TestRefusedEnvironmentIsRetriedWhenACorrectedFileKeepsTheSameVersion(t *tes
 		p.messageHandler.refuseEnvironment(testEnv1.rep.EnvID, errors.New("malformed credential payload"))
 
 		testEnv1a := testEnv1.withMetadataChange()
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 		p.expectEnvironmentsUpdated(testEnv1a.withoutSDKData())
 		p.expectReloaded()
 
 		// The operator corrects the archive. The content is the same shape as the refused one, so the
 		// environment's version and data ID are unchanged; only the file's mtime moves.
 		p.messageHandler.acceptEnvironment(testEnv1.rep.EnvID)
-		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a.withoutSDKData())
 		p.expectReloaded()

@@ -1138,13 +1138,6 @@ func (q envContextStoreQueries) Snapshot() (map[ldstoretypes.DataKind][]ldstoret
 	return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{}, subsystems.NoSelector(), nil
 }
 
-func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
-		return s.GetAll(kind)
-	}
-	return nil, nil
-}
-
 func (u *envContextStreamUpdates) handleBigSegments(events []subsystems.Change) {
 	if !u.context.bigSegmentSyncConfigured() {
 		return
