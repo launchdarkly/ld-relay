@@ -171,11 +171,15 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 	})
 }
 
+// writeAtomicArchive writes an archive that never exists in a partial or missing state at its
+// final path, so a concurrent poll of the file (the manager's reload check) can only observe
+// whole archives. Rendering the archive to a temporary sibling first also means each visible
+// state of the target corresponds to exactly one write, rather than to every tick that lands
+// inside a slow tar write -- the source of duplicate reload echoes under load.
 func writeAtomicArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
 	tmpFilePath := fmt.Sprintf("%s.%d", filePath, time.Now().UnixNano())
 	writeArchive(t, tmpFilePath, compressed, modifyFn, envs...)
-	// do this as an atomic operation
-	os.Rename(tmpFilePath, filePath)
+	require.NoError(t, os.Rename(tmpFilePath, filePath), "atomic archive move failed")
 }
 
 func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
