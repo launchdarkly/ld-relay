@@ -449,6 +449,20 @@ func (a *apiHelper) createBigSegment(
 	userKeysIncluded []string,
 	userKeysIncludedViaRule []string,
 ) error {
+	if err := a.createBigSegmentWithoutTargets(project, env, segmentKey, userKeysIncludedViaRule); err != nil {
+		return err
+	}
+	return a.addBigSegmentTargets(project, env, segmentKey, userKeysIncluded)
+}
+
+// createBigSegmentWithoutTargets creates a big segment and its rule, but does not add any users to
+// the big segment data. Use addBigSegmentTargets to add them.
+func (a *apiHelper) createBigSegmentWithoutTargets(
+	project projectInfo,
+	env environmentInfo,
+	segmentKey string,
+	userKeysIncludedViaRule []string,
+) error {
 	userSegmentBody := ldapi.SegmentBody{
 		Key:       segmentKey,
 		Name:      segmentKey,
@@ -481,11 +495,19 @@ func (a *apiHelper) createBigSegment(
 			return err
 		}
 	}
+	return nil
+}
 
+func (a *apiHelper) addBigSegmentTargets(
+	project projectInfo,
+	env environmentInfo,
+	segmentKey string,
+	userKeysIncluded []string,
+) error {
 	updates := ldapi.SegmentUserState{
 		Included: &ldapi.SegmentUserList{Add: userKeysIncluded},
 	}
-	_, err = a.apiClient.SegmentsApi.
+	_, err := a.apiClient.SegmentsApi.
 		UpdateBigSegmentTargets(a.apiContext, project.key, env.key, segmentKey).
 		SegmentUserState(updates).
 		Execute()
