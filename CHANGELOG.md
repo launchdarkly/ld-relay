@@ -2,6 +2,24 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.9...v9.0.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* Remove the exitOnError and ignoreConnectionErrors options ([#954](https://github.com/launchdarkly/ld-relay/issues/954))
+
+### Features
+
+* Remove the exitOnError and ignoreConnectionErrors options ([#954](https://github.com/launchdarkly/ld-relay/issues/954)) ([9d9bb77](https://github.com/launchdarkly/ld-relay/commit/9d9bb7792478496ac56ba66e756f6e911e194086))
+
+
+### Bug Fixes
+
+* Build the Docker images on distroless static-debian13 ([#951](https://github.com/launchdarkly/ld-relay/issues/951)) ([f77f328](https://github.com/launchdarkly/ld-relay/commit/f77f328ce489dd091f6b043884ac654048df5dc8))
+* Keep the newest offline-mode update when a listener cannot keep up ([#960](https://github.com/launchdarkly/ld-relay/issues/960)) ([81a9ba7](https://github.com/launchdarkly/ld-relay/commit/81a9ba7805b2df27aa33f788c2424a2ab0a8ad23))
+* Update go-server-sdk to v7.21.2 ([#953](https://github.com/launchdarkly/ld-relay/issues/953)) ([4353ab9](https://github.com/launchdarkly/ld-relay/commit/4353ab92f57af6383308c8cccdb1bb6879fa080e))
+
 ## [9.0.0-rc.9](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.8...v9.0.0-rc.9) (2026-10-28)
 
 
