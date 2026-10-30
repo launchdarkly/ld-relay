@@ -6,7 +6,7 @@ import (
 )
 
 // The broadcaster's newest-value guarantee is what keeps an offline-mode SDK correct when it
-// cannot keep up with archive reloads: every changeSet and status is a full snapshot, so a
+// cannot keep up with archive reloads: every changeSet is a full transfer, so a
 // listener that loses intermediate updates only loses latency, never a version -- as long as
 // the newest broadcast always survives. These tests pin exactly that.
 
@@ -17,7 +17,7 @@ func TestSimpleBroadcasterNewestValueSurvivesSlowListener(t *testing.T) {
 	defer b.RemoveListener(chA)
 	defer b.RemoveListener(chB)
 
-	// Broadcast 12 values while neither listener reads. The mailbox holds one slot, so each
+	// Broadcast 45 values while neither listener reads. The mailbox holds one slot, so each
 	// listener must wake holding 45, the last value: an intermediate one would strand the
 	// listener on stale state forever if no further updates ever came.
 	for i := 1; i <= 45; i++ {
@@ -48,12 +48,17 @@ func TestSimpleBroadcasterListenerDoesNotBlockBroadcaster(t *testing.T) {
 
 	// A listener that never reads must not slow the broadcast path, and later broadcasts must
 	// still make it past the stalled listener -- being visible when it resumes.
-	deadline := time.Now().Add(2 * time.Second)
-	for i := 0; i < 1000; i++ {
-		b.Broadcast(i)
-	}
-	if time.Now().After(deadline) {
-		t.Fatalf("1000 broadcasts to a non-reading listener took too long")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 1000; i++ {
+			b.Broadcast(i)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("1000 broadcasts to a non-reading listener did not finish; Broadcast blocked")
 	}
 
 	select {
