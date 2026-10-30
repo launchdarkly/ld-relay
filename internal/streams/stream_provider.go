@@ -48,7 +48,7 @@ type StreamProvider interface {
 	// implementation of EnvStreamProvider for pushing updates related to that environment. It can
 	// return nil if it does not support this type of credential.
 	//
-	// This method is used for the old FDv2 protocol.
+	// This method is used for the FDv2 protocol, the data-system protocol v9 adds.
 	RegisterV2(credential credential.SDKCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
 
 	// Close tells the StreamProvider to release all of its resources and close all connections.
@@ -185,10 +185,11 @@ func (l sseLogger) Println(v ...interface{}) {
 	l.log.Debug("stream connection write ended", "detail", fmt.Sprint(v...))
 }
 
-// isDeadlineExceeded identifies a write-deadline expiry. The eventsource encoder wraps the
-// write error with a plain verb, not with %w, and that breaks the errors.Is chain. For that
-// reason this function also examines the error text. The text of os.ErrDeadlineExceeded is
-// "i/o timeout", and a net.Conn deadline expiry carries that text on every platform.
+// isDeadlineExceeded identifies a write-deadline expiry. Since eventsource v1.14.1 the encoder
+// wraps the write error with %w, so errors.Is reaches the underlying net error, and the text check
+// is belt-and-braces only, kept because the eventsource package sits under our logger and its
+// wrapping could regress again. The text of os.ErrDeadlineExceeded is "i/o timeout", and a
+// net.Conn deadline expiry carries that text on every platform.
 func isDeadlineExceeded(err error) bool {
 	return errors.Is(err, os.ErrDeadlineExceeded) ||
 		strings.Contains(err.Error(), os.ErrDeadlineExceeded.Error())

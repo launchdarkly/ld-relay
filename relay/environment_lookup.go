@@ -13,49 +13,26 @@ import (
 // EnvironmentLookup is responsible for maintaining a mapping between incoming requests from SDKs, and
 // outbound connections to LaunchDarkly.
 //
-// Complexity is present for two reasons:
-//  1. A configured LaunchDarkly connection can be authenticated in one or more ways: SDK key, mobile key,
-//     client-side environment ID.
-//     This component must be able to accept any of these credentials and find the correct environment.
-//  2. Payload filtering results in extra bookkeeping: if a payload filter is specified for a project,
-//     then Relay must maintain individual streaming connections for each variant of environments within that project
-//     (unfiltered, filter X, filter Y...).
-//     These environments share all the same credentials and most of the configuration, but are fundamentally different
-//     due to the filter key tacked onto the request URL.
+// A configured LaunchDarkly connection can be authenticated in one or more ways: SDK key, mobile key,
+// or client-side environment ID, and, in v9, several of each kind can be accepted at once. This
+// component must be able to accept any of these credentials and find the correct environment.
 //
-// Because of these two issues, the lookup is based on a composite key: the combination of a credential and a filter.
-// If there is no filter, then the filter component is an empty string.
+// The credential mapping is one entry per accepted credential, and the conns set holds each unique
+// environment connection exactly once. Identifier-based indexes (environment ID, configured name,
+// and project/environment key pairs) make the status endpoints able to address an environment
+// without knowing its credentials.
 //
 // As an example, assume two environments are configured (envA and envB).
 // Both are authenticated with an SDK key, mobile key, and environment ID.
 //
-// The map has 6 entries:
+// The credential map has 6 entries:
 //
-//	#1 {envA SDK key, ""}    ----v
-//	#2 {envA mobile key, ""} --> envA[filter=""]
-//	#3 {envA env-ID, ""}     ----^
+//	envA SDK key, envA mobile key, envA env-ID -> envA
+//	envB SDK key, envB mobile key, envB env-ID -> envB
 //
-//	#4 {envB SDK key, ""}    ----v
-//	#5 {envB mobile key, ""} --> envB[filter=""]
-//	#6 {envB env-ID, ""}     ----^
-//
-// Assume both environments belong to the same project, and then a filter "foo" is added to this project.
-// Here's a diff, for a total of 12 entries:
-//
-//	+#7 {envA SDK key, "foo"}     ----v
-//	+#8 {envA mobile key, "foo"}  --> envA[filter="foo"]
-//	+#9 {envA env ID, "foo"}      ----^
-//
-//	+#10 {envB SDK key, "foo"}    ----v
-//	+#11 {envB mobile key, "foo"} --> envB[filter="foo"]
-//	+#12 {envB env-ID, "foo"}     ----^
-//
-// The relationship between envA[filter=""] and envA[filter="foo"] is that both environments share the
-// exact same credentials, but the objects themselves represent distinct connections.
-//
-// As shown, given N environments in a project, and M filters for that project, then N*(M+1) environment connections are
-// maintained: N=2, M=1, count = 2*(1+1) = 4.
-
+// and conns holds the two environments themselves. An environment that accepts several SDK keys
+// (from a concurrent-keys payload or a rotation in progress) has one entry per accepted key, all
+// pointing at the same environment.
 // projEnvKey is a composite key for looking up environments by project key and environment key.
 // This is only available in auto-config mode where environments have project and environment metadata.
 type projEnvKey struct {
