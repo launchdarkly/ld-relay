@@ -178,9 +178,7 @@ type ConcurrencyConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type MainConfig struct {
-	ExitOnError                      bool                     `conf:"EXIT_ON_ERROR"`
 	ExitAlways                       bool                     `conf:"EXIT_ALWAYS"`
-	IgnoreConnectionErrors           bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
 	StreamURI                        ct.OptURLAbsolute        `conf:"STREAM_URI"`
 	BaseURI                          ct.OptURLAbsolute        `conf:"BASE_URI"`
 	ClientSideBaseURI                ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`

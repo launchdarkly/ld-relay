@@ -97,6 +97,24 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
+	t.Run("EXIT_ON_ERROR", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{
+				"EXIT_ON_ERROR": "true",
+			},
+			"EXIT_ON_ERROR: this variable is no longer supported",
+		)
+	})
+
+	t.Run("IGNORE_CONNECTION_ERRORS", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{
+				"IGNORE_CONNECTION_ERRORS": "true",
+			},
+			"IGNORE_CONNECTION_ERRORS: this variable is no longer supported",
+		)
+	})
+
 	t.Run("EVENTS_SAMPLING_INTERVAL", func(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{
@@ -130,20 +148,20 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
-			envVars:    map[string]string{"EXIT_ON_ERROR": "true"},
+			makeConfig: func(c *Config) { c.Main.ExitAlways = true },
+			envVars:    map[string]string{"EXIT_ALWAYS": "true"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
-			envVars:    map[string]string{"EXIT_ON_ERROR": "1"},
+			makeConfig: func(c *Config) { c.Main.ExitAlways = true },
+			envVars:    map[string]string{"EXIT_ALWAYS": "1"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
-			envVars:    map[string]string{"EXIT_ON_ERROR": "false"},
+			makeConfig: func(c *Config) { c.Main.ExitAlways = false },
+			envVars:    map[string]string{"EXIT_ALWAYS": "false"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
-			envVars:    map[string]string{"EXIT_ON_ERROR": "0"},
+			makeConfig: func(c *Config) { c.Main.ExitAlways = false },
+			envVars:    map[string]string{"EXIT_ALWAYS": "0"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
 			makeConfig: func(c *Config) { c.HTTP.EnableCompression = true },
@@ -169,8 +187,8 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 	t.Run("rejects invalid boolean", func(t *testing.T) {
 		testInvalidConfigVars(t,
-			map[string]string{"EXIT_ON_ERROR": "not really"},
-			"EXIT_ON_ERROR: not a valid boolean",
+			map[string]string{"EXIT_ALWAYS": "not really"},
+			"EXIT_ALWAYS: not a valid boolean",
 		)
 	})
 

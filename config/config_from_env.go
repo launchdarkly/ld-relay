@@ -37,6 +37,8 @@ func LoadConfigFromEnvironmentBase(c *Config) ct.ValidationResult {
 	reader := ct.NewVarReaderFromEnvironment()
 
 	reader.ReadStruct(&c.Main, false)
+	rejectObsoleteVariableName("EXIT_ON_ERROR", "", reader)
+	rejectObsoleteVariableName("IGNORE_CONNECTION_ERRORS", "", reader)
 
 	reader.ReadStruct(&c.AutoConfig, false)
 

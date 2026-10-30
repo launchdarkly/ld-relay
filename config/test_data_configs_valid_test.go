@@ -74,6 +74,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
+		makeValidConfigZeroInitTimeoutWithoutExitAlways(),
 		makeValidConfigMaxInboundPayloadSize("50KiB"),
 		makeValidConfigMaxInboundPayloadSize("7MiB"),
 		makeValidConfigMaxInboundPayloadSize("10GiB"),
@@ -117,9 +118,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			BaseURI:                          newOptURLAbsoluteMustBeValid("http://base"),
 			ClientSideBaseURI:                newOptURLAbsoluteMustBeValid("http://clientbase"),
 			StreamURI:                        newOptURLAbsoluteMustBeValid("http://stream"),
-			ExitOnError:                      true,
 			ExitAlways:                       true,
-			IgnoreConnectionErrors:           true,
 			HeartbeatInterval:                ct.NewOptDuration(90 * time.Second),
 			MaxClientConnectionTime:          ct.NewOptDuration(30 * time.Minute),
 			MaxClientRequestBodySize:         mustOptBase2Bytes("5MiB"),
@@ -169,9 +168,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"BASE_URI":                            "http://base",
 		"CLIENT_SIDE_BASE_URI":                "http://clientbase",
 		"STREAM_URI":                          "http://stream",
-		"EXIT_ON_ERROR":                       "1",
 		"EXIT_ALWAYS":                         "1",
-		"IGNORE_CONNECTION_ERRORS":            "1",
 		"HEARTBEAT_INTERVAL":                  "90s",
 		"MAX_CLIENT_CONNECTION_TIME":          "30m",
 		"MAX_CLIENT_REQUEST_BODY_SIZE":        "5MiB",
@@ -212,9 +209,7 @@ Port = 8333
 BaseUri = "http://base"
 ClientSideBaseUri = "http://clientbase"
 StreamUri = "http://stream"
-ExitOnError = 1
 ExitAlways = 1
-IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
 MaxClientRequestBodySize = "5MiB"
@@ -375,6 +370,21 @@ func makeValidConfigOfflineModeMinimal() testDataValidConfig {
 [OfflineMode]
 FileDataSource = my-file-path
 `
+	return c
+}
+
+func makeValidConfigZeroInitTimeoutWithoutExitAlways() testDataValidConfig {
+	c := testDataValidConfig{name: "init timeout of zero without exitAlways"}
+	c.makeConfig = func(c *Config) {
+		c.Main.InitTimeout = ct.NewOptDuration(0)
+	}
+	c.envVars = map[string]string{
+		"INIT_TIMEOUT": "0s",
+	}
+	c.fileContent = `
+[Main]
+InitTimeout = 0s`
+
 	return c
 }
 

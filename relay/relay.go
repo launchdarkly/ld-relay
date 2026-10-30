@@ -292,9 +292,9 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			err := <-autoConfigResult
 			if err != nil {
 				// This channel only emits a non-nil error if it's an unrecoverable error, in which case
-				// Relay should quit. The ExitOnError option doesn't affect this, because a failure of
-				// auto-config is more serious than any environment-specific failure; Relay can't possibly
-				// do anything useful without a configuration. The StreamManager has already logged the
+				// Relay should quit. An environment that fails to initialize keeps retrying instead, but a
+				// failure of auto-config is more serious than any environment-specific failure; Relay can't
+				// possibly do anything useful without a configuration. The StreamManager has already logged the
 				// error by this point, so we just need to quit.
 				os.Exit(1)
 			}
@@ -607,9 +607,6 @@ func (r *Relay) waitForAllClients(timeout time.Duration) error {
 			if ctx.GetInitError() != nil {
 				failed = true
 			}
-			if r.config.Main.ExitOnError {
-				break // ExitOnError implies we shouldn't wait for more than one error
-			}
 		}
 		resultCh <- failed
 	}()
@@ -617,9 +614,6 @@ func (r *Relay) waitForAllClients(timeout time.Duration) error {
 	select {
 	case failed := <-resultCh:
 		if failed {
-			if r.config.Main.ExitOnError {
-				os.Exit(1) //nolint:gocritic // yes, we know "defer timer.Stop()" won't execute if we exit the process
-			}
 			return errSomeEnvironmentFailed
 		}
 		return nil

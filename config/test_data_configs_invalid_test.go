@@ -14,6 +14,8 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigCredentialCleanupInterval("0s"),
 		makeInvalidConfigCredentialCleanupInterval("-1s"),
 		makeInvalidConfigCredentialCleanupInterval("99ms"),
+		makeInvalidConfigExitAlwaysInitTimeout("0s"),
+		makeInvalidConfigExitAlwaysInitTimeout("-1s"),
 		makeInvalidConfigTLSWithNoCertOrKey(),
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
@@ -83,6 +85,18 @@ func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {
 MobileKey = mob-xxx
 `
 	c.fileError = `SDK key is required for environment "envname"`
+	return c
+}
+
+func makeInvalidConfigExitAlwaysInitTimeout(timeout string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "exitAlways with init timeout " + timeout}
+	c.envVarsError = errExitAlwaysWithoutInitTimeout.Error()
+	c.envVars = map[string]string{"EXIT_ALWAYS": "1", "INIT_TIMEOUT": timeout}
+	c.fileContent = `
+[Main]
+ExitAlways = true
+InitTimeout = ` + timeout + `
+`
 	return c
 }
 

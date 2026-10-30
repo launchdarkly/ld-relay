@@ -401,7 +401,7 @@ func NewEnvContext(
 	}
 
 	// Connecting may take time, so do this in parallel
-	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
+	go envContext.startSDKClient(envConfig.SDKKey, readyCh, false)
 
 	cleanupInterval := params.ExpiredCredentialCleanupInterval
 	if cleanupInterval == 0 { // 0 means it wasn't specified; the config system disallows 0 as a valid value.
