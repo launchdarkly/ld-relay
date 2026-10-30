@@ -363,9 +363,13 @@ All of these require an `Authorization` header whose value is the SDK key.
 | `/flags`                     | `GET`  |     `stream.`     | SSE stream for flag data (older SDKs)    |
 | `/sdk/flags`                 | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
 | `/sdk/flags/{flagKey}`       | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
+| `/sdk/poll`                  | `GET`  |      `sdk.`       | FDv2 polling endpoint                    |
 | `/sdk/segments/{segmentKey}` | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
+| `/sdk/stream`                | `GET`  |     `stream.`     | FDv2 SSE stream                          |
 
-For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
+For server-side SDKs other than PHP, polling mode is available only to SDKs that use the FDv2 data system, through `/sdk/poll`. All other server-side SDKs use the streaming endpoints.
+
+When the [initialization concurrency limit](./configuration.md#file-section-concurrency) is configured, each full data set that `/sdk/poll` or `/sdk/stream` delivers counts against it. `/sdk/poll` returns 503 when no slot is free, and `/sdk/stream` closes the connection so the SDK retries.
 
 The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
@@ -412,5 +416,14 @@ These endpoints also support the `OPTION` method to enable CORS requests from br
 | `/sdk/evalx/{envId}/users/{contextBase64}`    |  `GET`   |   `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts/{contextBase64}` used by older SDKs  |
 | `/sdk/evalx/{envId}/users`                    | `REPORT` |   `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts` used by older SDKs                  |
 | `/sdk/goals/{envId}`                          |  `GET`   |   `clientsdk.`    | Provides goals data used by JS SDK                                                   |
+
+The FDv2 endpoints below serve both mobile and JavaScript SDKs. The credential goes in the `Authorization` header, or in an `auth` query parameter for browsers that cannot set headers. The Relay Proxy treats a credential that starts with `mob-` as a mobile key, and any other value as a client-side environment ID. Unlike the other client-side JavaScript endpoints, these return 401 for an unrecognized credential.
+
+| Endpoint                           |  Method  | Proxied Subdomain | Description                                                        |
+|------------------------------------|:--------:|:-----------------:|--------------------------------------------------------------------|
+| `/sdk/poll/eval/{contextBase64}`   |  `GET`   |   `clientsdk.`    | FDv2 polling endpoint that evaluates all flags for the context     |
+| `/sdk/poll/eval`                   |  `POST`  |   `clientsdk.`    | Same as above, with the context as a JSON request body             |
+| `/sdk/stream/eval/{contextBase64}` |  `GET`   |  `clientstream.`  | FDv2 SSE stream that sends a `ping` event when flag data changes   |
+| `/sdk/stream/eval`                 |  `POST`  |  `clientstream.`  | Same as above, with the context as a JSON request body             |
 
 The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.
