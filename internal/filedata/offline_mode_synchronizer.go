@@ -12,6 +12,12 @@ import (
 )
 
 // simpleBroadcaster is a simple implementation of a broadcaster for changeSets and status updates.
+//
+// Each listener has a one-slot mailbox. Every update made visible to a listener replaces any
+// still-unread one, so a listener that cannot keep up loses only intermediate updates, never the
+// newest one. This is safe only for values that each describe the whole current state. Every
+// changeSet broadcast here is a full transfer that replaces the SDK's data set, so after any burst
+// the listener reads the newest data, which is what correctness depends on here.
 type simpleBroadcaster[T any] struct {
 	mu        sync.RWMutex
 	listeners []chan T
@@ -26,7 +32,7 @@ func newSimpleBroadcaster[T any]() *simpleBroadcaster[T] {
 func (b *simpleBroadcaster[T]) AddListener() <-chan T {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	ch := make(chan T, 10)
+	ch := make(chan T, 1)
 	b.listeners = append(b.listeners, ch)
 	return ch
 }
@@ -45,14 +51,32 @@ func (b *simpleBroadcaster[T]) RemoveListener(ch <-chan T) {
 	}
 }
 
+// Broadcast makes value visible to every listener. It never blocks on a slow listener: a listener
+// whose mailbox still holds an unread older update has that update replaced, so the listener's
+// next receive yields the newest value. To keep the replace atomic across concurrent broadcasts
+// it takes the write lock rather than a read lock; the broadcaster has few listeners and the
+// broadcasts are rare, so the cost is nil in practice.
 func (b *simpleBroadcaster[T]) Broadcast(value T) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	for _, ch := range b.listeners {
 		select {
 		case ch <- value:
 		default:
-			// If channel is full, skip this listener
+			// The mailbox holds an unread older update. Replace it, so the listener's next receive
+			// yields this newest value. Holding the write lock makes the pop-then-send atomic
+			// against other Broadcast calls and against RemoveListener; a receiving consumer reads
+			// by value and never mutates the mailbox contents, so it cannot race the swap.
+			select {
+			case <-ch:
+			default:
+			}
+			select {
+			case ch <- value:
+			default:
+				// Unreachable while the mailbox is one slot. Fall back to silently skipping the
+				// value rather than blocking if that ever stops holding.
+			}
 		}
 	}
 }
@@ -225,16 +249,17 @@ func (s *OfflineModeSynchronizer) makeChangeSetFromCollections(
 
 // UpdateData allows external updates to the data (e.g., when the archive file changes).
 func (s *OfflineModeSynchronizer) UpdateData(collections []ldstoretypes.Collection) error {
-	// Acquire lock before version increment to ensure atomicity of the entire operation
+	// Hold the lock through the broadcast. Otherwise two concurrent calls can broadcast in the
+	// opposite order to their versions, and the older changeSet replaces the newer one in each
+	// listener's mailbox. Broadcast never blocks, so holding the lock is safe.
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	changeSet, err := s.makeChangeSetFromCollections(collections)
 	if err != nil {
-		s.mu.Unlock()
 		return err
 	}
 	s.currentChangeSet = changeSet
 	s.initError = nil // Clear any previous initialization error
-	s.mu.Unlock()
 
 	s.changeSetBroadcaster.Broadcast(*changeSet)
 	return nil
