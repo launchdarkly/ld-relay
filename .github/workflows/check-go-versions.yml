@@ -13,7 +13,7 @@ jobs:
       pull-requests: write
     uses: launchdarkly/gh-actions/.github/workflows/sdk-go-versions.yml@main
     with:
-      branches: '["v9"]'
+      branches: '["v8", "v9"]'
       precision: latest
       pr_title_prefix: fix(deps)
       update_script: ./scripts/update-go-release-version.sh
