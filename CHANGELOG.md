@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.23.4](https://github.com/launchdarkly/ld-relay/compare/v8.23.3...v8.23.4) (2026-10-30)
+
+
+### Bug Fixes
+
+* Prevent a leaked streaming connection after back-to-back malformed events ([#948](https://github.com/launchdarkly/ld-relay/issues/948)) ([fb4cce3](https://github.com/launchdarkly/ld-relay/commit/fb4cce3e43a630e5393bca1ed7c026cd3147a54f))
+* Update go-server-sdk to v7.21.2 ([#952](https://github.com/launchdarkly/ld-relay/issues/952)) ([a81347c](https://github.com/launchdarkly/ld-relay/commit/a81347c6deb2c68e1d07ad3db32d85510b2ecd1b))
+* Update golang.org/x/net to v0.62.0 to address CVE-2026-78661 and CVE-2026-97045 ([#945](https://github.com/launchdarkly/ld-relay/issues/945)) ([005f174](https://github.com/launchdarkly/ld-relay/commit/005f17498669f17a03b86d2e00158fd72752231d))
+
 ## [8.23.3](https://github.com/launchdarkly/ld-relay/compare/v8.23.2...v8.23.3) (2026-10-23)
 
 
