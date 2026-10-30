@@ -363,9 +363,28 @@ All of these require an `Authorization` header whose value is the SDK key.
 | `/flags`                     | `GET`  |     `stream.`     | SSE stream for flag data (older SDKs)    |
 | `/sdk/flags`                 | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
 | `/sdk/flags/{flagKey}`       | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
+| `/sdk/poll`                  | `GET`  |      `sdk.`       | FDv2 polling endpoint: the current data set from the Relay Proxy, or a small up-to-date response (see below) |
 | `/sdk/segments/{segmentKey}` | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
+| `/sdk/stream`                | `GET`  |     `stream.`     | FDv2 SSE stream: a full data set on connect, then change events as the data updates |
 
-For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
+For server-side SDKs other than PHP, whether the Relay Proxy can serve polling mode depends on the SDK: SDKs that implement the FDv2 data system can poll with `/sdk/poll`, and all others use the streaming endpoints. An SDK that uses `/sdk/poll` should also use `/sdk/stream`, which carries the same data in FDv2 form.
+
+#### The FDv2 `sdk` endpoints
+
+The `/sdk/stream` and `/sdk/poll` endpoints are Relay's own implementation of the FDv2 data system, which carries a *selector* — a state id and a version — alongside the data. An SDK that already has the data set for the current selector state is answered with a small up-to-date response instead of the full payload:
+
+* On `/sdk/poll`, the SDK sends its current basis as a `basis` query parameter (for example `/sdk/poll?basis=myselectorstate`). If the Relay Proxy's selector state equals that basis, the response holds only a `server-intent` event with the reason `up-to-date`; otherwise it holds a `server-intent` event followed by one `put-object` event per flag or segment, and finally a `payload-transferred` event.
+* On `/sdk/stream`, an SDK that reconnects passes the same value as a `basis` query parameter; the Relay Proxy interprets it as the stream's `Last-Event-ID`.
+
+Both endpoints honor standard caching for polls: the response carries a weak `Etag` header, and a request with a matching `If-None-Match` gets an empty 304. Like the other data-serving endpoints, they return 503 for an environment that is not fully initialized. When the [initialization concurrency limit](./configuration.md#file-section-concurrency) is configured, a full-dataset delivery counts against that budget: `/sdk/poll` answers 503 when no slot is available, and a stream replay whose budget is exhausted is closed so the SDK retries on its own backoff schedule.
+
+Example `curl` requests (default local URI and port):
+
+```shell
+curl -G -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/poll --data-urlencode "basis=your-current-selector-state"
+
+curl -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/stream
+```
 
 The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
@@ -412,5 +431,21 @@ These endpoints also support the `OPTION` method to enable CORS requests from br
 | `/sdk/evalx/{envId}/users/{contextBase64}`    |  `GET`   |   `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts/{contextBase64}` used by older SDKs  |
 | `/sdk/evalx/{envId}/users`                    | `REPORT` |   `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts` used by older SDKs                  |
 | `/sdk/goals/{envId}`                          |  `GET`   |   `clientsdk.`    | Provides goals data used by JS SDK                                                   |
+
+The FDv2 client-side endpoints below use the same credential shape for mobile and JavaScript SDKs: the credential goes in the `Authorization` header, or in an `auth` query parameter for browsers that cannot set headers on cross-origin requests. The Relay Proxy treats a token starting with `mob-` as a mobile key and anything else as a client-side environment ID, so the same route serves both kinds of client-side SDK.
+
+| Endpoint                   |  Method  | Proxied Subdomain | Description                                                                                        |
+|----------------------------|:--------:|:-----------------:|----------------------------------------------------------------------------------------------------|
+| `/sdk/poll/eval/{contextBase64}` |  `GET`   |   `clientsdk.`    | FDv2 polling endpoint: evaluates all flag values for the given evaluation context                   |
+| `/sdk/poll/eval`           |  `POST`  |   `clientsdk.`    | Same as above, with the evaluation context as a JSON request body instead of the base64 path segment |
+| `/sdk/stream/eval/{contextBase64}` |  `GET`   |  `clientstream.`  | FDv2 SSE stream that issues a `ping` event when the flag data has changed                           |
+| `/sdk/stream/eval`         |  `POST`  |  `clientstream.`  | Same as above, with the evaluation context as a JSON request body                                   |
+
+Notes that apply to these endpoints:
+
+* `{contextBase64}` is a base64 URL-encoded evaluation context, exactly as in the `evalx` endpoints above. A `POST` to the bare path carries the same JSON object as the request body, with `Content-Type: application/json`.
+* Both polling endpoints accept the boolean `withReasons` query parameter to include evaluation reasons in each flag's response.
+* Like the other client-side endpoints, they support the `OPTIONS` method for CORS, and they return 401 for an unrecognized credential rather than 404. An evaluation body larger than [maxClientRequestBodySize](./configuration.md#file-section-main) is rejected with 413.
+* The `basis` query parameter has the same up-to-date meaning it has for `/sdk/poll` above: when the Relay Proxy's selector state equals the basis, the response reduces to an up-to-date reply instead of the full evaluation.
 
 The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.
