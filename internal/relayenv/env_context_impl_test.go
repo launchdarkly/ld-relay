@@ -25,6 +25,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
@@ -804,4 +806,37 @@ func ensureSynchronizerState(t *testing.T, synchronizer *mockBigSegmentSynchroni
 	require.Eventually(t, func() bool {
 		return synchronizer.isStarted() == expectedState
 	}, time.Second, 10*time.Millisecond, "timed out waiting for big segments synchronizer to start")
+}
+
+func TestEnvironmentLogLevel(t *testing.T) {
+	makeEnvLogger := func(t *testing.T, globalLevel slog.Level, envLevel config.OptLogLevel) (*slog.Logger, *logtest.MockHandler) {
+		mock := logtest.NewMockHandler()
+		logger := slog.New(logging.NewLevelHandler(mock, globalLevel))
+		envConfig := st.EnvMain.Config
+		envConfig.LogLevel = envLevel
+		env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), logger, nil)
+		t.Cleanup(func() { env.Close() })
+		mock.Reset()
+		return env.GetLogger(), mock
+	}
+
+	t.Run("uses the global level when no environment level is set", func(t *testing.T) {
+		envLogger, mock := makeEnvLogger(t, slog.LevelWarn, config.OptLogLevel{})
+		envLogger.Info("info message")
+		envLogger.Warn("warn message")
+		assert.Equal(t, []string{"warn message"}, mock.AllMessages())
+	})
+
+	t.Run("environment level can be higher than the global level", func(t *testing.T) {
+		envLogger, mock := makeEnvLogger(t, slog.LevelDebug, config.NewOptLogLevel(slog.LevelWarn))
+		envLogger.Info("info message")
+		envLogger.Warn("warn message")
+		assert.Equal(t, []string{"warn message"}, mock.AllMessages())
+	})
+
+	t.Run("environment level can be lower than the global level", func(t *testing.T) {
+		envLogger, mock := makeEnvLogger(t, slog.LevelWarn, config.NewOptLogLevel(slog.LevelDebug))
+		envLogger.Debug("debug message")
+		assert.Equal(t, []string{"debug message"}, mock.AllMessages())
+	})
 }

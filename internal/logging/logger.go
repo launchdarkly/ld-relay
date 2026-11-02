@@ -2,6 +2,7 @@ package logging
 
 import (
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 )
@@ -55,7 +56,9 @@ func NewLogger(opts ...Option) *slog.Logger {
 		cfg.levelVar = new(slog.LevelVar)
 	}
 
-	handlerOpts := &slog.HandlerOptions{Level: cfg.levelVar}
+	// The output handlers accept every level. The LevelHandler at the outside of the chain does
+	// the filtering, so that WithMinLevel can set a lower level for a derived logger.
+	handlerOpts := &slog.HandlerOptions{Level: slog.Level(math.MinInt)}
 
 	var stdoutHandler, stderrHandler slog.Handler
 	if strings.EqualFold(cfg.format, "json") {
@@ -72,5 +75,5 @@ func NewLogger(opts ...Option) *slog.Logger {
 		handler = NewMultiHandler(handler, cfg.otelHandler)
 	}
 
-	return slog.New(handler)
+	return slog.New(NewLevelHandler(handler, cfg.levelVar))
 }
