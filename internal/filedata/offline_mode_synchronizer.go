@@ -81,47 +81,63 @@ func (b *simpleBroadcaster[T]) Broadcast(value T) {
 	}
 }
 
+// OfflineModeData holds the current archive data. It outlives the synchronizers that read it: the
+// SDK can close a synchronizer and build a new one later, and each new synchronizer reads the
+// current data from here.
+type OfflineModeData struct {
+	mu                   sync.RWMutex
+	currentChangeSet     *subsystems.ChangeSet
+	initError            error
+	changeSetBroadcaster *simpleBroadcaster[subsystems.ChangeSet]
+	version              int // Protected by mu; no need for atomic since access is always under lock
+}
+
+// NewOfflineModeData creates the data holder from the archive's initial data.
+func NewOfflineModeData(initialData []ldstoretypes.Collection) *OfflineModeData {
+	d := &OfflineModeData{
+		changeSetBroadcaster: newSimpleBroadcaster[subsystems.ChangeSet](),
+	}
+
+	// Convert initial data to ChangeSet
+	changeSet, err := d.makeChangeSetFromCollections(initialData)
+	if err != nil {
+		d.initError = err
+	} else {
+		d.currentChangeSet = changeSet
+	}
+
+	return d
+}
+
+func (d *OfflineModeData) current() (*subsystems.ChangeSet, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.currentChangeSet, d.initError
+}
+
 // OfflineModeSynchronizerFactory creates a synchronizer that loads data from an external source
 // (the relay's archive file) without making any network connections.
 type OfflineModeSynchronizerFactory struct {
-	Synchronizer *OfflineModeSynchronizer
+	Data *OfflineModeData
 }
 
 // OfflineModeSynchronizer implements subsystems.DataSynchronizer for offline mode.
 // It loads pre-populated data from the archive file without connecting to LaunchDarkly.
 type OfflineModeSynchronizer struct {
-	mu                   sync.RWMutex
-	currentChangeSet     *subsystems.ChangeSet
-	initError            error
-	changeSetBroadcaster *simpleBroadcaster[subsystems.ChangeSet]
-	statusBroadcaster    *simpleBroadcaster[interfaces.DataSynchronizerStatus]
-	version              int // Protected by mu; no need for atomic since access is always under lock
-	quit                 chan struct{}
-	closed               atomic.Bool
+	data   *OfflineModeData
+	quit   chan struct{}
+	closed atomic.Bool
 }
 
-func NewOfflineModeSynchronizer(initialData []ldstoretypes.Collection) *OfflineModeSynchronizer {
-	s := &OfflineModeSynchronizer{
-		changeSetBroadcaster: newSimpleBroadcaster[subsystems.ChangeSet](),
-		statusBroadcaster:    newSimpleBroadcaster[interfaces.DataSynchronizerStatus](),
-		quit:                 make(chan struct{}),
-	}
-
-	// Convert initial data to ChangeSet
-	changeSet, err := s.makeChangeSetFromCollections(initialData)
-	if err != nil {
-		s.initError = err
-	} else {
-		s.currentChangeSet = changeSet
-	}
-
-	return s
-}
-
+// Build returns a new synchronizer each time. Close ends a synchronizer permanently, and the SDK
+// can build the synchronizer again after it closes it.
 func (f OfflineModeSynchronizerFactory) Build(
 	ctx subsystems.ClientContext,
 ) (subsystems.DataSynchronizer, error) {
-	return f.Synchronizer, nil
+	return &OfflineModeSynchronizer{
+		data: f.Data,
+		quit: make(chan struct{}),
+	}, nil
 }
 
 func (s *OfflineModeSynchronizer) Close() error {
@@ -138,10 +154,7 @@ func (s *OfflineModeSynchronizer) Name() string {
 
 // Fetch returns the current basis (full dataset) from the offline data source.
 func (s *OfflineModeSynchronizer) Fetch(ds subsystems.DataSelector, ctx context.Context) (*subsystems.Basis, bool, error) {
-	s.mu.RLock()
-	changeSet := s.currentChangeSet
-	initError := s.initError
-	s.mu.RUnlock()
+	changeSet, initError := s.data.current()
 
 	if initError != nil {
 		return nil, false, initError
@@ -160,19 +173,25 @@ func (s *OfflineModeSynchronizer) Fetch(ds subsystems.DataSelector, ctx context.
 // For offline mode, this immediately provides the data from the archive file.
 func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsystems.DataSynchronizerResult {
 	resultChan := make(chan subsystems.DataSynchronizerResult)
-	changeSetChan := s.changeSetBroadcaster.AddListener()
-	statusChan := s.statusBroadcaster.AddListener()
+	changeSetChan := s.data.changeSetBroadcaster.AddListener()
 
 	go func() {
 		defer close(resultChan)
-		defer s.changeSetBroadcaster.RemoveListener(changeSetChan)
-		defer s.statusBroadcaster.RemoveListener(statusChan)
+		defer s.data.changeSetBroadcaster.RemoveListener(changeSetChan)
+
+		// send gives up when the synchronizer closes, so that the goroutine does not block forever
+		// if the SDK stops reading before it calls Close.
+		send := func(result subsystems.DataSynchronizerResult) bool {
+			select {
+			case resultChan <- result:
+				return true
+			case <-s.quit:
+				return false
+			}
+		}
 
 		// Get initial data from stored state
-		s.mu.RLock()
-		changeSet := s.currentChangeSet
-		initError := s.initError
-		s.mu.RUnlock()
+		changeSet, initError := s.data.current()
 
 		result := subsystems.DataSynchronizerResult{
 			State: interfaces.DataSourceStateInitializing,
@@ -188,7 +207,9 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 			result.State = interfaces.DataSourceStateValid
 			result.ChangeSet = changeSet
 		}
-		resultChan <- result
+		if !send(result) {
+			return
+		}
 
 		// Listen for updates (in offline mode, these would be file changes)
 		for {
@@ -202,17 +223,9 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 				result.ChangeSet = &changeSet
 				result.State = interfaces.DataSourceStateValid
 				result.Error = interfaces.DataSourceErrorInfo{} // Clear any previous error
-				resultChan <- result
-			case statusChange, ok := <-statusChan:
-				if !ok {
+				if !send(result) {
 					return
 				}
-				if statusChange.State != interfaces.DataSourceStateValid {
-					result.ChangeSet = nil
-				}
-				result.State = statusChange.State
-				result.Error = statusChange.Error
-				resultChan <- result
 			}
 		}
 	}()
@@ -225,13 +238,13 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 // avoiding redundant conversions when the data is accessed later.
 //
 // IMPORTANT: This method must be called either:
-// - With s.mu held (when updating existing data), OR
-// - Before the synchronizer is shared across goroutines (during construction)
-func (s *OfflineModeSynchronizer) makeChangeSetFromCollections(
+// - With d.mu held (when updating existing data), OR
+// - Before the data holder is shared across goroutines (during construction)
+func (d *OfflineModeData) makeChangeSetFromCollections(
 	collections []ldstoretypes.Collection,
 ) (*subsystems.ChangeSet, error) {
-	s.version++
-	version := s.version
+	d.version++
+	version := d.version
 
 	return subsystems.NewChangeSetFromCollections(
 		subsystems.ServerIntent{
@@ -248,19 +261,19 @@ func (s *OfflineModeSynchronizer) makeChangeSetFromCollections(
 }
 
 // UpdateData allows external updates to the data (e.g., when the archive file changes).
-func (s *OfflineModeSynchronizer) UpdateData(collections []ldstoretypes.Collection) error {
+func (d *OfflineModeData) UpdateData(collections []ldstoretypes.Collection) error {
 	// Hold the lock through the broadcast. Otherwise two concurrent calls can broadcast in the
 	// opposite order to their versions, and the older changeSet replaces the newer one in each
 	// listener's mailbox. Broadcast never blocks, so holding the lock is safe.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	changeSet, err := s.makeChangeSetFromCollections(collections)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	changeSet, err := d.makeChangeSetFromCollections(collections)
 	if err != nil {
 		return err
 	}
-	s.currentChangeSet = changeSet
-	s.initError = nil // Clear any previous initialization error
+	d.currentChangeSet = changeSet
+	d.initError = nil // Clear any previous initialization error
 
-	s.changeSetBroadcaster.Broadcast(*changeSet)
+	d.changeSetBroadcaster.Broadcast(*changeSet)
 	return nil
 }

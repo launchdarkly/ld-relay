@@ -20,8 +20,8 @@ import (
 // methods on this object to let us know when environments have been read from the file for the
 // first time and also if environments have changed due to a file update.
 type relayFileDataActions struct {
-	r                *Relay
-	envSynchronizers map[config.EnvironmentID]*filedata.OfflineModeSynchronizer
+	r       *Relay
+	envData map[config.EnvironmentID]*filedata.OfflineModeData
 }
 
 func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) error {
@@ -33,14 +33,14 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) er
 		return err
 	}
 
-	// Create the synchronizer with the initial archive data
-	synchronizer := filedata.NewOfflineModeSynchronizer(ae.SDKData)
+	// Create the data holder with the initial archive data
+	data := filedata.NewOfflineModeData(ae.SDKData)
 
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
 		// In offline mode, replace the DataSystem with our custom offline synchronizer.
 		// This synchronizer loads data from the archive file without making network connections.
-		syncFactory := filedata.OfflineModeSynchronizerFactory{Synchronizer: synchronizer}
+		syncFactory := filedata.OfflineModeSynchronizerFactory{Data: data}
 		config.DataSystem = ldcomponents.DataSystem().
 			Custom().
 			Synchronizers(syncFactory)
@@ -57,11 +57,11 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) er
 
 	env.ReconcileCredentials(set)
 
-	// Store the synchronizer so we can update it later when the file changes
-	if a.envSynchronizers == nil {
-		a.envSynchronizers = make(map[config.EnvironmentID]*filedata.OfflineModeSynchronizer)
+	// Store the data holder so we can update it later when the file changes
+	if a.envData == nil {
+		a.envData = make(map[config.EnvironmentID]*filedata.OfflineModeData)
 	}
-	a.envSynchronizers[ae.Params.EnvID] = synchronizer
+	a.envData[ae.Params.EnvID] = data
 	return nil
 }
 
@@ -71,9 +71,9 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 		a.r.logger.Error("unexpected error in file data processing: environment not found when updating", "envID", ae.Params.EnvID)
 		return errOfflineEnvironmentNotFound
 	}
-	synchronizer := a.envSynchronizers[ae.Params.EnvID]
-	if synchronizer == nil { // COVERAGE: this should never happen and can't be covered in unit tests
-		a.r.logger.Error("unexpected error in file data processing: environment not found in envUpdates", "envID", ae.Params.EnvID)
+	data := a.envData[ae.Params.EnvID]
+	if data == nil { // COVERAGE: this should never happen and can't be covered in unit tests
+		a.r.logger.Error("unexpected error in file data processing: environment not found in envData", "envID", ae.Params.EnvID)
 		return errOfflineEnvironmentNotFound
 	}
 
@@ -96,7 +96,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {
-		if err := synchronizer.UpdateData(ae.SDKData); err != nil {
+		if err := data.UpdateData(ae.SDKData); err != nil {
 			a.r.logger.Error("error updating offline environment data", "error", err)
 		}
 	}
@@ -109,7 +109,7 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
 	a.r.removeEnvironment(id)
-	delete(a.envSynchronizers, id)
+	delete(a.envData, id)
 }
 
 // errOfflineEnvironmentNotFound reports internal bookkeeping that disagrees with the archive. It is
