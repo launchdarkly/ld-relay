@@ -2,23 +2,89 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-## [9.0.0](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.9...v9.0.0) (2026-10-30)
+## [9.0.0](https://github.com/launchdarkly/ld-relay/compare/v8.23.4...v9.0.0) (2026-10-30)
 
+Relay Proxy v9 adds support for the FDv2 data system, replaces OpenCensus with OpenTelemetry for metrics, tracing and logs, and ships only distroless Docker images. This entry covers every change since v8. Version 9.0.0 also includes every fix and feature released on v8 through 8.23.4.
 
 ### ⚠ BREAKING CHANGES
 
-* Remove the exitOnError and ignoreConnectionErrors options ([#954](https://github.com/launchdarkly/ld-relay/issues/954))
+#### Metrics and observability
+
+* OpenCensus has been replaced with OpenTelemetry, and the Datadog, Stackdriver and Prometheus exporters have been removed. The `[Datadog]`, `[Stackdriver]` and `[Prometheus]` config sections and the `USE_DATADOG`, `USE_STACKDRIVER`, `USE_PROMETHEUS`, `DATADOG_*`, `STACKDRIVER_*` and `PROMETHEUS_*` variables are no longer supported. Enable OTLP export with `USE_OTLP` (`[OpenTelemetry] enabled`) and configure it with the standard OpenTelemetry environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, and so on). Prometheus and Datadog can receive metrics over OTLP; see [docs/metrics.md](https://github.com/launchdarkly/ld-relay/blob/v9/docs/metrics.md#backend-specific-notes). ([#628](https://github.com/launchdarkly/ld-relay/issues/628), [#639](https://github.com/launchdarkly/ld-relay/issues/639))
+* Metric names follow the OpenTelemetry semantic conventions. `connections` is replaced by `http.server.active_requests`, which counts in-flight requests on every endpoint. `newconnections` is replaced by the `launchdarkly.relay.requests` counter. `requests` is replaced by the `http.server.request.duration` histogram. Filter on `launchdarkly.relay.endpoint.type="stream"` to get the v8 stream connection numbers. ([#635](https://github.com/launchdarkly/ld-relay/issues/635), [#802](https://github.com/launchdarkly/ld-relay/issues/802), [#810](https://github.com/launchdarkly/ld-relay/issues/810))
+* Metric attributes are renamed to the semantic conventions under a single `launchdarkly.*` vendor namespace (for example `launchdarkly.environment.name`, `http.route`, `http.request.method`, `user_agent.original`). The v8 `relayId`, `platformCategory` and `sdkWrapper` tags are no longer reported. Use the `service.instance.id` resource attribute to identify a Relay instance. ([#809](https://github.com/launchdarkly/ld-relay/issues/809))
+* High-cardinality attributes are no longer recorded on the request metrics, and `http.request.method` is normalized. Client-supplied attributes are not recorded on unauthenticated requests. ([#807](https://github.com/launchdarkly/ld-relay/issues/807), [#907](https://github.com/launchdarkly/ld-relay/issues/907))
+
+#### Logging
+
+* Logging now uses Go's `log/slog`, and log messages carry structured key-value fields. The output format has changed. Text lines look like `time=… level=INFO msg="…"`, and JSON output (`LOG_FORMAT=json`) uses the `time` and `msg` keys instead of `timestamp` and `message`. Update any log parsing that depends on the v8 format. ([#643](https://github.com/launchdarkly/ld-relay/issues/643))
+
+#### Configuration
+
+* The `exitOnError` and `ignoreConnectionErrors` options (`EXIT_ON_ERROR`, `IGNORE_CONNECTION_ERRORS`) are removed. Neither changed whether Relay kept running at startup; it keeps running and retrying, as it has since 6.0.0. With `exitAlways`, Relay now waits for every environment and exits non-zero if any failed to initialize. Setting either option now fails configuration loading. ([#954](https://github.com/launchdarkly/ld-relay/issues/954))
+* The `EVENTS_INLINE_USERS` option (`[Events] inlineUsers`) is removed. It has had no effect since context-aware event payloads. ([#650](https://github.com/launchdarkly/ld-relay/issues/650))
+* The per-environment `projKey` option (`LD_PROJ_KEY_<env>`) is removed. ([#891](https://github.com/launchdarkly/ld-relay/issues/891))
+* Payload filters are no longer served, and the `[Filters "<project>"]` configuration (`LD_FILTER_KEYS_<project>`) is removed. ([#867](https://github.com/launchdarkly/ld-relay/issues/867))
+
+#### HTTP and status resource
+
+* Cacheable responses use the standard weak ETag form `W/"<value>"` instead of `relay-<value>`. Clients and caches holding a v8 ETag will receive a full response on their next request. ([#647](https://github.com/launchdarkly/ld-relay/issues/647))
+* The status resource reports each environment's full key set in new `sdkKeys` and `mobileKeys` arrays, each entry carrying its own optional expiry. The `expiringSdkKey` field is removed. `sdkKey` and `mobileKey` remain. ([#898](https://github.com/launchdarkly/ld-relay/issues/898))
+
+#### Docker images and packaging
+
+* Only distroless Docker images are published, built on `gcr.io/distroless/static-debian13` and running as a nonroot user. The unsuffixed tags (`latest`, `v9`, `9.x.y`) point at the distroless image, and `distroless-` prefixed aliases are also published. The Alpine images and `-alpine` tags are no longer published. The image has no shell or package manager, so derived images that run shell commands or expect root need to change. ([#942](https://github.com/launchdarkly/ld-relay/issues/942), [#951](https://github.com/launchdarkly/ld-relay/issues/951))
+* The i386 Docker image is no longer published. The `linux_386` archive and the deb and rpm packages are still available. ([#942](https://github.com/launchdarkly/ld-relay/issues/942))
+* The Go module path is now `github.com/launchdarkly/ld-relay/v9`. ([#632](https://github.com/launchdarkly/ld-relay/issues/632))
 
 ### Features
 
-* Remove the exitOnError and ignoreConnectionErrors options ([#954](https://github.com/launchdarkly/ld-relay/issues/954)) ([9d9bb77](https://github.com/launchdarkly/ld-relay/commit/9d9bb7792478496ac56ba66e756f6e911e194086))
+#### FDv2 data system
 
+* Relay serves the FDv2 streaming and polling endpoints used by server-side SDKs that support the new data system, and receives its own data from LaunchDarkly through the FDv2 data system. ([#626](https://github.com/launchdarkly/ld-relay/issues/626), [#627](https://github.com/launchdarkly/ld-relay/issues/627))
+* Relay serves FDv2 streaming and polling for mobile and JavaScript client-side SDKs. ([#629](https://github.com/launchdarkly/ld-relay/issues/629))
+* Offline mode runs on the FDv2 data system. ([#561](https://github.com/launchdarkly/ld-relay/issues/561))
+
+#### OpenTelemetry
+
+* Export metrics over OTLP via gRPC or HTTP to any compatible backend. `OTEL_EXPORTER_OTLP_PROTOCOL` accepts the values the OpenTelemetry specification defines. ([#628](https://github.com/launchdarkly/ld-relay/issues/628), [#950](https://github.com/launchdarkly/ld-relay/issues/950))
+* Distributed tracing, exported over OTLP alongside metrics, including spans for polling payload serialization and response writes. End-user contexts are redacted from the `url.path` span attribute. ([#644](https://github.com/launchdarkly/ld-relay/issues/644), [#784](https://github.com/launchdarkly/ld-relay/issues/784), [#791](https://github.com/launchdarkly/ld-relay/issues/791))
+* Log export over OTLP when `USE_OTLP` is enabled. ([#643](https://github.com/launchdarkly/ld-relay/issues/643))
+* Log, trace and metric export can each be turned off with `OTEL_LOGS_EXPORTER`, `OTEL_TRACES_EXPORTER` and `OTEL_METRICS_EXPORTER`. ([#887](https://github.com/launchdarkly/ld-relay/issues/887))
+* Event processing metrics: bytes received, events and bytes sent, delivery failures, drops and queue depth. ([#631](https://github.com/launchdarkly/ld-relay/issues/631))
+* The status resource is exported as OpenTelemetry metrics. Per-environment status metrics are available behind `OTEL_ENVIRONMENT_STATUS_METRICS`. ([#876](https://github.com/launchdarkly/ld-relay/issues/876))
+* The metric cardinality limit is configurable with `OTEL_METRICS_CARDINALITY_LIMIT`. ([#808](https://github.com/launchdarkly/ld-relay/issues/808))
+* `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override Relay's resource defaults, and a malformed `OTEL_RESOURCE_ATTRIBUTES` entry no longer discards the rest of the resource. ([#815](https://github.com/launchdarkly/ld-relay/issues/815))
+
+#### Status and health checks
+
+* Per-environment status endpoints at `/status/<envId>`, `/status/<projectKey>/<envKey>` and `/status/<identifier>`. ([#571](https://github.com/launchdarkly/ld-relay/issues/571))
+* An `expect` query parameter on the status endpoints lets a health check assert on the status document and get a `412` response when the assertion fails. `expect` clauses can check every entry of a collection and count its entries. ([#710](https://github.com/launchdarkly/ld-relay/issues/710), [#943](https://github.com/launchdarkly/ld-relay/issues/943))
+
+#### Other features
+
+* Limit how many SDK initialization payloads Relay delivers at once with the `[Concurrency]` settings (`INIT_MAX_CONCURRENT`, `INIT_MAX_QUEUED`, `INIT_SEND_TIMEOUT`). ([#833](https://github.com/launchdarkly/ld-relay/issues/833))
+* When an environment's anchor SDK key changes, Relay moves the existing SDK client to the new key instead of rebuilding it. A malformed credential payload is refused and the environment keeps its current keys. ([#896](https://github.com/launchdarkly/ld-relay/issues/896), [#897](https://github.com/launchdarkly/ld-relay/issues/897))
+* An environment recovers after LaunchDarkly rejects its SDK key. ([#899](https://github.com/launchdarkly/ld-relay/issues/899))
+* Redis mTLS connections, configured with `REDIS_CA_FILE`, `REDIS_CLIENT_CERT_FILE` and `REDIS_CLIENT_KEY_FILE`. ([#906](https://github.com/launchdarkly/ld-relay/issues/906))
+* Client-side responses include the resolved environment ID in the `X-LD-EnvId` header, exposed through CORS for browser SDKs. ([#648](https://github.com/launchdarkly/ld-relay/issues/648))
+
+### Performance Improvements
+
+* Concurrent identical polling requests are deduplicated and share one response. ([#798](https://github.com/launchdarkly/ld-relay/issues/798))
+* FDv2 streaming and polling payloads are encoded in a single pass. ([#757](https://github.com/launchdarkly/ld-relay/issues/757), [#797](https://github.com/launchdarkly/ld-relay/issues/797))
 
 ### Bug Fixes
 
-* Build the Docker images on distroless static-debian13 ([#951](https://github.com/launchdarkly/ld-relay/issues/951)) ([f77f328](https://github.com/launchdarkly/ld-relay/commit/f77f328ce489dd091f6b043884ac654048df5dc8))
-* Keep the newest offline-mode update when a listener cannot keep up ([#960](https://github.com/launchdarkly/ld-relay/issues/960)) ([81a9ba7](https://github.com/launchdarkly/ld-relay/commit/81a9ba7805b2df27aa33f788c2424a2ab0a8ad23))
-* Update go-server-sdk to v7.21.2 ([#953](https://github.com/launchdarkly/ld-relay/issues/953)) ([4353ab9](https://github.com/launchdarkly/ld-relay/commit/4353ab92f57af6383308c8cccdb1bb6879fa080e))
+* Prevent a leaked streaming connection after back-to-back malformed events. ([#949](https://github.com/launchdarkly/ld-relay/issues/949))
+* Keep the newest offline-mode update when a listener cannot keep up. ([#960](https://github.com/launchdarkly/ld-relay/issues/960))
+* Stop the server-side stream replay producer when the SDK disconnects. ([#774](https://github.com/launchdarkly/ld-relay/issues/774))
+* Include the basis in the FDv2 replay deduplication key, so clients with different bases no longer share a replay. ([#748](https://github.com/launchdarkly/ld-relay/issues/748))
+* Close the server error channel only after shutdown finishes. ([#880](https://github.com/launchdarkly/ld-relay/issues/880))
+* Count the legacy server-side `evalx` routes in polling request metrics. ([#630](https://github.com/launchdarkly/ld-relay/issues/630))
+* Stop reporting response bytes that were never written. ([#792](https://github.com/launchdarkly/ld-relay/issues/792))
+* Update go-server-sdk to v7.21.2. ([#953](https://github.com/launchdarkly/ld-relay/issues/953))
+* Update golang.org/x/net to v0.62.0 to address CVE-2026-78661 and CVE-2026-97045. ([#944](https://github.com/launchdarkly/ld-relay/issues/944))
 
 ## [9.0.0-rc.9](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.8...v9.0.0-rc.9) (2026-10-28)
 
