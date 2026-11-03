@@ -238,6 +238,8 @@ type RedisConfig struct {
 
 	ConnectTimeout ct.OptDuration `conf:"REDIS_CONNECT_TIMEOUT"`
 	ReadTimeout    ct.OptDuration `conf:"REDIS_READ_TIMEOUT"`
+
+	Cluster bool `conf:"REDIS_CLUSTER"`
 }
 
 // ConsulConfig configures the optional Consul integration.
