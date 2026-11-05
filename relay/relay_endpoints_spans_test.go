@@ -157,6 +157,13 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 				countKey: tracing.FlagCountKey,
 			},
 			{
+				name: "pollLatestAllHandler GET /sdk/latest-all",
+				buildReq: func() *http.Request {
+					return st.BuildRequestWithAuth("GET", "/sdk/latest-all", serverSDKKey, nil)
+				},
+				countKey: tracing.FlagCountKey,
+			},
+			{
 				name: "pollAllFlagsHandler GET /sdk/flags",
 				buildReq: func() *http.Request {
 					return st.BuildRequestWithAuth("GET", "/sdk/flags", serverSDKKey, nil)

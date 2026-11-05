@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	ld "github.com/launchdarkly/go-server-sdk/v7"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 
@@ -20,6 +23,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -242,5 +246,42 @@ func TestRelayCoreEndToEndInitTimeoutWithUninitializedDataStore(t *testing.T) {
 		p.expectStreamWithNoEvent(testEnv, basictypes.JSClientPingStream)
 		p.expectEvalError(testEnv, basictypes.MobileSDK, 503)
 		p.expectEvalError(testEnv, basictypes.JSClientSDK, 503)
+	})
+}
+
+// TestRelayEndToEndFDv1PollingSDK runs a real SDK in FDv1 polling mode against Relay. The SDK
+// must initialize from /sdk/latest-all and see the flag data that Relay received from upstream.
+func TestRelayEndToEndFDv1PollingSDK(t *testing.T) {
+	initialData := ldservicesv2.NewServerSDKData().Flags(testFlag)
+	protocol := ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred("state", 1)
+	streamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
+	testEnv := st.EnvWithAllCredentials
+
+	config := c.Config{Environment: st.MakeEnvConfigs(testEnv)}
+	relayEndToEndTest(t, config, relayTestBehavior{}, streamHandler, func(p relayEndToEndTestParams) {
+		p.waitForSuccessfulInit()
+
+		sdkConfig := ld.Config{
+			ServiceEndpoints: interfaces.ServiceEndpoints{Streaming: p.relayURL, Polling: p.relayURL, Events: p.relayURL},
+			DataSource:       ldcomponents.PollingDataSource(),
+			Events:           ldcomponents.NoEvents(),
+			Logging:          ldcomponents.NoLogging(),
+		}
+		client, err := ld.MakeCustomClient(string(testEnv.Config.SDKKey), sdkConfig, 5*time.Second)
+		require.NoError(t, err)
+		defer client.Close()
+
+		require.True(t, client.Initialized())
+		state := client.AllFlagsState(ldcontext.New("user-key"))
+		_, ok := state.GetFlag(testFlag.Key)
+		assert.True(t, ok, "the SDK did not receive the flag from Relay")
 	})
 }

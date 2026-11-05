@@ -84,6 +84,13 @@ func TestActiveRequestsCoverAllEndpointTypes(t *testing.T) {
 			endpointType: metrics.EndpointTypePoll,
 		},
 		{
+			name: "FDv1 server-side poll",
+			buildReq: func() *http.Request {
+				return st.BuildRequestWithAuth("GET", "/sdk/latest-all", st.EnvMain.Config.SDKKey, nil)
+			},
+			endpointType: metrics.EndpointTypePoll,
+		},
+		{
 			name: "PHP poll",
 			buildReq: func() *http.Request {
 				return st.BuildRequestWithAuth("GET", "/sdk/flags", st.EnvMain.Config.SDKKey, nil)

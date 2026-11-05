@@ -37,9 +37,9 @@ type InitShedRecorder interface {
 // The response write itself is bounded separately, by the progress-aware writer that
 // LimitConcurrency / ProvideInitLimiter install, so a slow client cannot park the slot.
 //
-// It is called both by LimitConcurrency (which gates a whole handler, e.g. the FDv1 all-flags
-// poll) and directly by the FDv2 poll handlers, which acquire only on the full-basis branch so
-// a cheap up-to-date reply is never charged.
+// It is called both by LimitConcurrency (which gates a whole handler, e.g. the PHP all-flags
+// poll) and directly by the FDv2 poll handlers and the FDv1 /sdk/latest-all handler. Those
+// acquire only for a full payload, so a cheap up-to-date or 304 reply is never charged.
 func AcquireInitSlot(limiter *concurrency.Limiter, recorder InitShedRecorder, w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
 	if !limiter.Enabled() {
 		return func() {}, true
@@ -71,12 +71,12 @@ func AcquireInitSlot(limiter *concurrency.Limiter, recorder InitShedRecorder, w 
 }
 
 // LimitConcurrency wraps a handler with the shared initialization-delivery limiter for a
-// request whose whole response is a full-dataset delivery (the FDv1 all-flags poll). The slot
+// request whose whole response is a full-dataset delivery (the PHP all-flags poll). The slot
 // is acquired on entry and held until the handler returns, and the response is written through
 // a progress-aware writer (see initwrite) so a slow or stalled client cannot park the slot. On
 // shed it responds 503 and does not invoke the wrapped handler. A disabled or nil limiter is a
 // pass-through with zero overhead. Handlers that have a cheap no-payload branch (the FDv2
-// polls) should instead call AcquireInitSlot directly, after that branch, so the cheap reply
+// polls and the FDv1 /sdk/latest-all poll) should instead call AcquireInitSlot directly, after that branch, so the cheap reply
 // is not charged.
 func LimitConcurrency(limiter *concurrency.Limiter, maxHold time.Duration, recorder InitShedRecorder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -104,9 +104,9 @@ func clearWriteDeadline(w http.ResponseWriter) {
 
 // ProvideInitLimiter makes the shared initialization-delivery limiter available to a
 // downstream handler via the request context, without acquiring a slot, and wraps the response
-// in the progress-aware writer. It is used for the FDv2 poll endpoints, whose handlers acquire
-// lazily (via AcquireInitSlotFromContext) only on the full-basis branch, so a cheap up-to-date
-// reply is never charged. A disabled or nil limiter is a pass-through with zero overhead.
+// in the progress-aware writer. It is used for the FDv2 poll endpoints and the FDv1
+// /sdk/latest-all poll. Their handlers acquire lazily (via AcquireInitSlotFromContext) only for
+// a full payload, so a cheap up-to-date or 304 reply is never charged. A disabled or nil limiter is a pass-through with zero overhead.
 func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration, recorder InitShedRecorder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if !limiter.Enabled() {

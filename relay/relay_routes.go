@@ -115,15 +115,15 @@ func (r *Relay) makeRouter() *mux.Router {
 		)
 	}
 
-	// The FDv1 all-flags poll response is always a full-data-set write, the same resource
+	// The PHP all-flags poll response is always a full-data-set write, the same resource
 	// that a full-basis stream replay uses. Thus pollLimit charges each such request against
 	// the shared initialization-delivery budget when the request enters. It sheds with a 503
 	// when the budget is full, and it limits how long a slow client can keep a held slot.
 	//
-	// For the FDv2 poll endpoints, provideInitLimiter makes the budget available to the
-	// handler instead. The handler takes a slot only on its full-basis branch, and a cheap
-	// up-to-date reply never uses one. Both wrappers are disabled by default and then do
-	// nothing.
+	// For the FDv2 poll endpoints and the FDv1 /sdk/latest-all poll, provideInitLimiter
+	// makes the budget available to the handler instead. The handler takes a slot only for
+	// a full payload, and a cheap up-to-date or 304 reply never uses one. Both wrappers are
+	// disabled by default and then do nothing.
 	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
 	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout, r.metricsManager.InitInstruments())
 
@@ -137,6 +137,10 @@ func (r *Relay) makeRouter() *mux.Router {
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
 	sdkRouter.Handle("/poll", serverSideMiddlewareStack(metrics.EndpointTypePoll)(provideInitLimiter(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2))))).Methods("GET")
+
+	// FDv1 server-side poll endpoint. A 304 reply does not use a slot, so it has the same
+	// budget wrapper as the FDv2 poll, and the handler takes a slot only for a full payload.
+	sdkRouter.Handle("/latest-all", serverSideMiddlewareStack(metrics.EndpointTypePoll)(provideInitLimiter(middleware.ServerPollingRequestCount(http.HandlerFunc(pollLatestAllHandler))))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
