@@ -185,6 +185,9 @@ func NewEnvContext(
 
 	logPrefix := makeLogPrefix(params.LogNameMode, envConfig.SDKKey, envConfig.EnvID)
 	envLogger := params.Logger.With("env", logPrefix)
+	if envConfig.LogLevel.IsDefined() {
+		envLogger = logging.WithMinLevel(envLogger, envConfig.LogLevel.GetOrElse(slog.LevelInfo))
+	}
 
 	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, allConfig.HTTP, envConfig.SDKKey, params.UserAgent, params.Logger)
 	if err != nil {
