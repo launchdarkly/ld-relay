@@ -3,7 +3,6 @@ package sdks
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,11 +137,22 @@ func TestReadOnlyStoreReadsFromStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int{"a": 3}, versionsOf(t, all))
 
-	// Init does not change what the store returns. The SDK cache keeps the data from Init.
-	initWith(t, store, map[string]int{"a": 4})
-	all, err = store.GetAll(ldstoreimpl.Features())
+	item, err := store.Get(ldstoreimpl.Features(), "a")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]int{"a": 3}, versionsOf(t, all))
+	assert.NotNil(t, item.SerializedItem)
+}
+
+// After Init, the SDK cache has every item. A read of an item that is not in the cache must not
+// give the copy in the store.
+func TestReadOnlyStoreDoesNotGetItemsFromStoreAfterInit(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "deleted", 1)
+	store := makeReadOnlyStore(t, inner)
+	initWith(t, store, map[string]int{"a": 1})
+
+	item, err := store.Get(ldstoreimpl.Features(), "deleted")
+	require.NoError(t, err)
+	assert.Equal(t, -1, item.Version)
 }
 
 func TestReadOnlyStoreIsNotInitializedWhenStoreIsEmpty(t *testing.T) {
@@ -156,9 +166,8 @@ func TestReadOnlyStoreIsNotInitializedWhenStoreIsEmpty(t *testing.T) {
 func TestReadOnlyStoreReturnsReadErrors(t *testing.T) {
 	readErr := errors.New("sorry")
 	inner := newReplicaStore()
-	store := makeReadOnlyStore(t, inner)
-	initWith(t, store, map[string]int{"a": 1})
 	inner.readErr = readErr
+	store := makeReadOnlyStore(t, inner)
 
 	_, err := store.GetAll(ldstoreimpl.Features())
 	assert.Equal(t, readErr, err)
@@ -174,65 +183,81 @@ func TestReadOnlyStoreCloseClosesStore(t *testing.T) {
 	assert.True(t, inner.closed)
 }
 
-func makeCachingReadOnlyStore(t *testing.T, inner *replicaStore, ttl time.Duration) subsystems.DataStore {
+// makeCachingReadOnlyStore gives a read-only store in the SDK cache with an infinite TTL, which is the
+// configuration that Relay requires.
+func makeCachingReadOnlyStore(t *testing.T, inner *replicaStore) subsystems.DataStore {
 	ctx := subsystems.BasicClientContext{
 		DataStoreUpdateSink: noOpStatusSink{},
 		Logging:             subsystems.LoggingConfiguration{Loggers: ldlog.NewDisabledLoggers()},
 	}
 	store, err := ldcomponents.PersistentDataStore(newReadOnlyPersistentStore(replicaStoreConfigurer{inner})).
-		CacheTime(ttl).Build(ctx)
+		CacheForever().Build(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
-// The SDK cache serves the data from LaunchDarkly until the cache TTL ends. Then it reads the store.
-func TestReadOnlyStoreReadsStoreWhenCacheExpires(t *testing.T) {
+// LaunchDarkly deletes "d" and then makes the data set. The other Relay instances have not stored the
+// deletion yet, so the store still has "d".
+func TestReadOnlyStoreDoesNotServeItemDeletedWhileConnecting(t *testing.T) {
 	inner := newReplicaStore()
 	inner.put(ldstoreimpl.Features(), "a", 1)
-	store := makeCachingReadOnlyStore(t, inner, 100*time.Millisecond)
+	inner.put(ldstoreimpl.Features(), "d", 1)
+	store := makeCachingReadOnlyStore(t, inner)
 
 	require.NoError(t, store.Init([]ldstoretypes.Collection{
-		{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{{Key: "a", Item: flagItem("a", 2)}}},
+		{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{{Key: "a", Item: flagItem("a", 1)}}},
 		{Kind: ldstoreimpl.Segments()},
 	}))
-	item, err := store.Get(ldstoreimpl.Features(), "a")
-	require.NoError(t, err)
-	assert.Equal(t, 2, item.Version)
 
-	inner.put(ldstoreimpl.Features(), "a", 3) // another Relay instance updates the store
-	assert.Eventually(t, func() bool {
-		item, err := store.Get(ldstoreimpl.Features(), "a")
-		return err == nil && item.Version == 3
-	}, time.Second, 10*time.Millisecond)
-	assert.Equal(t, 0, inner.writes)
+	item, err := store.Get(ldstoreimpl.Features(), "d")
+	require.NoError(t, err)
+	assert.Nil(t, item.Item)
+	all, err := store.GetAll(ldstoreimpl.Features())
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+// The store does not have an update yet. A read of all flags must still give the update.
+func TestReadOnlyStoreListOfAllItemsHasUpdateThatStoreDoesNotHave(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "a", 1)
+	store := makeCachingReadOnlyStore(t, inner)
+	require.NoError(t, store.Init([]ldstoretypes.Collection{
+		{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{{Key: "a", Item: flagItem("a", 1)}}},
+		{Kind: ldstoreimpl.Segments()},
+	}))
+
+	_, err := store.Upsert(ldstoreimpl.Features(), "a", flagItem("a", 2))
+	require.NoError(t, err)
+
+	all, err := store.GetAll(ldstoreimpl.Features())
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, 2, all[0].Item.Version)
 }
 
 // LaunchDarkly makes the data set before flag "n" exists. Another Relay instance stores "n" before
 // this instance gets the data set. Then this instance gets the update that creates "n".
 func TestReadOnlyStoreServesItemCreatedWhileConnecting(t *testing.T) {
-	for _, ttl := range []time.Duration{0, 30 * time.Second, -1} {
-		t.Run(ttl.String(), func(t *testing.T) {
-			inner := newReplicaStore()
-			inner.put(ldstoreimpl.Features(), "a", 1)
-			store := makeCachingReadOnlyStore(t, inner, ttl)
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "a", 1)
+	store := makeCachingReadOnlyStore(t, inner)
 
-			inner.put(ldstoreimpl.Features(), "n", 1)
-			require.NoError(t, store.Init([]ldstoretypes.Collection{
-				{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{{Key: "a", Item: flagItem("a", 1)}}},
-				{Kind: ldstoreimpl.Segments()},
-			}))
-			_, err := store.Upsert(ldstoreimpl.Features(), "n", flagItem("n", 1))
-			require.NoError(t, err)
+	inner.put(ldstoreimpl.Features(), "n", 1)
+	require.NoError(t, store.Init([]ldstoretypes.Collection{
+		{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{{Key: "a", Item: flagItem("a", 1)}}},
+		{Kind: ldstoreimpl.Segments()},
+	}))
+	_, err := store.Upsert(ldstoreimpl.Features(), "n", flagItem("n", 1))
+	require.NoError(t, err)
 
-			item, err := store.Get(ldstoreimpl.Features(), "n")
-			require.NoError(t, err)
-			assert.NotNil(t, item.Item)
-			all, err := store.GetAll(ldstoreimpl.Features())
-			require.NoError(t, err)
-			assert.Len(t, all, 2)
-		})
-	}
+	item, err := store.Get(ldstoreimpl.Features(), "n")
+	require.NoError(t, err)
+	assert.NotNil(t, item.Item)
+	all, err := store.GetAll(ldstoreimpl.Features())
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
 }
 
 type noOpStatusSink struct{}
