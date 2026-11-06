@@ -45,10 +45,11 @@ const (
 	EventsKindKey = attribute.Key("launchdarkly.relay.events.kind")
 	StoreKeyKey   = attribute.Key("launchdarkly.relay.store.key")
 
-	// FlagCountKey, PayloadEventCountKey and PayloadSizeKey report how much a payload contained.
-	// Quantities follow one shape: a count of something ends in .count, and a size in bytes ends in
-	// .size, with the unit left out of the name.
+	// FlagCountKey, SegmentCountKey, PayloadEventCountKey and PayloadSizeKey report how much a
+	// payload contained. Quantities follow one shape: a count of something ends in .count, and a
+	// size in bytes ends in .size, with the unit left out of the name.
 	FlagCountKey         = attribute.Key("launchdarkly.relay.flag.count")
+	SegmentCountKey      = attribute.Key("launchdarkly.relay.segment.count")
 	PayloadEventCountKey = attribute.Key("launchdarkly.relay.payload.event.count")
 	PayloadSizeKey       = attribute.Key("launchdarkly.relay.payload.size")
 
