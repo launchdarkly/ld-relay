@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
@@ -81,8 +82,12 @@ func ConfigureDataStore(
 			storeInfo.DBPrefix = ldredis.DefaultPrefix
 		}
 
-		return ldcomponents.PersistentDataStore(readOnlyIfConfigured(redisBuilder, allConfig.Redis.ReadOnly, loggers)).
-			CacheTime(allConfig.Redis.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+		// In read-only mode, each store gets a pool that keeps no idle connections.
+		readOnlyBuilder := func() subsystems.ComponentConfigurer[subsystems.PersistentDataStore] {
+			return redisBuilder.Pool(newReadOnlyRedisPool(redisURL, dialOptions))
+		}
+		return persistentDataStore(redisBuilder, readOnlyBuilder, allConfig.Redis.ReadOnly,
+			allConfig.Redis.LocalTTL, loggers), storeInfo, nil
 	}
 
 	if allConfig.Consul.Host != "" {
@@ -108,8 +113,7 @@ func ConfigureDataStore(
 			storeInfo.DBPrefix = ldconsul.DefaultPrefix
 		}
 
-		return ldcomponents.PersistentDataStore(readOnlyIfConfigured(builder, dbConfig.ReadOnly, loggers)).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+		return persistentDataStore(builder, nil, dbConfig.ReadOnly, dbConfig.LocalTTL, loggers), storeInfo, nil
 	}
 
 	if allConfig.DynamoDB.Enabled {
@@ -127,8 +131,8 @@ func ConfigureDataStore(
 			DBTable:  tableName,
 		}
 
-		return ldcomponents.PersistentDataStore(readOnlyIfConfigured(builder, allConfig.DynamoDB.ReadOnly, loggers)).
-			CacheTime(allConfig.DynamoDB.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+		return persistentDataStore(builder, nil, allConfig.DynamoDB.ReadOnly, allConfig.DynamoDB.LocalTTL, loggers),
+			storeInfo, nil
 	}
 
 	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
@@ -189,17 +193,24 @@ func redisDialOptions(redisConfig config.RedisConfig) []redigo.DialOption {
 	return dialOptions
 }
 
-// readOnlyIfConfigured makes the store read-only if readOnly is true.
-func readOnlyIfConfigured(
+// persistentDataStore gives the SDK configuration for a database store. If readOnly is true, Relay does
+// not write to the database, and it uses readOnlyBuilder for each store if it is not nil. Configuration
+// validation makes sure that the cache TTL is infinite in read-only mode.
+func persistentDataStore(
 	builder subsystems.ComponentConfigurer[subsystems.PersistentDataStore],
+	readOnlyBuilder func() subsystems.ComponentConfigurer[subsystems.PersistentDataStore],
 	readOnly bool,
+	localTTL ct.OptDuration,
 	loggers ldlog.Loggers,
-) subsystems.ComponentConfigurer[subsystems.PersistentDataStore] {
+) subsystems.ComponentConfigurer[subsystems.DataStore] {
 	if !readOnly {
-		return builder
+		return ldcomponents.PersistentDataStore(builder).CacheTime(localTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
 	}
 	loggers.Warn("Data store is read-only: Relay will not write to it. Read-only mode is experimental")
-	return newReadOnlyPersistentStore(builder)
+	if readOnlyBuilder == nil {
+		readOnlyBuilder = func() subsystems.ComponentConfigurer[subsystems.PersistentDataStore] { return builder }
+	}
+	return newReadOnlyDataStore(builder, readOnlyBuilder)
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters
