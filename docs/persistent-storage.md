@@ -47,6 +47,54 @@ If the database becomes unavailable, the Relay Proxy's behavior, based on its us
 
 The in-memory cache only helps SDKs using the Relay Proxy in proxy mode. SDKs configured to use daemon mode are connected to read directly from the database. To learn more, read [Configuring an SDK to use different modes](https://docs.launchdarkly.com/home/relay-proxy/using#configuring-an-sdk-to-use-different-modes).
 
+## Read-only mode (experimental)
+
+**Read-only mode is experimental.** Its behavior and configuration can change in a future release, without a major version change.
+
+In read-only mode, a Relay Proxy instance reads from the database but never writes to it. Use it to point some Relay instances at a read replica, so that the primary database gets fewer connections. To enable it, set `readOnly = true` in the `[Redis]`, `[DynamoDB]`, or `[Consul]` section, or set `STORE_READ_ONLY=true`.
+
+Read-only mode requires an infinite cache TTL. Set `localTtl` (`CACHE_TTL`) to a negative value, such as `-1s`. If the TTL is not negative, the Relay Proxy does not start.
+
+```
+# Configuration file example
+
+[Redis]
+    url = "redis://my-replica:6379"
+    localTtl = -1s
+    readOnly = true
+```
+
+```
+# Environment variables example
+
+USE_REDIS=1
+REDIS_URL=redis://my-replica:6379
+CACHE_TTL=-1s
+STORE_READ_ONLY=true
+```
+
+### Deployment
+
+At least one Relay instance must write to the primary database for each environment. Run those instances without `readOnly`. The read-only instances point at the replica and use the same prefix, or the same table name, as the writers. If no instance writes to the primary, the replica does not get updates. Read-only instances then start with old data.
+
+Each read-only instance still connects to LaunchDarkly and gets flag updates directly.
+
+### Behavior
+
+A read-only instance uses the database only when it starts:
+
+- Before the instance gets data from LaunchDarkly, it serves the data in the database. If the database is not available at this time, the instance cannot serve flags until it gets data from LaunchDarkly.
+- After the instance gets data from LaunchDarkly, it serves only that data, and the updates that it receives from LaunchDarkly. It does not read the database again until it restarts. A database outage after this time has no effect on the instance.
+- If the instance loses its connection to LaunchDarkly, it continues to serve the last data that it received. It does not get the updates that other instances write to the database. When the connection comes back, the instance gets the current data from LaunchDarkly.
+
+A read-only instance does not do these writes:
+
+- It does not write flag or segment data.
+- It does not synchronize Big Segments. It reads Big Segment data from the database, so the instances that write must synchronize it. A read-only instance does not tell connected client-side SDKs when Big Segment membership changes.
+- It does not write the auto-configuration cache (`AUTO_CONFIG_CACHE_KEY`).
+
+SDKs in daemon mode read the database directly, so read-only mode does not change their behavior.
+
 ## DynamoDB storage limitation
 
 As described in the notes for the [LaunchDarkly Go SDK DynamoDB integration](https://github.com/launchdarkly/go-server-sdk-dynamodb/blob/master/README.md#data-size-limitation), which is the internal implementation used by the Relay Proxy, it is not possible to store more than 400KB of JSON data for any one feature flag or segment when using DynamoDB.

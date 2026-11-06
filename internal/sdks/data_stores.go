@@ -198,7 +198,7 @@ func readOnlyIfConfigured(
 	if !readOnly {
 		return builder
 	}
-	loggers.Info("Data store is read-only: Relay will not write to it")
+	loggers.Warn("Data store is read-only: Relay will not write to it. Read-only mode is experimental")
 	return newReadOnlyPersistentStore(builder)
 }
 
