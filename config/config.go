@@ -277,7 +277,7 @@ type DynamoDBConfig struct {
 //
 // A read-only Relay reads flag data from the store and receives updates from LaunchDarkly, but it
 // never writes. Other Relay instances must keep the store up to date. This lets read-only instances
-// use a read replica.
+// use a read replica. A read-only store requires an infinite cache TTL.
 func (c Config) IsPersistentStoreReadOnly() bool {
 	switch {
 	case c.Redis.URL.IsDefined():
@@ -288,6 +288,20 @@ func (c Config) IsPersistentStoreReadOnly() bool {
 		return c.DynamoDB.ReadOnly
 	default:
 		return false
+	}
+}
+
+// persistentStoreCacheTTL gives the cache TTL of the persistent store that Relay uses.
+func (c Config) persistentStoreCacheTTL() ct.OptDuration {
+	switch {
+	case c.Redis.URL.IsDefined():
+		return c.Redis.LocalTTL
+	case c.Consul.Host != "":
+		return c.Consul.LocalTTL
+	case c.DynamoDB.Enabled:
+		return c.DynamoDB.LocalTTL
+	default:
+		return ct.OptDuration{}
 	}
 }
 

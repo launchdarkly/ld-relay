@@ -46,7 +46,27 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigMaxClientRequestBodySize("0B"),
 		makeInvalidConfigRedisTimeout("ConnectTimeout", "REDIS_CONNECT_TIMEOUT", errRedisConnectTimeout),
 		makeInvalidConfigRedisTimeout("ReadTimeout", "REDIS_READ_TIMEOUT", errRedisReadTimeout),
+		makeInvalidConfigReadOnlyStoreCacheTTL("Redis", "USE_REDIS", "Host = localhost", ""),
+		makeInvalidConfigReadOnlyStoreCacheTTL("Redis", "USE_REDIS", "Host = localhost", "30s"),
+		makeInvalidConfigReadOnlyStoreCacheTTL("Consul", "USE_CONSUL", "Host = localhost", "0s"),
+		makeInvalidConfigReadOnlyStoreCacheTTL("DynamoDB", "USE_DYNAMODB", "Enabled = true\nTableName = t", "30s"),
 	}
+}
+
+func makeInvalidConfigReadOnlyStoreCacheTTL(section, useVar, fileSettings, cacheTTL string) testDataInvalidConfig {
+	name := cacheTTL
+	if name == "" {
+		name = "default"
+	}
+	c := testDataInvalidConfig{name: section + " - read-only with cache TTL " + name}
+	c.envVarsError = errReadOnlyStoreWithFiniteCacheTTL.Error()
+	c.envVars = map[string]string{useVar: "1", "DYNAMODB_TABLE": "t", "STORE_READ_ONLY": "true"}
+	c.fileContent = "\n[" + section + "]\n" + fileSettings + "\nReadOnly = true\n"
+	if cacheTTL != "" {
+		c.envVars["CACHE_TTL"] = cacheTTL
+		c.fileContent += "LocalTTL = " + cacheTTL + "\n"
+	}
+	return c
 }
 
 func makeInvalidConfigRedisTimeout(fileKey, envVar string, err error) testDataInvalidConfig {
