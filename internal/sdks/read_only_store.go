@@ -3,7 +3,6 @@ package sdks
 import (
 	"sync"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -16,16 +15,14 @@ const readOnlyAvailabilityKey = "$relay-read-only-availability"
 
 // readOnlyPersistentStoreConfigurer builds a persistent store that Relay never writes to.
 type readOnlyPersistentStoreConfigurer struct {
-	inner   subsystems.ComponentConfigurer[subsystems.PersistentDataStore]
-	loggers ldlog.Loggers
+	inner subsystems.ComponentConfigurer[subsystems.PersistentDataStore]
 }
 
 // newReadOnlyPersistentStore wraps a persistent store configurer so that the store it builds is read-only.
 func newReadOnlyPersistentStore(
 	inner subsystems.ComponentConfigurer[subsystems.PersistentDataStore],
-	loggers ldlog.Loggers,
 ) subsystems.ComponentConfigurer[subsystems.PersistentDataStore] {
-	return readOnlyPersistentStoreConfigurer{inner: inner, loggers: loggers}
+	return readOnlyPersistentStoreConfigurer{inner: inner}
 }
 
 func (c readOnlyPersistentStoreConfigurer) Build(
@@ -35,7 +32,7 @@ func (c readOnlyPersistentStoreConfigurer) Build(
 	if err != nil {
 		return nil, err
 	}
-	return &readOnlyPersistentStore{inner: store, loggers: c.loggers}, nil
+	return &readOnlyPersistentStore{inner: store}, nil
 }
 
 // DescribeConfiguration gives the description of the wrapped store, so diagnostic events do not change.
@@ -48,19 +45,12 @@ func (c readOnlyPersistentStoreConfigurer) DescribeConfiguration(context subsyst
 
 // readOnlyPersistentStore is a persistent store that Relay reads from but never writes to.
 //
-// Init and Upsert keep the data in memory instead of writing it. Reads go to the wrapped store, and
-// the result is merged with the data in memory: for each item, the higher version wins. The merge
-// is necessary because the store gets updates only from other Relay instances. When this instance
-// receives an update first, the store can still have the old version. Without the merge, the SDK
-// cache would get the old version and keep it for the full cache TTL.
-//
-// Before the first Init, there is no data in memory, and reads come only from the wrapped store.
-// This lets Relay serve the stored data before it connects to LaunchDarkly. After the first Init,
-// a failed read returns the data in memory. Relay then does not depend on the store to serve data
-// that it already has.
+// Before the first Init, reads go to the wrapped store. This lets Relay serve the stored data before
+// it connects to LaunchDarkly. Init and Upsert keep the data in memory instead of writing it. After
+// the first Init, reads come only from memory. Relay trusts the data that it gets from LaunchDarkly
+// more than the data in the store, which other Relay instances write.
 type readOnlyPersistentStore struct {
-	inner   subsystems.PersistentDataStore
-	loggers ldlog.Loggers
+	inner subsystems.PersistentDataStore
 
 	mu     sync.RWMutex
 	items  map[string]map[string]ldstoretypes.SerializedItemDescriptor // kind name -> key -> item
@@ -68,65 +58,20 @@ type readOnlyPersistentStore struct {
 }
 
 // Init replaces the data in memory with a full data set from LaunchDarkly.
-//
-// A full data set does not contain the items that were deleted. Init adds a tombstone for each
-// item that is not in the data set but is in memory or in the store. Without the tombstone, a
-// read merges in the copy from the store, and Relay serves a deleted item until the other Relay
-// instances update the store. The tombstone has the latest known version of the item, and the
-// merge gives equal versions to the data in memory, so the tombstone wins.
 func (s *readOnlyPersistentStore) Init(allData []ldstoretypes.SerializedCollection) error {
-	// Read the store before the lock is held. Reads can be slow.
-	stored := make(map[string]map[string]int, len(allData)) // kind name -> key -> version
-	for _, coll := range allData {
-		storedItems, err := s.inner.GetAll(coll.Kind)
-		if err != nil {
-			s.loggers.Warnf("Read-only data store read failed, deleted items are known only from memory: %s", err)
-			continue
-		}
-		versions := make(map[string]int, len(storedItems))
-		for _, keyed := range storedItems {
-			versions[keyed.Key] = storedVersion(coll.Kind, keyed.Item)
-		}
-		stored[coll.Kind.GetName()] = versions
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	items := make(map[string]map[string]ldstoretypes.SerializedItemDescriptor, len(allData))
 	for _, coll := range allData {
 		kindItems := make(map[string]ldstoretypes.SerializedItemDescriptor, len(coll.Items))
 		for _, keyed := range coll.Items {
 			kindItems[keyed.Key] = keyed.Item
 		}
-		storedVersions, storeWasRead := stored[coll.Kind.GetName()]
-		for key, old := range s.items[coll.Kind.GetName()] {
-			if _, ok := kindItems[key]; ok {
-				continue
-			}
-			storedVer, inStore := storedVersions[key]
-			if old.Deleted && storeWasRead && !inStore {
-				continue // the store does not have the item, so the tombstone is not necessary
-			}
-			kindItems[key] = tombstone(coll.Kind, max(old.Version, storedVer))
-		}
-		for key, storedVer := range storedVersions {
-			if _, ok := kindItems[key]; !ok {
-				kindItems[key] = tombstone(coll.Kind, storedVer)
-			}
-		}
 		items[coll.Kind.GetName()] = kindItems
 	}
+	s.mu.Lock()
 	s.items = items
 	s.inited = true
+	s.mu.Unlock()
 	return nil
-}
-
-func tombstone(kind ldstoretypes.DataKind, version int) ldstoretypes.SerializedItemDescriptor {
-	return ldstoretypes.SerializedItemDescriptor{
-		Version:        version,
-		Deleted:        true,
-		SerializedItem: kind.Serialize(ldstoretypes.ItemDescriptor{Version: version}),
-	}
 }
 
 func (s *readOnlyPersistentStore) Upsert(
@@ -156,60 +101,32 @@ func (s *readOnlyPersistentStore) Get(
 	key string,
 ) (ldstoretypes.SerializedItemDescriptor, error) {
 	s.mu.RLock()
-	local, hasLocal := s.items[kind.GetName()][key]
 	inited := s.inited
+	item, ok := s.items[kind.GetName()][key]
 	s.mu.RUnlock()
-
-	stored, err := s.inner.Get(kind, key)
-	if err != nil {
-		if !inited {
-			return ldstoretypes.SerializedItemDescriptor{}.NotFound(), err
-		}
-		s.loggers.Warnf("Read-only data store read failed, serving data received from LaunchDarkly: %s", err)
-		if hasLocal {
-			return local, nil
-		}
+	if !inited {
+		return s.inner.Get(kind, key)
+	}
+	if !ok {
 		return ldstoretypes.SerializedItemDescriptor{}.NotFound(), nil
 	}
-	if hasLocal && local.Version >= storedVersion(kind, stored) {
-		return local, nil
-	}
-	return stored, nil
+	return item, nil
 }
 
 func (s *readOnlyPersistentStore) GetAll(
 	kind ldstoretypes.DataKind,
 ) ([]ldstoretypes.KeyedSerializedItemDescriptor, error) {
-	stored, err := s.inner.GetAll(kind)
-
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if !s.inited {
+		s.mu.RUnlock()
+		return s.inner.GetAll(kind)
+	}
 	local := s.items[kind.GetName()]
-	if err != nil {
-		if !s.inited {
-			return nil, err
-		}
-		s.loggers.Warnf("Read-only data store read failed, serving data received from LaunchDarkly: %s", err)
-		stored = nil
+	result := make([]ldstoretypes.KeyedSerializedItemDescriptor, 0, len(local))
+	for key, item := range local {
+		result = append(result, ldstoretypes.KeyedSerializedItemDescriptor{Key: key, Item: item})
 	}
-
-	result := make([]ldstoretypes.KeyedSerializedItemDescriptor, 0, len(stored)+len(local))
-	storedIsNewer := make(map[string]struct{})
-	for _, keyed := range stored {
-		l, ok := local[keyed.Key]
-		if ok && l.Version >= storedVersion(kind, keyed.Item) {
-			continue // the item in memory is added below
-		}
-		result = append(result, keyed)
-		if ok {
-			storedIsNewer[keyed.Key] = struct{}{}
-		}
-	}
-	for key, l := range local {
-		if _, ok := storedIsNewer[key]; !ok {
-			result = append(result, ldstoretypes.KeyedSerializedItemDescriptor{Key: key, Item: l})
-		}
-	}
+	s.mu.RUnlock()
 	return result, nil
 }
 
@@ -229,17 +146,4 @@ func (s *readOnlyPersistentStore) IsStoreAvailable() bool {
 
 func (s *readOnlyPersistentStore) Close() error {
 	return s.inner.Close()
-}
-
-// storedVersion gives the version of an item that the wrapped store returned. Some stores do not set
-// the version in the descriptor, so the version comes from the serialized item when there is one.
-func storedVersion(kind ldstoretypes.DataKind, item ldstoretypes.SerializedItemDescriptor) int {
-	if item.SerializedItem == nil {
-		return item.Version
-	}
-	deserialized, err := kind.Deserialize(item.SerializedItem)
-	if err != nil {
-		return item.Version
-	}
-	return deserialized.Version
 }

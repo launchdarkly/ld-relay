@@ -3,12 +3,15 @@ package sdks
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -89,8 +92,7 @@ func serializedFlag(key string, version int) ldstoretypes.SerializedItemDescript
 }
 
 func makeReadOnlyStore(t *testing.T, inner *replicaStore) subsystems.PersistentDataStore {
-	store, err := newReadOnlyPersistentStore(replicaStoreConfigurer{inner}, ldlog.NewDisabledLoggers()).
-		Build(subsystems.BasicClientContext{})
+	store, err := newReadOnlyPersistentStore(replicaStoreConfigurer{inner}).Build(subsystems.BasicClientContext{})
 	require.NoError(t, err)
 	return store
 }
@@ -106,7 +108,9 @@ func initWith(t *testing.T, store subsystems.PersistentDataStore, flags map[stri
 func versionsOf(t *testing.T, items []ldstoretypes.KeyedSerializedItemDescriptor) map[string]int {
 	result := map[string]int{}
 	for _, keyed := range items {
-		result[keyed.Key] = storedVersion(ldstoreimpl.Features(), keyed.Item)
+		item, err := ldstoreimpl.Features().Deserialize(keyed.Item.SerializedItem)
+		require.NoError(t, err)
+		result[keyed.Key] = item.Version
 	}
 	return result
 }
@@ -143,60 +147,46 @@ func TestReadOnlyStoreIsNotInitializedWhenStoreIsEmpty(t *testing.T) {
 	assert.True(t, store.IsInitialized())
 }
 
-func TestReadOnlyStoreMergesByVersion(t *testing.T) {
+// After Init, the store is not used. The store has a newer version of "a", a flag that is not in the
+// data set ("deleted"), and a flag that only the store has ("only-in-store").
+func TestReadOnlyStoreServesOnlyDataFromLaunchDarklyAfterInit(t *testing.T) {
 	inner := newReplicaStore()
-	inner.put(ldstoreimpl.Features(), "store-newer", 5)
-	inner.put(ldstoreimpl.Features(), "local-newer", 1)
+	inner.put(ldstoreimpl.Features(), "a", 5)
+	inner.put(ldstoreimpl.Features(), "deleted", 1)
 	store := makeReadOnlyStore(t, inner)
 
-	initWith(t, store, map[string]int{"store-newer": 4, "local-newer": 2, "only-local": 1})
-	// Another Relay instance stores a new flag that this instance has not received.
+	initWith(t, store, map[string]int{"a": 4, "b": 1})
 	inner.put(ldstoreimpl.Features(), "only-in-store", 1)
 
 	all, err := store.GetAll(ldstoreimpl.Features())
 	require.NoError(t, err)
-	assert.Equal(t, map[string]int{
-		"store-newer":   5,
-		"local-newer":   2,
-		"only-in-store": 1,
-		"only-local":    1,
-	}, versionsOf(t, all))
-	assert.Len(t, all, 4)
+	assert.Equal(t, map[string]int{"a": 4, "b": 1}, versionsOf(t, all))
 
-	for key, want := range map[string]int{"store-newer": 5, "local-newer": 2, "only-in-store": 1, "only-local": 1} {
+	item, err := store.Get(ldstoreimpl.Features(), "a")
+	require.NoError(t, err)
+	assert.Equal(t, 4, item.Version)
+	for _, key := range []string{"deleted", "only-in-store"} {
 		item, err := store.Get(ldstoreimpl.Features(), key)
 		require.NoError(t, err)
-		assert.Equal(t, want, storedVersion(ldstoreimpl.Features(), item), key)
+		assert.Equal(t, -1, item.Version, key)
 	}
 }
 
-// An update that arrives before the replica has it must not be lost on the next read.
-func TestReadOnlyStoreKeepsUpdateThatStoreDoesNotHaveYet(t *testing.T) {
-	inner := newReplicaStore()
-	inner.put(ldstoreimpl.Features(), "a", 1)
-	store := makeReadOnlyStore(t, inner)
-	initWith(t, store, map[string]int{"a": 1})
-
-	updated, err := store.Upsert(ldstoreimpl.Features(), "a", serializedFlag("a", 2))
-	require.NoError(t, err)
-	assert.True(t, updated)
-
-	all, err := store.GetAll(ldstoreimpl.Features())
-	require.NoError(t, err)
-	assert.Equal(t, map[string]int{"a": 2}, versionsOf(t, all))
-}
-
-func TestReadOnlyStoreUpsertRejectsOlderVersion(t *testing.T) {
+func TestReadOnlyStoreUpsert(t *testing.T) {
 	store := makeReadOnlyStore(t, newReplicaStore())
 	initWith(t, store, map[string]int{"a": 3})
 
 	updated, err := store.Upsert(ldstoreimpl.Features(), "a", serializedFlag("a", 2))
 	require.NoError(t, err)
-	assert.False(t, updated)
+	assert.False(t, updated, "an older version is rejected")
 
-	item, err := store.Get(ldstoreimpl.Features(), "a")
+	updated, err = store.Upsert(ldstoreimpl.Features(), "new", serializedFlag("new", 1))
 	require.NoError(t, err)
-	assert.Equal(t, 3, storedVersion(ldstoreimpl.Features(), item))
+	assert.True(t, updated, "a new item is added")
+
+	all, err := store.GetAll(ldstoreimpl.Features())
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{"a": 3, "new": 1}, versionsOf(t, all))
 }
 
 func TestReadOnlyStoreReadFailure(t *testing.T) {
@@ -214,7 +204,7 @@ func TestReadOnlyStoreReadFailure(t *testing.T) {
 		assert.False(t, store.IsStoreAvailable())
 	})
 
-	t.Run("after init, the data in memory is returned", func(t *testing.T) {
+	t.Run("after init, the store is not read", func(t *testing.T) {
 		inner := newReplicaStore()
 		store := makeReadOnlyStore(t, inner)
 		initWith(t, store, map[string]int{"a": 2})
@@ -223,14 +213,6 @@ func TestReadOnlyStoreReadFailure(t *testing.T) {
 		all, err := store.GetAll(ldstoreimpl.Features())
 		require.NoError(t, err)
 		assert.Equal(t, map[string]int{"a": 2}, versionsOf(t, all))
-
-		item, err := store.Get(ldstoreimpl.Features(), "a")
-		require.NoError(t, err)
-		assert.Equal(t, 2, storedVersion(ldstoreimpl.Features(), item))
-
-		item, err = store.Get(ldstoreimpl.Features(), "missing")
-		require.NoError(t, err)
-		assert.Equal(t, -1, item.Version)
 	})
 }
 
@@ -241,85 +223,56 @@ func TestReadOnlyStoreCloseClosesStore(t *testing.T) {
 	assert.True(t, inner.closed)
 }
 
-func requireDeleted(t *testing.T, store subsystems.PersistentDataStore, key string, version int) {
-	t.Helper()
-	item, err := store.Get(ldstoreimpl.Features(), key)
-	require.NoError(t, err)
-	assert.True(t, item.Deleted, "%s is deleted", key)
-	assert.Equal(t, version, storedVersion(ldstoreimpl.Features(), item))
-
-	all, err := store.GetAll(ldstoreimpl.Features())
-	require.NoError(t, err)
-	for _, keyed := range all {
-		if keyed.Key == key {
-			assert.True(t, keyed.Item.Deleted, "%s is deleted in GetAll", key)
-		}
-	}
-}
-
-// The data set from LaunchDarkly does not contain a deleted flag. The store still has it, because
-// no other Relay instance has updated the store.
-func TestReadOnlyStoreInitDeletesItemThatWasInMemory(t *testing.T) {
-	inner := newReplicaStore()
-	store := makeReadOnlyStore(t, inner)
+func TestReadOnlyStoreInitRemovesItemsThatAreNotInDataSet(t *testing.T) {
+	store := makeReadOnlyStore(t, newReplicaStore())
 	initWith(t, store, map[string]int{"a": 1, "b": 2})
-	inner.put(ldstoreimpl.Features(), "b", 2)
 
-	initWith(t, store, map[string]int{"a": 1})
-
-	requireDeleted(t, store, "b", 2)
-}
-
-// Relay started from the store, so the deleted flag is only in the store.
-func TestReadOnlyStoreInitDeletesItemThatIsOnlyInStore(t *testing.T) {
-	inner := newReplicaStore()
-	inner.put(ldstoreimpl.Features(), "a", 1)
-	inner.put(ldstoreimpl.Features(), "b", 3)
-	store := makeReadOnlyStore(t, inner)
-
-	initWith(t, store, map[string]int{"a": 1})
-
-	requireDeleted(t, store, "b", 3)
-}
-
-func TestReadOnlyStoreNewerStoredVersionReplacesTombstone(t *testing.T) {
-	inner := newReplicaStore()
-	inner.put(ldstoreimpl.Features(), "b", 3)
-	store := makeReadOnlyStore(t, inner)
-	initWith(t, store, map[string]int{"a": 1})
-
-	inner.put(ldstoreimpl.Features(), "b", 4)
-
-	item, err := store.Get(ldstoreimpl.Features(), "b")
-	require.NoError(t, err)
-	assert.False(t, item.Deleted)
-	assert.Equal(t, 4, storedVersion(ldstoreimpl.Features(), item))
-}
-
-func TestReadOnlyStoreInitWhenStoreReadFails(t *testing.T) {
-	inner := newReplicaStore()
-	store := makeReadOnlyStore(t, inner)
-	initWith(t, store, map[string]int{"a": 1, "b": 2})
-	inner.readErr = errors.New("sorry")
-
-	initWith(t, store, map[string]int{"a": 1})
-	inner.readErr = nil
-	inner.put(ldstoreimpl.Features(), "b", 2)
-
-	requireDeleted(t, store, "b", 2)
-}
-
-func TestReadOnlyStoreInitDropsTombstoneThatStoreNoLongerNeeds(t *testing.T) {
-	inner := newReplicaStore()
-	inner.put(ldstoreimpl.Features(), "b", 3)
-	store := makeReadOnlyStore(t, inner)
-	initWith(t, store, map[string]int{"a": 1})
-	requireDeleted(t, store, "b", 3)
-
-	delete(inner.items[ldstoreimpl.Features().GetName()], "b") // another Relay instance updated the store
 	initWith(t, store, map[string]int{"a": 1})
 
 	all, err := store.GetAll(ldstoreimpl.Features())
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int{"a": 1}, versionsOf(t, all))
+}
+
+// LaunchDarkly makes the data set before flag "n" exists. Another Relay instance stores "n" before
+// this instance gets the data set. Then this instance gets the update that creates "n".
+func TestReadOnlyStoreServesItemCreatedWhileConnecting(t *testing.T) {
+	for _, ttl := range []time.Duration{0, 30 * time.Second, -1} {
+		t.Run(ttl.String(), func(t *testing.T) {
+			inner := newReplicaStore()
+			inner.put(ldstoreimpl.Features(), "a", 1)
+			ctx := subsystems.BasicClientContext{
+				DataStoreUpdateSink: noOpStatusSink{},
+				Logging:             subsystems.LoggingConfiguration{Loggers: ldlog.NewDisabledLoggers()},
+			}
+			store, err := ldcomponents.PersistentDataStore(newReadOnlyPersistentStore(replicaStoreConfigurer{inner})).
+				CacheTime(ttl).Build(ctx)
+			require.NoError(t, err)
+			defer store.Close()
+
+			inner.put(ldstoreimpl.Features(), "n", 1)
+			require.NoError(t, store.Init([]ldstoretypes.Collection{
+				{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{{Key: "a", Item: flagItem("a", 1)}}},
+				{Kind: ldstoreimpl.Segments()},
+			}))
+			_, err = store.Upsert(ldstoreimpl.Features(), "n", flagItem("n", 1))
+			require.NoError(t, err)
+
+			item, err := store.Get(ldstoreimpl.Features(), "n")
+			require.NoError(t, err)
+			assert.NotNil(t, item.Item)
+			all, err := store.GetAll(ldstoreimpl.Features())
+			require.NoError(t, err)
+			assert.Len(t, all, 2)
+		})
+	}
+}
+
+type noOpStatusSink struct{}
+
+func (noOpStatusSink) UpdateStatus(interfaces.DataStoreStatus) {}
+
+func flagItem(key string, version int) ldstoretypes.ItemDescriptor {
+	flag := ldbuilders.NewFlagBuilder(key).Version(version).Build()
+	return ldstoretypes.ItemDescriptor{Version: version, Item: &flag}
 }
