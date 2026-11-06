@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.1](https://github.com/launchdarkly/ld-relay/compare/v9.0.0...v9.0.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* Apply the per-environment logLevel setting again ([#964](https://github.com/launchdarkly/ld-relay/issues/964)) ([57f88da](https://github.com/launchdarkly/ld-relay/commit/57f88daacee37c933ce55e7263837caf5a07846c))
+* Build a new offline-mode synchronizer each time the SDK asks for one ([#965](https://github.com/launchdarkly/ld-relay/issues/965)) ([b8dfa4e](https://github.com/launchdarkly/ld-relay/commit/b8dfa4e59a7121796ea91ef3ce940e6c29e0162e))
+* Upgrade klauspost/compress to 1.20.3 to address GO-2026-6865 ([#969](https://github.com/launchdarkly/ld-relay/issues/969)) ([9fd74c3](https://github.com/launchdarkly/ld-relay/commit/9fd74c3f1410b90efbd15922cd66ff40cb1d6138))
+* Upgrade OpenTelemetry to 1.47.0 to address GHSA-q7gw-24fr-5p69 ([#968](https://github.com/launchdarkly/ld-relay/issues/968)) ([8be2c4c](https://github.com/launchdarkly/ld-relay/commit/8be2c4cfe6387c4dc54b3b7e086201e2f042e492))
+
 ## [9.0.0](https://github.com/launchdarkly/ld-relay/compare/v8.23.4...v9.0.0) (2026-10-30)
 
 Relay Proxy v9 adds support for the FDv2 data system, replaces OpenCensus with OpenTelemetry for metrics, tracing and logs, and ships only distroless Docker images. This entry covers every change since v8. Version 9.0.0 also includes every fix and feature released on v8 through 8.23.4.
