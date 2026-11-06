@@ -81,7 +81,7 @@ func ConfigureDataStore(
 			storeInfo.DBPrefix = ldredis.DefaultPrefix
 		}
 
-		return ldcomponents.PersistentDataStore(redisBuilder).
+		return ldcomponents.PersistentDataStore(readOnlyIfConfigured(redisBuilder, allConfig.Redis.ReadOnly, loggers)).
 			CacheTime(allConfig.Redis.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
@@ -108,7 +108,7 @@ func ConfigureDataStore(
 			storeInfo.DBPrefix = ldconsul.DefaultPrefix
 		}
 
-		return ldcomponents.PersistentDataStore(builder).
+		return ldcomponents.PersistentDataStore(readOnlyIfConfigured(builder, dbConfig.ReadOnly, loggers)).
 			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
@@ -127,7 +127,7 @@ func ConfigureDataStore(
 			DBTable:  tableName,
 		}
 
-		return ldcomponents.PersistentDataStore(builder).
+		return ldcomponents.PersistentDataStore(readOnlyIfConfigured(builder, allConfig.DynamoDB.ReadOnly, loggers)).
 			CacheTime(allConfig.DynamoDB.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
@@ -187,6 +187,19 @@ func redisDialOptions(redisConfig config.RedisConfig) []redigo.DialOption {
 		dialOptions = append(dialOptions, redigo.DialReadTimeout(redisConfig.ReadTimeout.GetOrElse(0)))
 	}
 	return dialOptions
+}
+
+// readOnlyIfConfigured makes the store read-only if readOnly is true.
+func readOnlyIfConfigured(
+	builder subsystems.ComponentConfigurer[subsystems.PersistentDataStore],
+	readOnly bool,
+	loggers ldlog.Loggers,
+) subsystems.ComponentConfigurer[subsystems.PersistentDataStore] {
+	if !readOnly {
+		return builder
+	}
+	loggers.Info("Data store is read-only: Relay will not write to it")
+	return newReadOnlyPersistentStore(builder, loggers)
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters
