@@ -199,7 +199,7 @@ func readOnlyIfConfigured(
 		return builder
 	}
 	loggers.Info("Data store is read-only: Relay will not write to it")
-	return newReadOnlyPersistentStore(builder, loggers)
+	return newReadOnlyPersistentStore(builder)
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters
