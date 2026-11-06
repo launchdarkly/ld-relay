@@ -45,9 +45,10 @@ func (c readOnlyPersistentStoreConfigurer) DescribeConfiguration(context subsyst
 
 // readOnlyPersistentStore is a persistent store that Relay reads from but never writes to.
 //
-// Init and Upsert do not change the store. The SDK cache keeps the data from LaunchDarkly for the
-// cache TTL. When an item is not in the cache, the SDK reads it from the store. Other Relay instances
-// keep the store up to date.
+// Relay requires an infinite cache TTL with this store. Init and Upsert do not change the store, and
+// the SDK cache keeps the data from LaunchDarkly. Before the first Init, reads go to the store. This
+// lets Relay serve the stored data before it connects to LaunchDarkly. Other Relay instances keep the
+// store up to date.
 type readOnlyPersistentStore struct {
 	inner  subsystems.PersistentDataStore
 	inited atomic.Bool
@@ -69,10 +70,17 @@ func (s *readOnlyPersistentStore) Upsert(
 	return true, nil
 }
 
+// Get reads the store only before the first Init. After Init, the SDK cache has every item from
+// LaunchDarkly, so the SDK calls Get only for an item that LaunchDarkly does not have. The store can
+// still have that item, for example when another Relay instance has not yet stored a deletion. The
+// SDK would then cache the item forever.
 func (s *readOnlyPersistentStore) Get(
 	kind ldstoretypes.DataKind,
 	key string,
 ) (ldstoretypes.SerializedItemDescriptor, error) {
+	if s.inited.Load() {
+		return ldstoretypes.SerializedItemDescriptor{}.NotFound(), nil
+	}
 	return s.inner.Get(kind, key)
 }
 
