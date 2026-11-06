@@ -76,6 +76,18 @@ func (f *recordingClientFactory) awaitClient(t *testing.T, msg string) *testclie
 	return helpers.RequireValue(t, f.clientCh, time.Second, msg)
 }
 
+// awaitInstalledClient waits for the factory to build a client and for env to install it. The
+// factory returns the client before env installs it, so a test that acts on env right after
+// awaitClient can find no client.
+func (f *recordingClientFactory) awaitInstalledClient(t *testing.T, env EnvContext, msg string) *testclient.FakeLDClient {
+	t.Helper()
+	client := f.awaitClient(t, msg)
+	require.Eventually(t, func() bool {
+		return env.GetClient() == client
+	}, time.Second, time.Millisecond, "timed out waiting for the environment to install the client")
+	return client
+}
+
 func newRecoverTestEnv(t *testing.T, factory *recordingClientFactory) EnvContext {
 	t.Helper()
 	env, err := NewEnvContext(EnvContextImplParams{
@@ -99,7 +111,7 @@ func TestReanchorRekeysAClientWhoseDataSystemIsOff(t *testing.T) {
 	factory := newRecordingClientFactory()
 	env := newRecoverTestEnv(t, factory)
 
-	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	first := factory.awaitInstalledClient(t, env, "timed out waiting for the initial client")
 	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateOff})
 
 	rotated := config.SDKKey("sdk-rotated")
@@ -119,7 +131,7 @@ func TestReanchorRekeysAHealthyClientRatherThanRebuildingIt(t *testing.T) {
 	factory := newRecordingClientFactory()
 	env := newRecoverTestEnv(t, factory)
 
-	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	first := factory.awaitInstalledClient(t, env, "timed out waiting for the initial client")
 	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateValid})
 
 	rotated := config.SDKKey("sdk-rotated")
@@ -351,7 +363,7 @@ func TestTheRetryAppliesTheKeyAgainWhileTheDataSystemIsOff(t *testing.T) {
 	env := newRecoverTestEnv(t, factory)
 	impl := env.(*envContextImpl)
 
-	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	first := factory.awaitInstalledClient(t, env, "timed out waiting for the initial client")
 	first.SetDataSourceStatus(interfaces.DataSourceStatus{State: interfaces.DataSourceStateOff})
 	anchor := env.GetAnchorKey()
 
@@ -378,7 +390,7 @@ func TestTheRetryLeavesAClientAloneUnlessItsDataSystemIsOff(t *testing.T) {
 	env := newRecoverTestEnv(t, factory)
 	impl := env.(*envContextImpl)
 
-	first := factory.awaitClient(t, "timed out waiting for the initial client")
+	first := factory.awaitInstalledClient(t, env, "timed out waiting for the initial client")
 	for _, state := range []interfaces.DataSourceState{
 		interfaces.DataSourceStateInitializing,
 		interfaces.DataSourceStateValid,
