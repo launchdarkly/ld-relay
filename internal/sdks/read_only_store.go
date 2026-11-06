@@ -67,20 +67,66 @@ type readOnlyPersistentStore struct {
 	inited bool
 }
 
+// Init replaces the data in memory with a full data set from LaunchDarkly.
+//
+// A full data set does not contain the items that were deleted. Init adds a tombstone for each
+// item that is not in the data set but is in memory or in the store. Without the tombstone, a
+// read merges in the copy from the store, and Relay serves a deleted item until the other Relay
+// instances update the store. The tombstone has the latest known version of the item, and the
+// merge gives equal versions to the data in memory, so the tombstone wins.
 func (s *readOnlyPersistentStore) Init(allData []ldstoretypes.SerializedCollection) error {
+	// Read the store before the lock is held. Reads can be slow.
+	stored := make(map[string]map[string]int, len(allData)) // kind name -> key -> version
+	for _, coll := range allData {
+		storedItems, err := s.inner.GetAll(coll.Kind)
+		if err != nil {
+			s.loggers.Warnf("Read-only data store read failed, deleted items are known only from memory: %s", err)
+			continue
+		}
+		versions := make(map[string]int, len(storedItems))
+		for _, keyed := range storedItems {
+			versions[keyed.Key] = storedVersion(coll.Kind, keyed.Item)
+		}
+		stored[coll.Kind.GetName()] = versions
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	items := make(map[string]map[string]ldstoretypes.SerializedItemDescriptor, len(allData))
 	for _, coll := range allData {
 		kindItems := make(map[string]ldstoretypes.SerializedItemDescriptor, len(coll.Items))
 		for _, keyed := range coll.Items {
 			kindItems[keyed.Key] = keyed.Item
 		}
+		storedVersions, storeWasRead := stored[coll.Kind.GetName()]
+		for key, old := range s.items[coll.Kind.GetName()] {
+			if _, ok := kindItems[key]; ok {
+				continue
+			}
+			storedVer, inStore := storedVersions[key]
+			if old.Deleted && storeWasRead && !inStore {
+				continue // the store does not have the item, so the tombstone is not necessary
+			}
+			kindItems[key] = tombstone(coll.Kind, max(old.Version, storedVer))
+		}
+		for key, storedVer := range storedVersions {
+			if _, ok := kindItems[key]; !ok {
+				kindItems[key] = tombstone(coll.Kind, storedVer)
+			}
+		}
 		items[coll.Kind.GetName()] = kindItems
 	}
-	s.mu.Lock()
 	s.items = items
 	s.inited = true
-	s.mu.Unlock()
 	return nil
+}
+
+func tombstone(kind ldstoretypes.DataKind, version int) ldstoretypes.SerializedItemDescriptor {
+	return ldstoretypes.SerializedItemDescriptor{
+		Version:        version,
+		Deleted:        true,
+		SerializedItem: kind.Serialize(ldstoretypes.ItemDescriptor{Version: version}),
+	}
 }
 
 func (s *readOnlyPersistentStore) Upsert(

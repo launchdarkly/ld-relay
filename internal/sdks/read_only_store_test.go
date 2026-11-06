@@ -147,10 +147,11 @@ func TestReadOnlyStoreMergesByVersion(t *testing.T) {
 	inner := newReplicaStore()
 	inner.put(ldstoreimpl.Features(), "store-newer", 5)
 	inner.put(ldstoreimpl.Features(), "local-newer", 1)
-	inner.put(ldstoreimpl.Features(), "only-in-store", 1)
 	store := makeReadOnlyStore(t, inner)
 
 	initWith(t, store, map[string]int{"store-newer": 4, "local-newer": 2, "only-local": 1})
+	// Another Relay instance stores a new flag that this instance has not received.
+	inner.put(ldstoreimpl.Features(), "only-in-store", 1)
 
 	all, err := store.GetAll(ldstoreimpl.Features())
 	require.NoError(t, err)
@@ -238,4 +239,87 @@ func TestReadOnlyStoreCloseClosesStore(t *testing.T) {
 	store := makeReadOnlyStore(t, inner)
 	require.NoError(t, store.Close())
 	assert.True(t, inner.closed)
+}
+
+func requireDeleted(t *testing.T, store subsystems.PersistentDataStore, key string, version int) {
+	t.Helper()
+	item, err := store.Get(ldstoreimpl.Features(), key)
+	require.NoError(t, err)
+	assert.True(t, item.Deleted, "%s is deleted", key)
+	assert.Equal(t, version, storedVersion(ldstoreimpl.Features(), item))
+
+	all, err := store.GetAll(ldstoreimpl.Features())
+	require.NoError(t, err)
+	for _, keyed := range all {
+		if keyed.Key == key {
+			assert.True(t, keyed.Item.Deleted, "%s is deleted in GetAll", key)
+		}
+	}
+}
+
+// The data set from LaunchDarkly does not contain a deleted flag. The store still has it, because
+// no other Relay instance has updated the store.
+func TestReadOnlyStoreInitDeletesItemThatWasInMemory(t *testing.T) {
+	inner := newReplicaStore()
+	store := makeReadOnlyStore(t, inner)
+	initWith(t, store, map[string]int{"a": 1, "b": 2})
+	inner.put(ldstoreimpl.Features(), "b", 2)
+
+	initWith(t, store, map[string]int{"a": 1})
+
+	requireDeleted(t, store, "b", 2)
+}
+
+// Relay started from the store, so the deleted flag is only in the store.
+func TestReadOnlyStoreInitDeletesItemThatIsOnlyInStore(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "a", 1)
+	inner.put(ldstoreimpl.Features(), "b", 3)
+	store := makeReadOnlyStore(t, inner)
+
+	initWith(t, store, map[string]int{"a": 1})
+
+	requireDeleted(t, store, "b", 3)
+}
+
+func TestReadOnlyStoreNewerStoredVersionReplacesTombstone(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "b", 3)
+	store := makeReadOnlyStore(t, inner)
+	initWith(t, store, map[string]int{"a": 1})
+
+	inner.put(ldstoreimpl.Features(), "b", 4)
+
+	item, err := store.Get(ldstoreimpl.Features(), "b")
+	require.NoError(t, err)
+	assert.False(t, item.Deleted)
+	assert.Equal(t, 4, storedVersion(ldstoreimpl.Features(), item))
+}
+
+func TestReadOnlyStoreInitWhenStoreReadFails(t *testing.T) {
+	inner := newReplicaStore()
+	store := makeReadOnlyStore(t, inner)
+	initWith(t, store, map[string]int{"a": 1, "b": 2})
+	inner.readErr = errors.New("sorry")
+
+	initWith(t, store, map[string]int{"a": 1})
+	inner.readErr = nil
+	inner.put(ldstoreimpl.Features(), "b", 2)
+
+	requireDeleted(t, store, "b", 2)
+}
+
+func TestReadOnlyStoreInitDropsTombstoneThatStoreNoLongerNeeds(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "b", 3)
+	store := makeReadOnlyStore(t, inner)
+	initWith(t, store, map[string]int{"a": 1})
+	requireDeleted(t, store, "b", 3)
+
+	delete(inner.items[ldstoreimpl.Features().GetName()], "b") // another Relay instance updated the store
+	initWith(t, store, map[string]int{"a": 1})
+
+	all, err := store.GetAll(ldstoreimpl.Features())
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{"a": 1}, versionsOf(t, all))
 }
