@@ -56,7 +56,8 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 }
 
 // makeInvalidConfigReadOnlyOnOtherDatabase sets readOnly in a section that Relay does not use, while
-// Relay uses Redis. Environment variables cannot do this, because STORE_READ_ONLY sets all sections.
+// Relay uses Redis. Environment variables cannot do this, because STORE_READ_ONLY sets the section of
+// each database that the environment variables configure.
 func makeInvalidConfigReadOnlyOnOtherDatabase(section string) testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "read-only set for " + section + " while Redis is configured"}
 	c.fileError = errReadOnlyNotOnConfiguredDatabase.Error()

@@ -294,8 +294,8 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	// A read-only Relay with a finite cache TTL can read old data from the replica when the cache
 	// expires, and keep it for the full TTL. With an infinite TTL, Relay reads the replica only
 	// before it gets data from LaunchDarkly.
-	// The STORE_READ_ONLY variable sets readOnly in all sections. A configuration file can set it in a
-	// section that Relay does not use. Then Relay would write to the database that it uses.
+	// A configuration file can set readOnly in a section of a database that Relay does not use. Then
+	// Relay would write to the database that it uses.
 	if !c.IsPersistentStoreReadOnly() && (c.Redis.ReadOnly || c.Consul.ReadOnly || c.DynamoDB.ReadOnly) {
 		result.AddError(nil, errReadOnlyNotOnConfiguredDatabase)
 	}

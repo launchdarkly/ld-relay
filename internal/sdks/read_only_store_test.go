@@ -363,7 +363,7 @@ func TestReadOnlyStoreReadInProgressDuringInitDoesNotReplaceData(t *testing.T) {
 		item, err := store.Get(ldstoreimpl.Features(), "a")
 		results <- result{item, err}
 	}()
-	<-inner.getStarted
+	waitFor(t, inner.getStarted)
 
 	initDone := make(chan error, 1)
 	go func() { initDone <- store.Init(flagData(map[string]int{"a": 5})) }()
@@ -403,7 +403,7 @@ func TestReadOnlyStoreErrorAfterDataFromLaunchDarklyDoesNotChangeStatus(t *testi
 		_, err := store.Get(ldstoreimpl.Features(), "a")
 		errs <- err
 	}()
-	<-inner.getStarted
+	waitFor(t, inner.getStarted)
 	require.NoError(t, store.Init(flagData(map[string]int{"a": 5})))
 	inner.setReadErr(errors.New("sorry"))
 	close(inner.getRelease)
@@ -431,7 +431,7 @@ func TestReadOnlyStoreStatusRecoversWhenDataFromLaunchDarklyArrives(t *testing.T
 			require.Error(t, err)
 			require.False(t, (<-statuses).Available)
 			if hang {
-				<-inner.availabilityStarted
+				waitFor(t, inner.availabilityStarted)
 			}
 
 			require.NoError(t, store.Init(flagData(map[string]int{"a": 5})))
@@ -554,7 +554,7 @@ func TestReadOnlyStoreReadsUseDatabaseUntilMemoryStoreHasData(t *testing.T) {
 
 	initDone := make(chan error, 1)
 	go func() { initDone <- store.Init(flagData(map[string]int{"a": 2})) }()
-	<-memory.started
+	waitFor(t, memory.started)
 	item, err := store.Get(ldstoreimpl.Features(), "a")
 	require.NoError(t, err)
 	assert.Equal(t, 1, item.Version)
@@ -681,7 +681,7 @@ func TestReadOnlyStoreClosedStoreStopsStatusPollerThatWaitsForDatabase(t *testin
 	_, err := store.Get(ldstoreimpl.Features(), "a")
 	require.Error(t, err)
 	require.False(t, (<-statuses).Available)
-	<-inner.availabilityStarted
+	waitFor(t, inner.availabilityStarted)
 	require.NoError(t, store.Close())
 	select {
 	case status := <-statuses:
@@ -696,6 +696,16 @@ func TestReadOnlyStoreDatabaseStoreCanDropCache(t *testing.T) {
 	store := makeReadOnlyStore(t, newReplicaStore()).(*readOnlyDataStore)
 	_, ok := store.database.(interface{ DropCache() })
 	assert.True(t, ok)
+}
+
+// waitFor waits until ch is closed, so that a test fails instead of hanging.
+func waitFor(t *testing.T, ch <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "timed out")
+	}
 }
 
 func assertNoUnavailableStatus(t *testing.T, statuses <-chan interfaces.DataStoreStatus) {
