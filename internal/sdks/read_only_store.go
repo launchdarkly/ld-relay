@@ -1,11 +1,11 @@
 package sdks
 
 import (
-	"errors"
 	"sync"
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -17,10 +17,6 @@ import (
 // readOnlyAvailabilityKey is the key that the availability check reads. The item does not have to
 // exist. A read that succeeds is sufficient.
 const readOnlyAvailabilityKey = "$relay-read-only-availability"
-
-// errReadStoppedByInit is the result of a store read that was in progress when the data from
-// LaunchDarkly arrived. The SDK does not cache an error.
-var errReadStoppedByInit = errors.New("read-only data store read stopped, because data from LaunchDarkly arrived")
 
 // readOnlyDataStoreConfigurer builds the data store that the SDK uses when Relay must not write to the
 // database.
@@ -46,13 +42,20 @@ func (c readOnlyDataStoreConfigurer) Build(context subsystems.ClientContext) (su
 		return nil, err
 	}
 	core := newReadOnlyPersistentStore(inner)
-	// The cache must never expire. After Init, the cache is the only copy of the data from LaunchDarkly.
-	store, err := ldcomponents.PersistentDataStore(existingPersistentStore{core}).CacheForever().Build(context)
+	sink := readOnlyStatusSink{sink: context.GetDataStoreUpdateSink(), core: core}
+	database, err := ldcomponents.PersistentDataStore(existingPersistentStore{core}).
+		CacheForever().
+		Build(readOnlyClientContext{ClientContext: context, sink: sink})
 	if err != nil {
 		_ = core.Close()
 		return nil, err
 	}
-	return &readOnlyDataStore{store: store, core: core}, nil
+	memory, err := ldcomponents.InMemoryDataStore().Build(context)
+	if err != nil {
+		_ = database.Close()
+		return nil, err
+	}
+	return &readOnlyDataStore{database: database, memory: memory, core: core}, nil
 }
 
 // DescribeConfiguration gives the description of the database, so diagnostic events do not change.
@@ -69,76 +72,105 @@ func (e existingPersistentStore) Build(subsystems.ClientContext) (subsystems.Per
 	return e.store, nil
 }
 
-// readOnlyDataStore is the data store that the SDK uses in read-only mode. It is above the SDK cache.
-//
-// The SDK cache keeps the result of each store read. Thus, a read that is in progress when Init occurs
-// can put old data from the database into the cache after Init. To prevent this, Init holds the write
-// lock while it replaces the cache, and reads hold the read lock.
-//
-// Only this store gets the data from LaunchDarkly. The SDK also calls the Init of the persistent store
-// after a database outage, to restore the database from the cache. Thus, the persistent store cannot
-// use its own Init to know that the data from LaunchDarkly is in the cache.
-type readOnlyDataStore struct {
-	store subsystems.DataStore
-	core  *readOnlyPersistentStore
-	mu    sync.RWMutex
+// readOnlyClientContext gives the database store a status sink of its own.
+type readOnlyClientContext struct {
+	subsystems.ClientContext
+	sink subsystems.DataStoreUpdateSink
 }
 
-// Init replaces the cache with the data from LaunchDarkly.
+func (c readOnlyClientContext) GetDataStoreUpdateSink() subsystems.DataStoreUpdateSink {
+	return c.sink
+}
+
+// readOnlyStatusSink sends the status of the database store to the SDK. After the data from
+// LaunchDarkly arrives, Relay does not use the database, so it does not send a database outage.
+// It still sends a recovery. The SDK status poller sends the recovery at its next check, because
+// the availability check then always succeeds.
+type readOnlyStatusSink struct {
+	sink subsystems.DataStoreUpdateSink
+	core *readOnlyPersistentStore
+}
+
+func (s readOnlyStatusSink) UpdateStatus(status interfaces.DataStoreStatus) {
+	if !status.Available && s.core.hasDataFromLaunchDarkly() {
+		return
+	}
+	s.sink.UpdateStatus(status)
+}
+
+// readOnlyDataStore is the data store that the SDK uses in read-only mode. It has two stores, like the
+// read-only mode of the SDK data system:
+//
+//   - The database store reads the database through the SDK cache. It serves reads until the data
+//     from LaunchDarkly arrives. It never writes to the database.
+//   - The memory store gets the data from LaunchDarkly and all updates. It serves reads after the
+//     data from LaunchDarkly arrives.
+//
+// Init switches the reads to the memory store after the memory store has the data. A read of the
+// database that is in progress at that time cannot change the memory store. No read waits for Init,
+// and Init does not wait for a read.
+type readOnlyDataStore struct {
+	database subsystems.DataStore
+	memory   subsystems.DataStore
+	core     *readOnlyPersistentStore
+}
+
+// Init stores the data from LaunchDarkly in the memory store. Then reads use only the memory store.
 func (s *readOnlyDataStore) Init(allData []ldstoretypes.Collection) error {
-	// Stop the store reads that are in progress first. Then the reads release the lock at once.
-	s.core.setInitialized()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.store.Init(allData)
+	if err := s.memory.Init(allData); err != nil {
+		return err
+	}
+	if !s.core.hasDataFromLaunchDarkly() {
+		s.core.setInitialized()
+		// The cache of the database store is not used again. This releases its memory.
+		if c, ok := s.database.(interface{ DropCache() }); ok {
+			c.DropCache()
+		}
+	}
+	return nil
+}
+
+func (s *readOnlyDataStore) active() subsystems.DataStore {
+	if s.core.hasDataFromLaunchDarkly() {
+		return s.memory
+	}
+	return s.database
 }
 
 func (s *readOnlyDataStore) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.ItemDescriptor, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.store.Get(kind, key)
+	return s.active().Get(kind, key)
 }
 
 func (s *readOnlyDataStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.store.GetAll(kind)
+	return s.active().GetAll(kind)
 }
 
-// Upsert ignores an item that is not newer than the item in the cache. The persistent store cannot do
-// this check, because it keeps no data.
+// Upsert updates the memory store. The memory store ignores an item that is not newer than its item.
 func (s *readOnlyDataStore) Upsert(
 	kind ldstoretypes.DataKind,
 	key string,
 	item ldstoretypes.ItemDescriptor,
 ) (bool, error) {
-	old, err := s.Get(kind, key)
-	if err == nil && old.Version >= item.Version {
-		return false, nil
-	}
-	return s.store.Upsert(kind, key, item)
+	return s.memory.Upsert(kind, key, item)
 }
 
 func (s *readOnlyDataStore) IsInitialized() bool {
-	return s.store.IsInitialized()
+	return s.active().IsInitialized()
 }
 
+// IsStatusMonitoringEnabled is true, because the database store reports its status.
 func (s *readOnlyDataStore) IsStatusMonitoringEnabled() bool {
-	return s.store.IsStatusMonitoringEnabled()
+	return s.database.IsStatusMonitoringEnabled()
 }
 
 func (s *readOnlyDataStore) Close() error {
-	return s.store.Close()
+	err := s.database.Close()
+	_ = s.memory.Close()
+	return err
 }
 
-// readOnlyPersistentStore is the persistent store under the SDK cache in read-only mode. It reads from
-// the database but never writes to it.
-//
-// Before the data from LaunchDarkly arrives, reads go to the database. This lets Relay serve the
-// stored data before it connects to LaunchDarkly. After that, the cache has every item from
-// LaunchDarkly, so a read is only for an item that LaunchDarkly does not have. The database can still
-// have that item, for example when another Relay instance has not yet stored a deletion. Thus, these
-// reads do not go to the database.
+// readOnlyPersistentStore is the persistent store under the SDK cache of the database store. It reads
+// from the database but never writes to it.
 type readOnlyPersistentStore struct {
 	inner           subsystems.PersistentDataStore
 	initialized     chan struct{} // closed when the data from LaunchDarkly arrives
@@ -149,7 +181,7 @@ func newReadOnlyPersistentStore(inner subsystems.PersistentDataStore) *readOnlyP
 	return &readOnlyPersistentStore{inner: inner, initialized: make(chan struct{})}
 }
 
-// setInitialized records that the data from LaunchDarkly arrived.
+// setInitialized records that the memory store has the data from LaunchDarkly.
 func (s *readOnlyPersistentStore) setInitialized() {
 	s.initializedOnce.Do(func() { close(s.initialized) })
 }
@@ -163,73 +195,57 @@ func (s *readOnlyPersistentStore) hasDataFromLaunchDarkly() bool {
 	}
 }
 
-// Init does not write the data.
+// Init does not write the data. The SDK calls Init after a database outage, to restore the database
+// from the cache.
 func (s *readOnlyPersistentStore) Init([]ldstoretypes.SerializedCollection) error {
 	return nil
 }
 
-// Upsert does not write the item. It returns true, so that the SDK cache keeps the item.
+// Upsert does not write the item. Relay sends all updates to the memory store, so the SDK does not
+// call this.
 func (s *readOnlyPersistentStore) Upsert(
 	ldstoretypes.DataKind,
 	string,
 	ldstoretypes.SerializedItemDescriptor,
 ) (bool, error) {
-	return true, nil
+	return false, nil
 }
 
 func (s *readOnlyPersistentStore) Get(
 	kind ldstoretypes.DataKind,
 	key string,
 ) (ldstoretypes.SerializedItemDescriptor, error) {
-	if s.hasDataFromLaunchDarkly() {
-		return ldstoretypes.SerializedItemDescriptor{}.NotFound(), nil
-	}
-	return readUntilInitialized(s, func() (ldstoretypes.SerializedItemDescriptor, error) {
-		return s.inner.Get(kind, key)
-	})
+	return s.inner.Get(kind, key)
 }
 
 func (s *readOnlyPersistentStore) GetAll(
 	kind ldstoretypes.DataKind,
 ) ([]ldstoretypes.KeyedSerializedItemDescriptor, error) {
-	if s.hasDataFromLaunchDarkly() {
-		return nil, nil
-	}
-	return readUntilInitialized(s, func() ([]ldstoretypes.KeyedSerializedItemDescriptor, error) {
-		return s.inner.GetAll(kind)
-	})
-}
-
-// readUntilInitialized does a database read, but stops when the data from LaunchDarkly arrives. Init
-// waits for the reads to complete, and the database can be slow or not respond.
-func readUntilInitialized[T any](s *readOnlyPersistentStore, read func() (T, error)) (T, error) {
-	type result struct {
-		value T
-		err   error
-	}
-	results := make(chan result, 1)
-	go func() {
-		value, err := read()
-		results <- result{value, err}
-	}()
-	select {
-	case r := <-results:
-		return r.value, r.err
-	case <-s.initialized:
-		var zero T
-		return zero, errReadStoppedByInit
-	}
+	return s.inner.GetAll(kind)
 }
 
 func (s *readOnlyPersistentStore) IsInitialized() bool {
-	return s.hasDataFromLaunchDarkly() || s.inner.IsInitialized()
+	return s.inner.IsInitialized()
 }
 
 // IsStoreAvailable does a read, because the availability checks of some stores write. A replica
-// refuses those writes.
+// refuses those writes. After the data from LaunchDarkly arrives, the result is always true, and the
+// check does not wait for the database. Then the SDK status poller stops and reports a recovery.
 func (s *readOnlyPersistentStore) IsStoreAvailable() bool {
-	_, err := s.inner.Get(ldstoreimpl.Features(), readOnlyAvailabilityKey)
-	return err == nil
+	if s.hasDataFromLaunchDarkly() {
+		return true
+	}
+	result := make(chan bool, 1)
+	go func() {
+		_, err := s.inner.Get(ldstoreimpl.Features(), readOnlyAvailabilityKey)
+		result <- err == nil
+	}()
+	select {
+	case available := <-result:
+		return available
+	case <-s.initialized:
+		return true
+	}
 }
 
 func (s *readOnlyPersistentStore) Close() error {

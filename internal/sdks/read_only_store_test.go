@@ -2,7 +2,9 @@ package sdks
 
 import (
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +32,11 @@ type replicaStore struct {
 	getStarted chan struct{}
 	getRelease chan struct{}
 	getOnce    sync.Once
+	// availabilityRelease, if not nil, holds each availability check until it is closed. The first
+	// availability check closes availabilityStarted.
+	availabilityRelease chan struct{}
+	availabilityStarted chan struct{}
+	availabilityOnce    sync.Once
 }
 
 func newReplicaStore() *replicaStore {
@@ -73,6 +80,10 @@ func (f *replicaStore) Upsert(ldstoretypes.DataKind, string, ldstoretypes.Serial
 }
 
 func (f *replicaStore) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.SerializedItemDescriptor, error) {
+	if f.availabilityRelease != nil && key == readOnlyAvailabilityKey {
+		f.availabilityOnce.Do(func() { close(f.availabilityStarted) })
+		<-f.availabilityRelease
+	}
 	if f.getStarted != nil && key != readOnlyAvailabilityKey {
 		f.getOnce.Do(func() {
 			close(f.getStarted)
@@ -333,24 +344,27 @@ func TestReadOnlyStoreIgnoresOlderUpdates(t *testing.T) {
 	assert.Empty(t, liveVersions(t, store))
 }
 
-// A read of the store that is in progress when the data from LaunchDarkly arrives must not replace that
-// data in the SDK cache.
+// A read of the database that is in progress when the data from LaunchDarkly arrives gives the database
+// data to its caller. It does not change the data that later reads get, and Init does not wait for it.
 func TestReadOnlyStoreReadInProgressDuringInitDoesNotReplaceData(t *testing.T) {
 	inner := newReplicaStore()
 	inner.put(ldstoreimpl.Features(), "a", 1)
 	inner.getStarted = make(chan struct{})
 	inner.getRelease = make(chan struct{})
-	defer close(inner.getRelease)
-	store := makeReadOnlyStore(t, inner)
+	statuses := make(chan interfaces.DataStoreStatus, 10)
+	store := makeReadOnlyStoreWithSink(t, inner, statusSink(statuses))
 
-	done := make(chan struct{})
+	type result struct {
+		item ldstoretypes.ItemDescriptor
+		err  error
+	}
+	results := make(chan result, 1)
 	go func() {
-		defer close(done)
-		_, _ = store.Get(ldstoreimpl.Features(), "a")
+		item, err := store.Get(ldstoreimpl.Features(), "a")
+		results <- result{item, err}
 	}()
 	<-inner.getStarted
 
-	// Init does not wait for the replica, which does not respond.
 	initDone := make(chan error, 1)
 	go func() { initDone <- store.Init(flagData(map[string]int{"a": 5})) }()
 	select {
@@ -359,11 +373,292 @@ func TestReadOnlyStoreReadInProgressDuringInitDoesNotReplaceData(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		require.FailNow(t, "Init waited for a store read")
 	}
-	<-done
-
 	item, err := store.Get(ldstoreimpl.Features(), "a")
 	require.NoError(t, err)
 	assert.Equal(t, 5, item.Version)
+
+	close(inner.getRelease)
+	r := <-results
+	require.NoError(t, r.err)
+	assert.Equal(t, 1, r.item.Version)
+
+	item, err = store.Get(ldstoreimpl.Features(), "a")
+	require.NoError(t, err)
+	assert.Equal(t, 5, item.Version)
+	assert.Equal(t, map[string]int{"a": 5}, liveVersions(t, store))
+	assertNoUnavailableStatus(t, statuses)
+}
+
+// A read of the database that fails after the data from LaunchDarkly arrives does not change the store
+// status. Relay does not use the database again.
+func TestReadOnlyStoreErrorAfterDataFromLaunchDarklyDoesNotChangeStatus(t *testing.T) {
+	inner := newReplicaStore()
+	inner.getStarted = make(chan struct{})
+	inner.getRelease = make(chan struct{})
+	statuses := make(chan interfaces.DataStoreStatus, 10)
+	store := makeReadOnlyStoreWithSink(t, inner, statusSink(statuses))
+
+	errs := make(chan error, 1)
+	go func() {
+		_, err := store.Get(ldstoreimpl.Features(), "a")
+		errs <- err
+	}()
+	<-inner.getStarted
+	require.NoError(t, store.Init(flagData(map[string]int{"a": 5})))
+	inner.setReadErr(errors.New("sorry"))
+	close(inner.getRelease)
+	require.Error(t, <-errs)
+
+	assertNoUnavailableStatus(t, statuses)
+}
+
+// The database fails before the data from LaunchDarkly arrives. The status becomes available when the
+// data arrives, though the database still fails.
+func TestReadOnlyStoreStatusRecoversWhenDataFromLaunchDarklyArrives(t *testing.T) {
+	for _, hang := range []bool{false, true} {
+		t.Run(fmt.Sprintf("availability check hangs=%t", hang), func(t *testing.T) {
+			inner := newReplicaStore()
+			if hang {
+				inner.availabilityRelease = make(chan struct{})
+				inner.availabilityStarted = make(chan struct{})
+				defer close(inner.availabilityRelease)
+			}
+			statuses := make(chan interfaces.DataStoreStatus, 10)
+			store := makeReadOnlyStoreWithSink(t, inner, statusSink(statuses))
+
+			inner.setReadErr(errors.New("sorry"))
+			_, err := store.Get(ldstoreimpl.Features(), "a")
+			require.Error(t, err)
+			require.False(t, (<-statuses).Available)
+			if hang {
+				<-inner.availabilityStarted
+			}
+
+			require.NoError(t, store.Init(flagData(map[string]int{"a": 5})))
+			select {
+			case status := <-statuses:
+				assert.True(t, status.Available)
+				assert.False(t, status.NeedsRefresh)
+			case <-time.After(2 * time.Second):
+				assert.Fail(t, "the status did not become available")
+			}
+		})
+	}
+}
+
+// The SDK sends a store status with a blocking send to a buffer of 10 items. The streaming data source
+// reads that buffer on the goroutine that calls Init. Before the data source connects, a database that
+// fails and recovers can fill the buffer. Then a read blocks in the status update. Init must not wait
+// for that read.
+func TestReadOnlyStoreReadBlockedInStatusUpdateDoesNotBlockInit(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "a", 1)
+	statuses := make(chan interfaces.DataStoreStatus, 10)
+	store := makeReadOnlyStoreWithSink(t, inner, statusSink(statuses))
+	readErr := errors.New("max number of clients reached")
+
+	for i := 0; i < 5; i++ {
+		inner.setReadErr(readErr)
+		_, err := store.Get(ldstoreimpl.Features(), "b")
+		require.Error(t, err)
+		inner.setReadErr(nil)
+		require.Eventually(t, func() bool { return len(statuses) == 2*(i+1) }, 3*time.Second, 10*time.Millisecond)
+	}
+
+	inner.setReadErr(readErr)
+	readDone := make(chan struct{})
+	go func() {
+		_, _ = store.Get(ldstoreimpl.Features(), "c")
+		close(readDone)
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	initDone := make(chan error, 1)
+	go func() { initDone <- store.Init(flagData(map[string]int{"a": 2})) }()
+	select {
+	case err := <-initDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		assert.Fail(t, "Init waited for a read that is blocked in a status update")
+	}
+	item, err := store.Get(ldstoreimpl.Features(), "a")
+	require.NoError(t, err)
+	assert.Equal(t, 2, item.Version)
+
+	// The data source reads the buffer again.
+	go func() {
+		for range statuses {
+		}
+	}()
+	<-readDone
+}
+
+// Reads during the first Init get the database data or the data from LaunchDarkly. They never get
+// NotFound for a flag that both have.
+func TestReadOnlyStoreReadsDuringFirstInitFindExistingFlags(t *testing.T) {
+	const keys = 500
+	for attempt := 0; attempt < 20; attempt++ {
+		inner := newReplicaStore()
+		ld := map[string]int{}
+		for i := 0; i < keys; i++ {
+			k := fmt.Sprintf("k%d", i)
+			inner.put(ldstoreimpl.Features(), k, 1)
+			ld[k] = 2
+		}
+		store := makeReadOnlyStore(t, inner)
+		data := flagData(ld)
+		var next, wrong int64 = -1, 0
+		var wg sync.WaitGroup
+		for r := 0; r < 4; r++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					i := atomic.AddInt64(&next, 1)
+					if i >= keys {
+						return
+					}
+					item, err := store.Get(ldstoreimpl.Features(), fmt.Sprintf("k%d", i))
+					if err != nil || item.Item == nil {
+						atomic.AddInt64(&wrong, 1)
+					}
+				}
+			}()
+		}
+		require.NoError(t, store.Init(data))
+		wg.Wait()
+		require.Zero(t, wrong, "attempt %d", attempt)
+	}
+}
+
+// slowInitStore is a memory store whose Init waits until release is closed.
+type slowInitStore struct {
+	subsystems.DataStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s slowInitStore) Init(allData []ldstoretypes.Collection) error {
+	close(s.started)
+	<-s.release
+	return s.DataStore.Init(allData)
+}
+
+// Reads use the database store until the memory store has the data from LaunchDarkly.
+func TestReadOnlyStoreReadsUseDatabaseUntilMemoryStoreHasData(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "a", 1)
+	built := makeReadOnlyStore(t, inner).(*readOnlyDataStore)
+	memory := slowInitStore{DataStore: built.memory, started: make(chan struct{}), release: make(chan struct{})}
+	store := &readOnlyDataStore{database: built.database, memory: memory, core: built.core}
+
+	initDone := make(chan error, 1)
+	go func() { initDone <- store.Init(flagData(map[string]int{"a": 2})) }()
+	<-memory.started
+	item, err := store.Get(ldstoreimpl.Features(), "a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, item.Version)
+	assert.True(t, store.IsInitialized())
+
+	close(memory.release)
+	require.NoError(t, <-initDone)
+	item, err = store.Get(ldstoreimpl.Features(), "a")
+	require.NoError(t, err)
+	assert.Equal(t, 2, item.Version)
+}
+
+// Two SDK clients can update the store at the same time, while Relay changes the connection to
+// LaunchDarkly. The newest version wins.
+func TestReadOnlyStoreConcurrentUpsertsKeepNewestVersion(t *testing.T) {
+	for i := 0; i < 1000; i++ {
+		store := makeReadOnlyStore(t, newReplicaStore())
+		require.NoError(t, store.Init(flagData(map[string]int{"a": 1})))
+		var start, wg sync.WaitGroup
+		start.Add(1)
+		for _, v := range []int{5, 6} {
+			wg.Add(1)
+			go func(v int) {
+				defer wg.Done()
+				start.Wait()
+				_, _ = store.Upsert(ldstoreimpl.Features(), "a", flagItem("a", v))
+			}(v)
+		}
+		start.Done()
+		wg.Wait()
+		item, err := store.Get(ldstoreimpl.Features(), "a")
+		require.NoError(t, err)
+		require.Equal(t, 6, item.Version, "attempt %d", i)
+		require.Equal(t, map[string]int{"a": 6}, liveVersions(t, store), "attempt %d", i)
+	}
+}
+
+// An update concurrent with a new data set gives the same result as some order of the two.
+func TestReadOnlyStoreUpsertConcurrentWithInit(t *testing.T) {
+	newData := map[string]int{}
+	for i := 0; i < 200; i++ {
+		newData[fmt.Sprintf("f%d", i)] = 2
+	}
+	for i := 0; i < 500; i++ {
+		store := makeReadOnlyStore(t, newReplicaStore())
+		require.NoError(t, store.Init(flagData(map[string]int{"f0": 1, "old": 1})))
+		var start, wg sync.WaitGroup
+		start.Add(1)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			start.Wait()
+			_ = store.Init(flagData(newData))
+		}()
+		go func() {
+			defer wg.Done()
+			start.Wait()
+			_, _ = store.Upsert(ldstoreimpl.Features(), "f1", flagItem("f1", 3))
+		}()
+		start.Done()
+		wg.Wait()
+		live := liveVersions(t, store)
+		require.Contains(t, []int{2, 3}, live["f1"], "attempt %d", i)
+		delete(live, "f1")
+		require.Len(t, live, len(newData)-1, "attempt %d", i)
+		require.NotContains(t, live, "old", "attempt %d", i)
+	}
+}
+
+// Versions are compared with deleted items too.
+func TestReadOnlyStoreUpsertVersionCheckWithDeletedItems(t *testing.T) {
+	inner := newReplicaStore()
+	inner.put(ldstoreimpl.Features(), "r", 9)
+	store := makeReadOnlyStore(t, inner)
+	require.NoError(t, store.Init(flagData(map[string]int{"a": 1})))
+
+	updated, err := store.Upsert(ldstoreimpl.Features(), "a", ldstoretypes.ItemDescriptor{Version: 3})
+	require.NoError(t, err)
+	assert.True(t, updated)
+	for _, version := range []int{2, 3} {
+		updated, err = store.Upsert(ldstoreimpl.Features(), "a", flagItem("a", version))
+		require.NoError(t, err)
+		assert.False(t, updated, "version %d", version)
+	}
+	assert.Empty(t, liveVersions(t, store))
+
+	// The version of an item that is only in the database does not matter after Init.
+	updated, err = store.Upsert(ldstoreimpl.Features(), "r", flagItem("r", 2))
+	require.NoError(t, err)
+	assert.True(t, updated)
+	assert.Equal(t, map[string]int{"r": 2}, liveVersions(t, store))
+}
+
+func assertNoUnavailableStatus(t *testing.T, statuses <-chan interfaces.DataStoreStatus) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case status := <-statuses:
+			assert.True(t, status.Available, "the store status became unavailable")
+		case <-deadline:
+			return
+		}
+	}
 }
 
 // A reconnect gives a new data set while SDKs read all flags. No read can put the store's data into the
