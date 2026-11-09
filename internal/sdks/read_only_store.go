@@ -236,8 +236,9 @@ func (s *readOnlyPersistentStore) IsInitialized() bool {
 // refuses those writes. After the data from LaunchDarkly arrives, the result is always true, and the
 // check does not wait for the database. Then the SDK status poller stops and reports a recovery.
 //
-// After Close, the result is also true. A read that fails after Close can start an SDK status poller
-// that the SDK does not stop. This result stops that poller at its next check.
+// After Close, the result is also true, and the check does not wait for the database. A read that
+// fails after Close can start an SDK status poller that the SDK does not stop. This result stops that
+// poller at its next check.
 func (s *readOnlyPersistentStore) IsStoreAvailable() bool {
 	if s.hasDataFromLaunchDarkly() || s.isClosed() {
 		return true
@@ -251,6 +252,8 @@ func (s *readOnlyPersistentStore) IsStoreAvailable() bool {
 	case available := <-result:
 		return available
 	case <-s.initialized:
+		return true
+	case <-s.closed:
 		return true
 	}
 }
