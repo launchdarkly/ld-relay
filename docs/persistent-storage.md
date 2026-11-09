@@ -53,7 +53,7 @@ The in-memory cache only helps SDKs using the Relay Proxy in proxy mode. SDKs co
 
 In read-only mode, a Relay Proxy instance reads from the database but never writes to it. Use it to point some Relay instances at a read replica, so that the primary database gets fewer connections. To enable it, set `readOnly = true` in the `[Redis]`, `[DynamoDB]`, or `[Consul]` section, or set `STORE_READ_ONLY=true`.
 
-Read-only mode requires an infinite cache TTL. Set `localTtl` (`CACHE_TTL`) to a negative value, such as `-1s`. If the TTL is not negative, the Relay Proxy does not start.
+Read-only mode requires an infinite cache TTL. Set `localTtl` (`CACHE_TTL`) to a negative value, such as `-1s`. If the TTL is not negative, the Relay Proxy does not start. Relay checks a configuration file before it applies environment variables, so if you set `readOnly` in the file, set `localTtl` in the file too.
 
 ```
 # Configuration file example

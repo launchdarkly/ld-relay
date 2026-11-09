@@ -76,6 +76,27 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		})
 	})
 
+	t.Run("can set Consul variables when the Consul host was set", func(t *testing.T) {
+		var startingConfig Config
+		startingConfig.Consul.Host = "http://consulhost:8500"
+		vars := map[string]string{
+			"STORE_READ_ONLY": "true",
+			"CACHE_TTL":       "-1s",
+		}
+		expectedConfig := configDefaults
+		expectedConfig.Consul.Host = "http://consulhost:8500"
+		expectedConfig.Consul.ReadOnly = true
+		expectedConfig.Consul.LocalTTL = ct.NewOptDuration(-time.Second)
+		withEnvironment(vars, func() {
+			c := startingConfig
+			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedConfig, c)
+			assert.True(t, c.IsPersistentStoreReadOnly())
+		})
+	})
+
 	t.Run("can change REDIS_HOST when REDIS_PORT was set", func(t *testing.T) {
 		var startingConfig Config
 		startingConfig.Redis.Port = mustOptIntGreaterThanZero(2222)
