@@ -50,7 +50,18 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigReadOnlyStoreCacheTTL("Redis", "USE_REDIS", "Host = localhost", "30s"),
 		makeInvalidConfigReadOnlyStoreCacheTTL("Consul", "USE_CONSUL", "Host = localhost", "0s"),
 		makeInvalidConfigReadOnlyStoreCacheTTL("DynamoDB", "USE_DYNAMODB", "Enabled = true\nTableName = t", "30s"),
+		makeInvalidConfigReadOnlyOnOtherDatabase("Consul"),
+		makeInvalidConfigReadOnlyOnOtherDatabase("DynamoDB"),
 	}
+}
+
+// makeInvalidConfigReadOnlyOnOtherDatabase sets readOnly in a section that Relay does not use, while
+// Relay uses Redis. Environment variables cannot do this, because STORE_READ_ONLY sets all sections.
+func makeInvalidConfigReadOnlyOnOtherDatabase(section string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "read-only set for " + section + " while Redis is configured"}
+	c.fileError = errReadOnlyNotOnConfiguredDatabase.Error()
+	c.fileContent = "\n[Redis]\nHost = localhost\nLocalTTL = -1s\n\n[" + section + "]\nReadOnly = true\n"
+	return c
 }
 
 func makeInvalidConfigReadOnlyStoreCacheTTL(section, useVar, fileSettings, cacheTTL string) testDataInvalidConfig {
