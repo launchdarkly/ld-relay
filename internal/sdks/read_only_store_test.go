@@ -648,6 +648,33 @@ func TestReadOnlyStoreUpsertVersionCheckWithDeletedItems(t *testing.T) {
 	assert.Equal(t, map[string]int{"r": 2}, liveVersions(t, store))
 }
 
+// A database read that fails after Close starts an SDK status poller. The poller stops at its next
+// check, though the database still fails.
+func TestReadOnlyStoreStatusPollerStopsAfterClose(t *testing.T) {
+	inner := newReplicaStore()
+	inner.setReadErr(errors.New("closed pool"))
+	statuses := make(chan interfaces.DataStoreStatus, 10)
+	store := makeReadOnlyStoreWithSink(t, inner, statusSink(statuses))
+	require.NoError(t, store.Close())
+
+	_, err := store.Get(ldstoreimpl.Features(), "a")
+	require.Error(t, err)
+	require.False(t, (<-statuses).Available)
+	select {
+	case status := <-statuses:
+		assert.True(t, status.Available)
+	case <-time.After(2 * time.Second):
+		assert.Fail(t, "the status poller did not stop")
+	}
+}
+
+// Init releases the cache of the database store. The SDK wrapper must have the method that does this.
+func TestReadOnlyStoreDatabaseStoreCanDropCache(t *testing.T) {
+	store := makeReadOnlyStore(t, newReplicaStore()).(*readOnlyDataStore)
+	_, ok := store.database.(interface{ DropCache() })
+	assert.True(t, ok)
+}
+
 func assertNoUnavailableStatus(t *testing.T, statuses <-chan interfaces.DataStoreStatus) {
 	t.Helper()
 	deadline := time.After(time.Second)

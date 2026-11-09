@@ -72,7 +72,9 @@ func (e existingPersistentStore) Build(subsystems.ClientContext) (subsystems.Per
 	return e.store, nil
 }
 
-// readOnlyClientContext gives the database store a status sink of its own.
+// readOnlyClientContext gives the database store a status sink of its own. The SDK does not see its
+// own context type here, so the database store uses the default deserialization options. Relay does
+// not change those options.
 type readOnlyClientContext struct {
 	subsystems.ClientContext
 	sink subsystems.DataStoreUpdateSink
@@ -175,10 +177,12 @@ type readOnlyPersistentStore struct {
 	inner           subsystems.PersistentDataStore
 	initialized     chan struct{} // closed when the data from LaunchDarkly arrives
 	initializedOnce sync.Once
+	closed          chan struct{} // closed when the store closes
+	closedOnce      sync.Once
 }
 
 func newReadOnlyPersistentStore(inner subsystems.PersistentDataStore) *readOnlyPersistentStore {
-	return &readOnlyPersistentStore{inner: inner, initialized: make(chan struct{})}
+	return &readOnlyPersistentStore{inner: inner, initialized: make(chan struct{}), closed: make(chan struct{})}
 }
 
 // setInitialized records that the memory store has the data from LaunchDarkly.
@@ -231,8 +235,11 @@ func (s *readOnlyPersistentStore) IsInitialized() bool {
 // IsStoreAvailable does a read, because the availability checks of some stores write. A replica
 // refuses those writes. After the data from LaunchDarkly arrives, the result is always true, and the
 // check does not wait for the database. Then the SDK status poller stops and reports a recovery.
+//
+// After Close, the result is also true. A read that fails after Close can start an SDK status poller
+// that the SDK does not stop. This result stops that poller at its next check.
 func (s *readOnlyPersistentStore) IsStoreAvailable() bool {
-	if s.hasDataFromLaunchDarkly() {
+	if s.hasDataFromLaunchDarkly() || s.isClosed() {
 		return true
 	}
 	result := make(chan bool, 1)
@@ -248,7 +255,17 @@ func (s *readOnlyPersistentStore) IsStoreAvailable() bool {
 	}
 }
 
+func (s *readOnlyPersistentStore) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *readOnlyPersistentStore) Close() error {
+	s.closedOnce.Do(func() { close(s.closed) })
 	return s.inner.Close()
 }
 
