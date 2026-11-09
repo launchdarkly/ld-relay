@@ -97,6 +97,23 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		})
 	})
 
+	t.Run("USE_CONSUL keeps the Consul host that was set", func(t *testing.T) {
+		var startingConfig Config
+		startingConfig.Consul.Host = "http://consulhost:8500"
+		vars := map[string]string{
+			"USE_CONSUL": "1",
+		}
+		expectedConfig := configDefaults
+		expectedConfig.Consul.Host = "http://consulhost:8500"
+		withEnvironment(vars, func() {
+			c := startingConfig
+			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedConfig, c)
+		})
+	})
+
 	t.Run("can change REDIS_HOST when REDIS_PORT was set", func(t *testing.T) {
 		var startingConfig Config
 		startingConfig.Redis.Port = mustOptIntGreaterThanZero(2222)
