@@ -84,8 +84,8 @@ Each read-only instance still connects to LaunchDarkly and gets flag updates dir
 A read-only instance uses the database only when it starts:
 
 - Before the instance gets data from LaunchDarkly, it serves the data in the database. It keeps each item that it reads in memory until the data from LaunchDarkly arrives, and it does not read that item again. If the database is not available or is empty when the instance first checks it, the instance cannot serve flags until it gets data from LaunchDarkly, even if the database recovers or gets data before then.
-- After the instance gets data from LaunchDarkly, it serves only that data, and the updates that it receives from LaunchDarkly. It does not read flag or segment data from the database again until it restarts. A database outage after this time has no effect on the instance.
-- With Redis, the instance does not keep idle connections to the database. After it gets data from LaunchDarkly, it uses no connections for flag data. Connections for Big Segments are not affected.
+- After the instance gets data from LaunchDarkly, it serves only that data, and the updates that it receives from LaunchDarkly. It does not read flag or segment data from the database again until it restarts, or until it removes the environment and adds it again. A database read that is in progress when the data arrives completes, and its request gets the database data. A database outage after this time has no effect on the instance or on its data store status.
+- With Redis, the instance does not keep idle connections to the database. After it gets data from LaunchDarkly and its reads in progress complete, it uses no connections for flag data. Connections for Big Segments are not affected.
 - If the instance loses its connection to LaunchDarkly, it continues to serve the last data that it received. It does not get the updates that other instances write to the database. When the connection comes back, the instance gets the current data from LaunchDarkly.
 
 A read-only instance does not do these writes:
