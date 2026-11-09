@@ -31,6 +31,8 @@ var (
 	errMissingProjKey                  = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errReadOnlyStoreWithFiniteCacheTTL = errors.New("a read-only database requires an infinite cache TTL:" +
 		" set CACHE_TTL (localTtl) to a negative value")
+	errReadOnlyNotOnConfiguredDatabase = errors.New("readOnly is set for a database that is not configured:" +
+		" set readOnly in the section of the database that Relay uses")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
@@ -292,6 +294,11 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	// A read-only Relay with a finite cache TTL can read old data from the replica when the cache
 	// expires, and keep it for the full TTL. With an infinite TTL, Relay reads the replica only
 	// before it gets data from LaunchDarkly.
+	// The STORE_READ_ONLY variable sets readOnly in all sections. A configuration file can set it in a
+	// section that Relay does not use. Then Relay would write to the database that it uses.
+	if !c.IsPersistentStoreReadOnly() && (c.Redis.ReadOnly || c.Consul.ReadOnly || c.DynamoDB.ReadOnly) {
+		result.AddError(nil, errReadOnlyNotOnConfiguredDatabase)
+	}
 	if c.IsPersistentStoreReadOnly() && c.persistentStoreCacheTTL().GetOrElse(DefaultDatabaseCacheTTL) >= 0 {
 		result.AddError(nil, errReadOnlyStoreWithFiniteCacheTTL)
 	}

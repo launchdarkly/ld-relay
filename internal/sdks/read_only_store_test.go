@@ -668,6 +668,29 @@ func TestReadOnlyStoreStatusPollerStopsAfterClose(t *testing.T) {
 	}
 }
 
+// A status poller that waits for a database that does not respond stops when the store closes.
+func TestReadOnlyStoreClosedStoreStopsStatusPollerThatWaitsForDatabase(t *testing.T) {
+	inner := newReplicaStore()
+	inner.availabilityRelease = make(chan struct{})
+	inner.availabilityStarted = make(chan struct{})
+	defer close(inner.availabilityRelease)
+	inner.setReadErr(errors.New("sorry"))
+	statuses := make(chan interfaces.DataStoreStatus, 10)
+	store := makeReadOnlyStoreWithSink(t, inner, statusSink(statuses))
+
+	_, err := store.Get(ldstoreimpl.Features(), "a")
+	require.Error(t, err)
+	require.False(t, (<-statuses).Available)
+	<-inner.availabilityStarted
+	require.NoError(t, store.Close())
+	select {
+	case status := <-statuses:
+		assert.True(t, status.Available)
+	case <-time.After(2 * time.Second):
+		assert.Fail(t, "the status poller did not stop")
+	}
+}
+
 // Init releases the cache of the database store. The SDK wrapper must have the method that does this.
 func TestReadOnlyStoreDatabaseStoreCanDropCache(t *testing.T) {
 	store := makeReadOnlyStore(t, newReplicaStore()).(*readOnlyDataStore)
