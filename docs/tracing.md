@@ -77,6 +77,7 @@ the Relay Proxy's own work are `launchdarkly.relay.<thing>`.
 | `launchdarkly.relay.auth.result` | `relay.auth` | `success`, `invalid_credential`, `not_ready`, `filter_not_found`, `not_found`, or `client_not_initialized` |
 | `launchdarkly.relay.store.key` | `relay.store.get` | The flag or segment key being read |
 | `launchdarkly.relay.flag.count` | `relay.flags.evaluate`, `relay.payload.serialize` | Number of flags in the evaluation or the payload |
+| `launchdarkly.relay.segment.count` | `relay.payload.serialize` | Number of segments in the payload; only on the FDv1 `/sdk/latest-all` poll |
 | `launchdarkly.relay.payload.event.count` | `relay.payload.serialize` | Number of protocol events in a payload |
 | `launchdarkly.relay.payload.size` | `relay.payload.serialize` | Size of the serialized payload, in bytes |
 | `launchdarkly.relay.events.kind` | `relay.events.dispatch` | The kind of event batch received |
@@ -104,8 +105,10 @@ the **request** span:
 
 The request that performed the build carries no wait attribute -- it did not wait, and its work appears
 as the child spans in its own trace. So a trace with `shared=true`, no wait attribute, and no store or
-serialize children means another request's trace holds the build. Tracing backends cannot join a
-waiting request to the trace that did the work; find it by timestamp proximity.
+serialize children means another request's trace holds the build. The FDv1 `/sdk/latest-all` poll reads
+the store for each request and shares only the serialization, so each of its traces has a store span,
+and a shared request without a serialize span had its payload built by another request. Tracing
+backends cannot join a waiting request to the trace that did the work; find it by timestamp proximity.
 
 ## Instrumentation scope
 

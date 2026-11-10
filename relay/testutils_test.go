@@ -91,6 +91,7 @@ func (h relayTestHelper) assertSDKEndpointsAvailability(
 		h.assertEndpointStatus(status200Or401, "GET", "/all", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/sdk/stream", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/sdk/poll", sdkKey, nil)
+		h.assertEndpointStatus(status200Or401, "GET", "/sdk/latest-all", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/flags", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/evalx/context", sdkKey, simpleUserJSON)
 	}

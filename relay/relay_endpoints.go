@@ -901,7 +901,7 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 		// will all see the same expiration time.
 	}
 
-	etag := fmt.Sprintf("W/\"%s\"", etagValue)
+	etag := formatEtag(etagValue)
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return http.StatusNotModified, nil
@@ -916,6 +916,11 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	// influenced which payload was built.
 	_, err := w.Write(bytes) //nolint:gosec
 	return http.StatusOK, err
+}
+
+// formatEtag returns the weak Etag header value that the polling endpoints send for etagValue.
+func formatEtag(etagValue string) string {
+	return fmt.Sprintf("W/\"%s\"", etagValue)
 }
 
 // serializeFlagsAsMap writes the flags in coll as a JSON object keyed by flag key, and reports

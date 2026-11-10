@@ -36,6 +36,9 @@ func TestInitConcurrencyGatesEndpointsEndToEnd(t *testing.T) {
 	pollReq := func() *http.Request {
 		return (endpointTestParams{"poll", "GET", "/sdk/poll?basis=not-current", nil, sdkKey, 0, st.ExpectNoBody()}).request()
 	}
+	latestAllReq := func() *http.Request {
+		return (endpointTestParams{"latest-all", "GET", "/sdk/latest-all", nil, sdkKey, 0, st.ExpectNoBody()}).request()
+	}
 	streamReq := func() *http.Request {
 		return (endpointTestParams{"stream", "GET", "/sdk/stream", nil, sdkKey, 0, st.ExpectNoBody()}).request()
 	}
@@ -43,6 +46,12 @@ func TestInitConcurrencyGatesEndpointsEndToEnd(t *testing.T) {
 	withStartedRelay(t, config, func(p relayTestParams) {
 		limiter := p.relay.initConcurrency.limiter
 		require.True(t, limiter.Enabled(), "the configuration must construct an enabled limiter")
+
+		// Learn the current Etag while the budget is free, for the 304 case below.
+		etagResp, _ := st.DoRequest(latestAllReq(), p.relay)
+		require.Equal(t, http.StatusOK, etagResp.StatusCode)
+		currentEtag := etagResp.Header.Get("Etag")
+		require.NotEmpty(t, currentEtag)
 
 		// Hold the only slot, so every gated route must shed.
 		hold, ok := limiter.Acquire(context.Background())
@@ -58,6 +67,19 @@ func TestInitConcurrencyGatesEndpointsEndToEnd(t *testing.T) {
 			resp, body := st.DoRequest(pollReq(), p.relay)
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 			assert.Contains(t, string(body), "concurrency limit reached")
+		})
+
+		t.Run("FDv1 server poll sheds a full transfer while the budget is full", func(t *testing.T) {
+			resp, body := st.DoRequest(latestAllReq(), p.relay)
+			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			assert.Contains(t, string(body), "concurrency limit reached")
+		})
+
+		t.Run("FDv1 server poll answers an unchanged poll while the budget is full", func(t *testing.T) {
+			r := latestAllReq()
+			r.Header.Set("If-None-Match", currentEtag)
+			resp, _ := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusNotModified, resp.StatusCode)
 		})
 
 		t.Run("FDv2 server stream sheds the replay while the budget is full", func(t *testing.T) {
@@ -91,6 +113,11 @@ func TestInitConcurrencyGatesEndpointsEndToEnd(t *testing.T) {
 
 		t.Run("FDv2 server poll is served once a slot is free", func(t *testing.T) {
 			resp, _ := st.DoRequest(pollReq(), p.relay)
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		})
+
+		t.Run("FDv1 server poll is served once a slot is free", func(t *testing.T) {
+			resp, _ := st.DoRequest(latestAllReq(), p.relay)
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 		})
 
