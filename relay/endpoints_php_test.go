@@ -78,6 +78,7 @@ func TestEndpointsPHPPolling(t *testing.T) {
 							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusNotModified, result.StatusCode)
+							assert.Equal(t, etag, result.Header.Get("Etag"), "a 304 reply must repeat the Etag")
 						})
 
 						t.Run("query with different ETag is cached", func(t *testing.T) {

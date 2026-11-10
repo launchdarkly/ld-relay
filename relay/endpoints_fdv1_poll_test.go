@@ -1,12 +1,16 @@
 package relay
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
@@ -14,6 +18,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
@@ -72,6 +77,7 @@ func TestFDv1PollingEndpoint(t *testing.T) {
 			r.Header.Set("If-None-Match", etag)
 			result, body := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusNotModified, result.StatusCode)
+			assert.Equal(t, etag, result.Header.Get("Etag"), "a 304 reply must repeat the Etag")
 			assert.Empty(t, body)
 
 			r = latestAllRequest()
@@ -229,4 +235,120 @@ func TestSerializeErrorPathsInFDv1Poll(t *testing.T) {
 			assert.Zero(t, countStarted(recorder.Started(), tracing.SpanWriteResponse))
 		})
 	}
+}
+
+// TestFDv1PollRequestsShareOneEtagRead blocks one request inside its store read, then sends
+// more requests with the same Etag. They join the first flight, so the store is read one time
+// and every request gets a 304 reply.
+func TestFDv1PollRequestsShareOneEtagRead(t *testing.T) {
+	store := storeWithOneFlag()
+	env := envWithStore(store)
+	etag := doTracedPollRequest(env, pollLatestAllHandler, "").Header().Get("Etag")
+	require.NotEmpty(t, etag)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	reads := blockFirstRead(func(hook func()) { store.SnapshotHook = hook }, entered, release)
+
+	conditionalRequest := func() *httptest.ResponseRecorder {
+		req := buildPreRoutedRequest("GET", nil, http.Header{"If-None-Match": {etag}}, nil, env)
+		w := httptest.NewRecorder()
+		pollLatestAllHandler(w, req)
+		return w
+	}
+
+	const followers = 3
+	responses := make(chan *httptest.ResponseRecorder, followers+1)
+	go func() { responses <- conditionalRequest() }()
+	<-entered
+	for range followers {
+		go func() { responses <- conditionalRequest() }()
+	}
+	// The followers need only a short CPU path to reach the flight group. A follower that
+	// arrives after the release reads the store itself, and the read count below fails.
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+
+	for range followers + 1 {
+		w := <-responses
+		assert.Equal(t, http.StatusNotModified, w.Code)
+		assert.Equal(t, etag, w.Header().Get("Etag"))
+	}
+	assert.Equal(t, int32(1), reads.Load(), "the store should be read one time, not one time for each request")
+}
+
+// TestFDv1PollReadsTheDataAfterItWaitsForASlot queues a request behind a full budget, changes
+// the data, and then frees the slot. The reply must contain the data from after the change.
+func TestFDv1PollReadsTheDataAfterItWaitsForASlot(t *testing.T) {
+	store := storeWithOneFlag()
+	env := envWithStore(store)
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+	handler := middleware.ProvideInitLimiter(limiter, time.Minute, nil)(http.HandlerFunc(pollLatestAllHandler))
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := buildPreRoutedRequest("GET", nil, make(http.Header), nil, env)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		done <- w
+	}()
+	require.Eventually(t, func() bool { return limiter.Stats().Waiting == 1 }, time.Second, time.Millisecond)
+
+	newFlag := ldbuilders.NewFlagBuilder("flag-two").Version(1).SingleVariation(ldvalue.Bool(true)).Build()
+	newFlagJSON, err := json.Marshal(newFlag)
+	require.NoError(t, err)
+	builder := subsystems.NewChangeSetBuilder()
+	builder.Start(subsystems.ServerIntent{Payload: subsystems.Payload{
+		ID: "next-state", Target: 2, Code: subsystems.IntentTransferFull, Reason: "payload-missing",
+	}})
+	builder.AddPut(subsystems.FlagKind, newFlag.Key, newFlag.Version, newFlagJSON)
+	changeSet, err := builder.Finish(subsystems.NewSelector("next-state", 2))
+	require.NoError(t, err)
+	store.Apply(*changeSet)
+
+	hold()
+	w := <-done
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var payload latestAllBody
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	assert.Contains(t, payload.Flags, "flag-two")
+	assert.NotContains(t, payload.Flags, "flag-one")
+	newFlagDescriptor := ldstoretypes.KeyedItemDescriptor{Key: newFlag.Key, Item: ldstoretypes.ItemDescriptor{Version: 1, Item: &newFlag}}
+	assert.Equal(t, formatEtag(latestAllEtag([]ldstoretypes.KeyedItemDescriptor{newFlagDescriptor}, nil)), w.Header().Get("Etag"))
+}
+
+// TestEnvironmentTTLAppliesOnlyToPHPEndpoints checks that the environment TTL adds an Expires
+// header to the PHP polls only. The HTTP cache of the Go and Java SDKs honors Expires, so an
+// Expires header on their polls stops them from seeing updates until it expires.
+func TestEnvironmentTTLAppliesOnlyToPHPEndpoints(t *testing.T) {
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvWithTTL)
+	sdkKey := st.EnvWithTTL.Config.SDKKey
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		for _, tc := range []struct {
+			path        string
+			wantExpires bool
+		}{
+			{"/sdk/flags", true},
+			{"/sdk/flags/" + st.Flag1ServerSide.Flag.Key, true},
+			{"/sdk/segments/" + st.Segment1.Key, true},
+			{"/sdk/latest-all", false},
+			{"/sdk/poll", false},
+		} {
+			t.Run(tc.path, func(t *testing.T) {
+				result, _ := st.DoRequest(st.BuildRequestWithAuth("GET", tc.path, sdkKey, nil), p.relay)
+				require.Equal(t, http.StatusOK, result.StatusCode)
+				if tc.wantExpires {
+					assert.NotEmpty(t, result.Header.Get("Expires"))
+				} else {
+					assert.Empty(t, result.Header.Get("Expires"))
+				}
+			})
+		}
+	})
 }
