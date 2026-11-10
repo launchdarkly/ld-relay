@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.1.0](https://github.com/launchdarkly/ld-relay/compare/v9.0.1...v9.1.0) (2026-11-10)
+
+
+### Features
+
+* Serve the FDv1 polling endpoint for server-side SDKs ([#967](https://github.com/launchdarkly/ld-relay/issues/967)) ([54bbc8b](https://github.com/launchdarkly/ld-relay/commit/54bbc8b99586cd314b38144f7067074f1e4b2092))
+
 ## [9.0.1](https://github.com/launchdarkly/ld-relay/compare/v9.0.0...v9.0.1) (2026-11-06)
 
 
