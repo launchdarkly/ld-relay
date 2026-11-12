@@ -2,7 +2,7 @@
 
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
-FROM golang:1.27.3-bookworm as builder
+FROM golang:1.27.4-bookworm as builder
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 ARG SRC_DIR=/go/ld-relay
