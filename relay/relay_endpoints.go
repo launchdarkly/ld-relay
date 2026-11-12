@@ -438,9 +438,10 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 
 	flagEvalKind := subsystems.ObjectKind("flag-eval")
 
-	if req.Header.Get("If-None-Match") == formatEtag(selector.State()) {
+	etag := fdv2PollEtag(collection, selector)
+	if req.Header.Get("If-None-Match") == formatEtag(etag) {
 		traceWriteResponse(tr, req, func() (int, error) {
-			return writeCacheableJSONResponse(w, req, 0, nil, selector.State())
+			return writeCacheableJSONResponse(w, req, 0, nil, etag)
 		})
 		return
 	}
@@ -541,7 +542,7 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, 0, jsonData, fdv2PollEtag(collection, selector))
+		return writeCacheableJSONResponse(w, req, 0, jsonData, etag)
 	})
 }
 
