@@ -228,7 +228,10 @@ func NewEnvContext(
 	if bigSegmentStore != nil {
 		thingsToCleanUp.AddCloser(bigSegmentStore)
 		envContext.bigSegmentStore = bigSegmentStore
-
+	}
+	// A read-only Relay does not run the synchronizer, because the synchronizer writes to the store.
+	// Other Relay instances keep the big segment data up to date.
+	if bigSegmentStore != nil && !allConfig.IsPersistentStoreReadOnly() {
 		factory := params.BigSegmentSynchronizerFactory
 		if factory == nil {
 			factory = bigsegments.DefaultBigSegmentSynchronizerFactory
@@ -1119,25 +1122,21 @@ func (c *envContextImpl) setBigSegmentsExist() {
 	c.bigSegmentsExist = true
 	// Start c.bigSegmentSync while holding the lock. Starting it after unlocking could start a
 	// synchronizer that a concurrent re-anchor already retired. Start() only launches a goroutine, so
-	// holding c.mu is safe.
-	started := firstTime && c.bigSegmentSync != nil
-	if started {
+	// holding c.mu is safe. A read-only Relay has no synchronizer, but it still polls the store.
+	if firstTime && c.bigSegmentSync != nil {
 		c.bigSegmentSync.Start()
 	}
 	c.mu.Unlock()
 
-	if started {
+	if firstTime && c.sdkBigSegments != nil {
 		c.sdkBigSegments.SetPollingActive(true) // has no effect if already active
 	}
 }
 
-// bigSegmentSyncConfigured reports whether this env has a big-segment synchronizer. The read is
-// synchronized against the reassign in reanchorBigSegmentSync: the store-update sink below runs on
-// the SDK data-source goroutine while a re-anchor runs on the reconcile goroutine.
-func (c *envContextImpl) bigSegmentSyncConfigured() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.bigSegmentSync != nil
+// bigSegmentsConfigured reports whether this env has a big-segment store. The store is set during
+// construction and does not change, so no lock is necessary.
+func (c *envContextImpl) bigSegmentsConfigured() bool {
+	return c.bigSegmentStore != nil
 }
 
 func (q envContextStoreQueries) IsInitialized() bool {
@@ -1156,9 +1155,10 @@ func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretyp
 
 func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Collection) {
 	// We use this delegator, rather than sending updates directory to context.envStreams, so that we
-	// can detect the presence of a big segment and turn on the big segment synchronizer as needed.
+	// can detect the presence of a big segment and turn on the big segment synchronizer and the
+	// big segment status polling as needed.
 	u.context.envStreams.SendAllDataUpdate(allData)
-	if !u.context.bigSegmentSyncConfigured() {
+	if !u.context.bigSegmentsConfigured() {
 		return
 	}
 
@@ -1181,7 +1181,7 @@ func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Colle
 func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
 	// See comments in SendAllDataUpdate.
 	u.context.envStreams.SendSingleItemUpdate(kind, key, item)
-	if !u.context.bigSegmentSyncConfigured() {
+	if !u.context.bigSegmentsConfigured() {
 		return
 	}
 	hasBigSegment := false

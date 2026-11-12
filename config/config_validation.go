@@ -22,13 +22,17 @@ var (
 	errRedisReadTimeout                = errors.New("read timeout for Redis must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
-	errRedisBadHostname                        = errors.New("invalid Redis hostname")
-	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
-	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
-	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
-	errCacheKeyWithoutDynamoTable              = errors.New("AUTO_CONFIG_CACHE_KEY with DynamoDB requires DYNAMODB_TABLE to be set")
-	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
+	errRedisURLWithHostAndPort         = errors.New("please specify Redis URL or host/port, but not both")
+	errRedisBadHostname                = errors.New("invalid Redis hostname")
+	errConsulTokenAndTokenFile         = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
+	errAutoConfWithFilters             = errors.New("cannot configure filters if auto-configuration is enabled")
+	errCacheKeyWithoutStore            = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
+	errCacheKeyWithoutDynamoTable      = errors.New("AUTO_CONFIG_CACHE_KEY with DynamoDB requires DYNAMODB_TABLE to be set")
+	errMissingProjKey                  = errors.New("when filters are configured, all environments must specify a 'projKey'")
+	errReadOnlyStoreWithFiniteCacheTTL = errors.New("a read-only database requires an infinite cache TTL:" +
+		" set CACHE_TTL (localTtl) to a negative value")
+	errReadOnlyNotOnConfiguredDatabase = errors.New("readOnly is set for a database that is not configured:" +
+		" set readOnly in the section of the database that Relay uses")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
@@ -285,6 +289,18 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	if len(databases) > 1 {
 		result.AddError(nil, errMultipleDatabases(databases))
 		return // no point doing further database config validation if it's in this state
+	}
+
+	// A read-only Relay with a finite cache TTL can read old data from the replica when the cache
+	// expires, and keep it for the full TTL. With an infinite TTL, Relay reads the replica only
+	// before it gets data from LaunchDarkly.
+	// A configuration file can set readOnly in a section of a database that Relay does not use. Then
+	// Relay would write to the database that it uses.
+	if !c.IsPersistentStoreReadOnly() && (c.Redis.ReadOnly || c.Consul.ReadOnly || c.DynamoDB.ReadOnly) {
+		result.AddError(nil, errReadOnlyNotOnConfiguredDatabase)
+	}
+	if c.IsPersistentStoreReadOnly() && c.persistentStoreCacheTTL().GetOrElse(DefaultDatabaseCacheTTL) >= 0 {
+		result.AddError(nil, errReadOnlyStoreWithFiniteCacheTTL)
 	}
 
 	if c.Consul.Host != "" {

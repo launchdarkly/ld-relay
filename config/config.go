@@ -235,6 +235,7 @@ type RedisConfig struct {
 	Password string            `conf:"REDIS_PASSWORD"`
 
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
+	ReadOnly     bool `conf:"STORE_READ_ONLY"`
 
 	ConnectTimeout ct.OptDuration `conf:"REDIS_CONNECT_TIMEOUT"`
 	ReadTimeout    ct.OptDuration `conf:"REDIS_READ_TIMEOUT"`
@@ -254,6 +255,7 @@ type ConsulConfig struct {
 	LocalTTL  ct.OptDuration `conf:"CACHE_TTL"`
 	Token     string         `conf:"CONSUL_TOKEN"`
 	TokenFile string         `conf:"CONSUL_TOKEN_FILE"`
+	ReadOnly  bool           `conf:"STORE_READ_ONLY"`
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
@@ -268,6 +270,39 @@ type DynamoDBConfig struct {
 	TableName string            `conf:"DYNAMODB_TABLE"`
 	URL       ct.OptURLAbsolute `conf:"DYNAMODB_URL"`
 	LocalTTL  ct.OptDuration    `conf:"CACHE_TTL"`
+	ReadOnly  bool              `conf:"STORE_READ_ONLY"`
+}
+
+// IsPersistentStoreReadOnly reports whether Relay must not write to the configured persistent store.
+//
+// A read-only Relay reads flag data from the store and receives updates from LaunchDarkly, but it
+// never writes. Other Relay instances must keep the store up to date. This lets read-only instances
+// use a read replica. A read-only store requires an infinite cache TTL. This mode is experimental.
+func (c Config) IsPersistentStoreReadOnly() bool {
+	switch {
+	case c.Redis.URL.IsDefined():
+		return c.Redis.ReadOnly
+	case c.Consul.Host != "":
+		return c.Consul.ReadOnly
+	case c.DynamoDB.Enabled:
+		return c.DynamoDB.ReadOnly
+	default:
+		return false
+	}
+}
+
+// persistentStoreCacheTTL gives the cache TTL of the persistent store that Relay uses.
+func (c Config) persistentStoreCacheTTL() ct.OptDuration {
+	switch {
+	case c.Redis.URL.IsDefined():
+		return c.Redis.LocalTTL
+	case c.Consul.Host != "":
+		return c.Consul.LocalTTL
+	case c.DynamoDB.Enabled:
+		return c.DynamoDB.LocalTTL
+	default:
+		return ct.OptDuration{}
+	}
 }
 
 // EnvConfig describes an environment to be relayed. There may be any number of these.
