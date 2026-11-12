@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
@@ -374,32 +376,38 @@ func replaceDataWithOneFlag(t *testing.T, store *testclient.FakeStore, key strin
 	return formatEtag(latestAllEtag([]ldstoretypes.KeyedItemDescriptor{descriptor}, nil))
 }
 
-// TestEnvironmentTTLAppliesOnlyToPHPEndpoints checks that the environment TTL adds an Expires
-// header to the PHP polls only. The HTTP cache of the Go and Java SDKs honors Expires, so an
+// TestEnvironmentTTLAppliesOnlyToPHPEndpoints checks that the environment TTL adds Expires and
+// Vary headers to the PHP polls only. The HTTP cache of the Go and Java SDKs honors Expires, so an
 // Expires header on their polls stops them from seeing updates until it expires.
 func TestEnvironmentTTLAppliesOnlyToPHPEndpoints(t *testing.T) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(st.EnvWithTTL)
 	sdkKey := st.EnvWithTTL.Config.SDKKey
+	mobileKey := st.EnvWithTTL.Config.MobileKey
+	contextBase64 := base64.StdEncoding.EncodeToString([]byte(`{"kind":"user","key":"me"}`))
 
 	withStartedRelay(t, config, func(p relayTestParams) {
 		for _, tc := range []struct {
 			path        string
+			key         credential.SDKCredential
 			wantExpires bool
 		}{
-			{"/sdk/flags", true},
-			{"/sdk/flags/" + st.Flag1ServerSide.Flag.Key, true},
-			{"/sdk/segments/" + st.Segment1.Key, true},
-			{"/sdk/latest-all", false},
-			{"/sdk/poll", false},
+			{"/sdk/flags", sdkKey, true},
+			{"/sdk/flags/" + st.Flag1ServerSide.Flag.Key, sdkKey, true},
+			{"/sdk/segments/" + st.Segment1.Key, sdkKey, true},
+			{"/sdk/latest-all", sdkKey, false},
+			{"/sdk/poll", sdkKey, false},
+			{"/sdk/poll/eval/" + contextBase64, mobileKey, false},
 		} {
 			t.Run(tc.path, func(t *testing.T) {
-				result, _ := st.DoRequest(st.BuildRequestWithAuth("GET", tc.path, sdkKey, nil), p.relay)
+				result, _ := st.DoRequest(st.BuildRequestWithAuth("GET", tc.path, tc.key, nil), p.relay)
 				require.Equal(t, http.StatusOK, result.StatusCode)
 				if tc.wantExpires {
 					assert.NotEmpty(t, result.Header.Get("Expires"))
+					assert.Contains(t, result.Header.Values("Vary"), "Authorization")
 				} else {
 					assert.Empty(t, result.Header.Get("Expires"))
+					assert.NotContains(t, result.Header.Values("Vary"), "Authorization")
 				}
 			})
 		}
