@@ -106,10 +106,12 @@ the **request** span:
 The request that performed the build carries no wait attribute -- it did not wait, and its work appears
 as the child spans in its own trace. So a trace with `shared=true`, no wait attribute, and no store or
 serialize children means another request's trace holds the build. The FDv1 `/sdk/latest-all` poll uses
-two flights. The first reads the store to compute the `Etag`, and a 304 reply needs only that one. A full
-transfer then reads the store again and serializes in a second flight. The singleflight attributes on
-its request span describe the second flight. Tracing backends cannot join a waiting request to the
-trace that did the work; find it by timestamp proximity.
+two flights. The first reads the store to compute the `Etag`, and a 304 reply needs only that one. This
+flight sets neither attribute and starts no wait span, so a 304 reply's request span has no singleflight
+attributes. A full transfer then reads the store again and serializes in a second flight, and the
+attributes and wait span describe only that flight. Its request span can hold the store span of the first
+flight without a serialize span; the serialize span marks the request that built the payload. Tracing
+backends cannot join a waiting request to the trace that did the work; find it by timestamp proximity.
 
 ## Instrumentation scope
 

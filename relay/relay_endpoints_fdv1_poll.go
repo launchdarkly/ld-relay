@@ -58,8 +58,10 @@ func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Concurrent requests share one store read for the Etag check. The flight returns only
-	// the Etag, so a request that gets a 304 reply keeps no data set in memory.
-	etag, err := tracing.SingleflightDo(req.Context(), env.GetPollingFlightGroup(), serverSideLatestAllEtagFlightKey,
+	// the Etag, so a request that gets a 304 reply keeps no data set in memory. The flight
+	// does not annotate the request span, so the singleflight attributes on that span
+	// describe only the payload flight.
+	etag, err, _ := env.GetPollingFlightGroup().Do(serverSideLatestAllEtagFlightKey,
 		func() (any, error) {
 			data, err := readLatestAllData(req.Context(), tr, env)
 			return data.etag, err
