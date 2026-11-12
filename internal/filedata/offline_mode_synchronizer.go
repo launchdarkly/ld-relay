@@ -89,7 +89,6 @@ type OfflineModeData struct {
 	currentChangeSet     *subsystems.ChangeSet
 	initError            error
 	changeSetBroadcaster *simpleBroadcaster[subsystems.ChangeSet]
-	version              int // Protected by mu; no need for atomic since access is always under lock
 }
 
 // NewOfflineModeData creates the data holder from the archive's initial data.
@@ -99,7 +98,7 @@ func NewOfflineModeData(initialData []ldstoretypes.Collection) *OfflineModeData 
 	}
 
 	// Convert initial data to ChangeSet
-	changeSet, err := d.makeChangeSetFromCollections(initialData)
+	changeSet, err := makeChangeSetFromCollections(initialData)
 	if err != nil {
 		d.initError = err
 	} else {
@@ -237,40 +236,27 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 // This uses the SDK's NewChangeSetFromCollections which pre-caches the collections,
 // avoiding redundant conversions when the data is accessed later.
 //
-// IMPORTANT: This method must be called either:
-// - With d.mu held (when updating existing data), OR
-// - Before the data holder is shared across goroutines (during construction)
-func (d *OfflineModeData) makeChangeSetFromCollections(
-	collections []ldstoretypes.Collection,
-) (*subsystems.ChangeSet, error) {
-	d.version++
-	version := d.version
-
+// The changeSet is a full transfer with no selector.
+func makeChangeSetFromCollections(collections []ldstoretypes.Collection) (*subsystems.ChangeSet, error) {
 	return subsystems.NewChangeSetFromCollections(
-		subsystems.ServerIntent{
-			Payload: subsystems.Payload{
-				ID:     "",
-				Target: version,
-				Code:   subsystems.IntentTransferFull,
-				Reason: "offline-mode-init",
-			},
-		},
-		subsystems.NewSelector("offline", version),
+		subsystems.ServerIntent{Payload: subsystems.Payload{Code: subsystems.IntentTransferFull}},
+		subsystems.NoSelector(),
 		collections,
 	)
 }
 
 // UpdateData allows external updates to the data (e.g., when the archive file changes).
 func (d *OfflineModeData) UpdateData(collections []ldstoretypes.Collection) error {
-	// Hold the lock through the broadcast. Otherwise two concurrent calls can broadcast in the
-	// opposite order to their versions, and the older changeSet replaces the newer one in each
-	// listener's mailbox. Broadcast never blocks, so holding the lock is safe.
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	changeSet, err := d.makeChangeSetFromCollections(collections)
+	changeSet, err := makeChangeSetFromCollections(collections)
 	if err != nil {
 		return err
 	}
+
+	// Hold the lock through the broadcast. Otherwise two concurrent calls can broadcast in the
+	// opposite order to the one in which they stored their changeSets, and listeners end on data
+	// that is no longer current. Broadcast never blocks, so holding the lock is safe.
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.currentChangeSet = changeSet
 	d.initError = nil // Clear any previous initialization error
 

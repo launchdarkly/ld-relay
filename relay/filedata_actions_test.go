@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,9 +16,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/filedata"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
@@ -368,5 +372,161 @@ func TestOfflineModeMalformedUpdateLeavesTheEnvironmentUntouched(t *testing.T) {
 			"a refused update must not rename the environment")
 		_, lookupErr := p.relay.getEnvironment(testFileDataEnv1.Params.SDKKey)
 		assert.NoError(t, lookupErr, "the environment keeps the credentials it already had")
+	})
+}
+
+func TestOfflineModePollingSeesReloadedArchiveData(t *testing.T) {
+	// The client-side polling endpoint only treats a credential as a mobile key if it has the mob- prefix.
+	mobileKey := config.MobileKey("mob-offline-poll")
+	archiveEnv := testFileDataEnv1
+	archiveEnv.Params.MobileKey = mobileKey
+	archiveEnv.Params.AcceptedMobileKeys = []envfactory.AcceptedMobileKey{{Value: mobileKey}}
+
+	contextBase64 := base64.StdEncoding.EncodeToString([]byte(`{"kind":"user","key":"me"}`))
+	endpoints := []struct {
+		name string
+		path string
+		cred credential.SDKCredential
+	}{
+		{"server-side", "/sdk/poll", archiveEnv.Params.SDKKey},
+		{"client-side", "/sdk/poll/eval/" + contextBase64, mobileKey},
+	}
+
+	for _, e := range endpoints {
+		t.Run(e.name, func(t *testing.T) {
+			offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+				require.NoError(t, p.updateHandler.AddEnvironment(archiveEnv))
+				p.awaitClient()
+				env := p.awaitEnvironment(archiveEnv.Params.EnvID)
+				awaitOfflineFlagCount(t, env, 1)
+
+				poll := func(query string, header http.Header) (*http.Response, string, string) {
+					req := sharedtest.BuildRequestWithAuth("GET", e.path+query, e.cred, nil)
+					for k, v := range header {
+						req.Header[k] = v
+					}
+					resp, body := sharedtest.DoRequest(req, p.relay)
+					if resp.StatusCode != http.StatusOK {
+						return resp, "", ""
+					}
+					state, code := offlinePollServerIntent(t, body)
+					return resp, state, code
+				}
+
+				firstResp, firstState, firstCode := poll("", nil)
+				require.Equal(t, http.StatusOK, firstResp.StatusCode)
+				assert.Equal(t, "xfer-full", firstCode)
+				assert.Empty(t, firstState, "an archive has no FDv2 state")
+				firstEtag := firstResp.Header.Get("Etag")
+				require.NotEmpty(t, firstEtag)
+
+				unchangedResp, _, _ := poll("", http.Header{"If-None-Match": {firstEtag}})
+				assert.Equal(t, http.StatusNotModified, unchangedResp.StatusCode)
+
+				updated := archiveEnv
+				updated.SDKData = []ldstoretypes.Collection{
+					{
+						Kind: ldstoreimpl.Features(),
+						Items: []ldstoretypes.KeyedItemDescriptor{
+							{Key: testFileDataFlag1.Key, Item: sharedtest.FlagDesc(testFileDataFlag1)},
+							{Key: testFileDataFlag2.Key, Item: sharedtest.FlagDesc(testFileDataFlag2)},
+						},
+					},
+				}
+				require.NoError(t, p.updateHandler.UpdateEnvironment(updated))
+				awaitOfflineFlagCount(t, env, 2)
+
+				staleResp, _, staleCode := poll("", http.Header{"If-None-Match": {firstEtag}})
+				require.Equal(t, http.StatusOK, staleResp.StatusCode, "the old Etag must not match the reloaded data")
+				assert.Equal(t, "xfer-full", staleCode)
+				secondEtag := staleResp.Header.Get("Etag")
+				assert.NotEqual(t, firstEtag, secondEtag)
+
+				currentResp, _, _ := poll("", http.Header{"If-None-Match": {secondEtag}})
+				assert.Equal(t, http.StatusNotModified, currentResp.StatusCode)
+
+				basisResp, _, basisCode := poll("?basis=offline", nil)
+				assert.Equal(t, http.StatusOK, basisResp.StatusCode)
+				assert.Equal(t, "xfer-full", basisCode)
+			})
+		})
+	}
+}
+
+func awaitOfflineFlagCount(t *testing.T, env relayenv.EnvContext, count int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		flags, _ := env.GetStore().GetAll(ldstoreimpl.Features())
+		return len(flags) == count
+	}, 2*time.Second, 10*time.Millisecond, "store never received the archive's %d flags", count)
+}
+
+func offlinePollServerIntent(t *testing.T, body []byte) (state, code string) {
+	t.Helper()
+	var payload struct {
+		Events []struct {
+			Event string `json:"event"`
+			Data  struct {
+				Payloads []struct {
+					ID         string `json:"id"`
+					IntentCode string `json:"intentCode"`
+				} `json:"payloads"`
+			} `json:"data"`
+		} `json:"events"`
+	}
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.NotEmpty(t, payload.Events)
+	require.Equal(t, "server-intent", payload.Events[0].Event)
+	require.Len(t, payload.Events[0].Data.Payloads, 1)
+	return payload.Events[0].Data.Payloads[0].ID, payload.Events[0].Data.Payloads[0].IntentCode
+}
+
+func TestOfflineModeStreamReconnectAfterReloadGetsFullTransfer(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		require.NoError(t, p.updateHandler.AddEnvironment(testFileDataEnv1))
+		p.awaitClient()
+		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+		awaitOfflineFlagCount(t, env, 1)
+
+		updated := testFileDataEnv1
+		updated.SDKData = []ldstoretypes.Collection{
+			{
+				Kind: ldstoreimpl.Features(),
+				Items: []ldstoretypes.KeyedItemDescriptor{
+					{Key: testFileDataFlag1.Key, Item: sharedtest.FlagDesc(testFileDataFlag1)},
+					{Key: testFileDataFlag2.Key, Item: sharedtest.FlagDesc(testFileDataFlag2)},
+				},
+			},
+		}
+		require.NoError(t, p.updateHandler.UpdateEnvironment(updated))
+		awaitOfflineFlagCount(t, env, 2)
+
+		// "offline" is the basis that Relay used to give every archive load.
+		req := sharedtest.BuildRequestWithAuth("GET", "/sdk/stream?basis=offline", testFileDataEnv1.Params.SDKKey, nil)
+		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
+			intent := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for server-intent")
+			require.Equal(t, "server-intent", intent.Event())
+			var intentData struct {
+				Payloads []struct {
+					IntentCode string `json:"intentCode"`
+				} `json:"payloads"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(intent.Data()), &intentData))
+			require.Len(t, intentData.Payloads, 1)
+			assert.Equal(t, "xfer-full", intentData.Payloads[0].IntentCode)
+
+			puts := 0
+			for {
+				event := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for payload-transferred")
+				require.NotNil(t, event, "stream closed before payload-transferred")
+				if event.Event() == "payload-transferred" {
+					break
+				}
+				if event.Event() == "put-object" {
+					puts++
+				}
+			}
+			assert.Equal(t, 2, puts)
+		})
 	})
 }
