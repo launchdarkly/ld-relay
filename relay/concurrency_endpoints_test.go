@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"testing"
@@ -151,5 +152,80 @@ func TestInitConcurrencyGatesEndpointsEndToEnd(t *testing.T) {
 			}
 			time.Sleep(time.Millisecond)
 		}
+	})
+}
+
+// A poll whose If-None-Match matches the current Etag gets a 304 reply, and that reply
+// must not need a slot: with the budget full, the SDK still learns that its data is current.
+// A poll for data the SDK does not have is still shed.
+func TestInitConcurrencyAnswersUnchangedFDv2PollsWhileTheBudgetIsFull(t *testing.T) {
+	env := st.EnvWithAllCredentials
+	sdkKey := env.Config.SDKKey
+	mobileKey := env.Config.MobileKey
+	contextBase64 := base64.StdEncoding.EncodeToString([]byte(`{"kind":"user","key":"me"}`))
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(env)
+	config.Concurrency = c.ConcurrencyConfig{
+		MaxConcurrent: optInt(1),
+		MaxQueued:     optInt(0),
+	}
+
+	pollReq := func() *http.Request {
+		return (endpointTestParams{"poll", "GET", "/sdk/poll", nil, sdkKey, 0, st.ExpectNoBody()}).request()
+	}
+	evalReq := func() *http.Request {
+		return st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
+	}
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		limiter := p.relay.initConcurrency.limiter
+		require.True(t, limiter.Enabled(), "the configuration must construct an enabled limiter")
+
+		// Learn the current Etags while the budget is free.
+		pollResp, _ := st.DoRequest(pollReq(), p.relay)
+		require.Equal(t, http.StatusOK, pollResp.StatusCode)
+		pollEtag := pollResp.Header.Get("Etag")
+		require.NotEmpty(t, pollEtag)
+
+		evalResp, _ := st.DoRequest(evalReq(), p.relay)
+		require.Equal(t, http.StatusOK, evalResp.StatusCode)
+		evalEtag := evalResp.Header.Get("Etag")
+		require.NotEmpty(t, evalEtag)
+
+		// Hold the only slot.
+		hold, ok := limiter.Acquire(context.Background())
+		require.True(t, ok)
+		defer hold()
+
+		t.Run("FDv2 server poll answers an unchanged poll", func(t *testing.T) {
+			r := pollReq()
+			r.Header.Set("If-None-Match", pollEtag)
+			resp, _ := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusNotModified, resp.StatusCode)
+		})
+
+		t.Run("FDv2 server poll sheds a poll with a stale Etag", func(t *testing.T) {
+			r := pollReq()
+			r.Header.Set("If-None-Match", `W/"stale"`)
+			resp, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			assert.Contains(t, string(body), "concurrency limit reached")
+		})
+
+		t.Run("FDv2 client-side poll answers an unchanged poll", func(t *testing.T) {
+			r := evalReq()
+			r.Header.Set("If-None-Match", evalEtag)
+			resp, _ := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusNotModified, resp.StatusCode)
+		})
+
+		t.Run("FDv2 client-side poll sheds a poll with a stale Etag", func(t *testing.T) {
+			r := evalReq()
+			r.Header.Set("If-None-Match", `W/"stale"`)
+			resp, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			assert.Contains(t, string(body), "concurrency limit reached")
+		})
 	})
 }

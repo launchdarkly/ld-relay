@@ -255,11 +255,11 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if !result.upToDate {
+	if !result.upToDate && req.Header.Get("If-None-Match") != formatEtag(result.etag) {
 		// This is a full transfer. The flight group already limits the build to one for
 		// each basis, so the budget's work here is the response write: take a slot and
 		// keep it until the handler returns, so a slow client cannot multiply resident
-		// response payloads. The cheap up-to-date reply is never charged.
+		// response payloads. The cheap up-to-date and 304 replies are never charged.
 		release, ok := middleware.AcquireInitSlotFromContext(w, req)
 		if !ok {
 			return
@@ -438,12 +438,20 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 
 	flagEvalKind := subsystems.ObjectKind("flag-eval")
 
+	if req.Header.Get("If-None-Match") == formatEtag(selector.State()) {
+		traceWriteResponse(tr, req, func() (int, error) {
+			return writeCacheableJSONResponse(w, req, 0, nil, selector.State())
+		})
+		return
+	}
+
 	basis := req.URL.Query().Get("basis")
 	upToDate := selector.IsDefined() && basis != "" && selector.State() == basis
 
 	if !upToDate {
 		// This is a full-basis delivery: the evaluation and the serialization are the
-		// memory-heavy work the budget limits. The cheap up-to-date reply is never charged.
+		// memory-heavy work the budget limits. The cheap up-to-date and 304 replies are
+		// never charged.
 		// The handler keeps the slot until it returns, which covers the response write.
 		release, ok := middleware.AcquireInitSlotFromContext(w, req)
 		if !ok {

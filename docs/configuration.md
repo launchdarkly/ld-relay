@@ -142,7 +142,7 @@ This section limits how many SDK *initialization deliveries* the Relay Proxy per
 The budget covers the endpoints that send a full data set:
 
 - The server-side streaming endpoints (`/all` and `/sdk/stream`). An FDv2 stream reconnect whose data is already current gets a small up-to-date reply, which is not counted.
-- The FDv2 polling endpoints (`/sdk/poll` and `/sdk/poll/eval`), on the same condition.
+- The FDv2 polling endpoints (`/sdk/poll` and `/sdk/poll/eval`), on the same condition. A poll whose `If-None-Match` header matches the current data gets a 304 reply, which is not counted either.
 - The FDv1 server-side poll (`/sdk/latest-all`). A poll whose `If-None-Match` header matches the current data gets a 304 reply, which is not counted.
 - The FDv1 PHP all-flags poll (`/sdk/flags`).
 
