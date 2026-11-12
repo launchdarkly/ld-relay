@@ -25,7 +25,8 @@ import (
 )
 
 // Flight-group keys for the FDv1 poll. The Etag flight reads the store and hashes it, for the
-// Etag check. The payload flight reads the store again and serializes it, for a full transfer.
+// Etag check. The payload flight reads the store again and serializes it, for a full transfer. Its
+// key is the payload key, a colon, and the Etag that the request saw.
 const (
 	serverSideLatestAllEtagFlightKey    = "sdk-latest-all-etag"
 	serverSideLatestAllPayloadFlightKey = "sdk-latest-all"
@@ -87,9 +88,12 @@ func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	defer release()
 
-	// The request can wait for a slot, and the data can change while it waits. The payload
-	// flight reads the store again after the wait, so the reply does not contain old data.
-	result, err := runPollingFlight(req, env, serverSideLatestAllPayloadFlightKey, func() (pollResult, error) {
+	// The payload flight reads the store again, after the wait for a slot. A request joins only
+	// a flight of requests that saw the same Etag, and that flight read the store after one of
+	// them saw it. So the reply has the data that the Etag check saw, or newer data. The data
+	// can still change after the flight reads it.
+	payloadKey := serverSideLatestAllPayloadFlightKey + ":" + etag.(string)
+	result, err := runPollingFlight(req, env, payloadKey, func() (pollResult, error) {
 		data, err := readLatestAllData(req.Context(), tr, env)
 		if err != nil {
 			return pollResult{}, err

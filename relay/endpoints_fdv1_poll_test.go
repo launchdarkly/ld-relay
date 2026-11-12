@@ -297,17 +297,7 @@ func TestFDv1PollReadsTheDataAfterItWaitsForASlot(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool { return limiter.Stats().Waiting == 1 }, time.Second, time.Millisecond)
 
-	newFlag := ldbuilders.NewFlagBuilder("flag-two").Version(1).SingleVariation(ldvalue.Bool(true)).Build()
-	newFlagJSON, err := json.Marshal(newFlag)
-	require.NoError(t, err)
-	builder := subsystems.NewChangeSetBuilder()
-	builder.Start(subsystems.ServerIntent{Payload: subsystems.Payload{
-		ID: "next-state", Target: 2, Code: subsystems.IntentTransferFull, Reason: "payload-missing",
-	}})
-	builder.AddPut(subsystems.FlagKind, newFlag.Key, newFlag.Version, newFlagJSON)
-	changeSet, err := builder.Finish(subsystems.NewSelector("next-state", 2))
-	require.NoError(t, err)
-	store.Apply(*changeSet)
+	newEtag := replaceDataWithOneFlag(t, store, "flag-two")
 
 	hold()
 	w := <-done
@@ -317,8 +307,71 @@ func TestFDv1PollReadsTheDataAfterItWaitsForASlot(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
 	assert.Contains(t, payload.Flags, "flag-two")
 	assert.NotContains(t, payload.Flags, "flag-one")
-	newFlagDescriptor := ldstoretypes.KeyedItemDescriptor{Key: newFlag.Key, Item: ldstoretypes.ItemDescriptor{Version: 1, Item: &newFlag}}
-	assert.Equal(t, formatEtag(latestAllEtag([]ldstoretypes.KeyedItemDescriptor{newFlagDescriptor}, nil)), w.Header().Get("Etag"))
+	assert.Equal(t, newEtag, w.Header().Get("Etag"))
+}
+
+// TestFDv1PollDoesNotServeDataOlderThanItsEtagCheck holds one request in its payload flight
+// after the flight has read the store, and then changes the data. A second request sees the
+// new data in its Etag check, so it must not join the held flight and get the old data.
+func TestFDv1PollDoesNotServeDataOlderThanItsEtagCheck(t *testing.T) {
+	store := storeWithOneFlag()
+	env := envWithStore(store)
+
+	// The first request reads the store for its Etag check, and then for its payload. The
+	// payload read is held.
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	blockNthRead(func(hook func()) { store.SnapshotDoneHook = hook }, 2, entered, release)
+
+	request := func() *httptest.ResponseRecorder {
+		req := buildPreRoutedRequest("GET", nil, make(http.Header), nil, env)
+		w := httptest.NewRecorder()
+		pollLatestAllHandler(w, req)
+		return w
+	}
+
+	oldResp := make(chan *httptest.ResponseRecorder, 1)
+	go func() { oldResp <- request() }()
+	<-entered
+
+	newEtag := replaceDataWithOneFlag(t, store, "flag-two")
+	newResp := make(chan *httptest.ResponseRecorder, 1)
+	go func() { newResp <- request() }()
+	// The second request needs only a short CPU path to reach the payload flight. If it can
+	// join the held flight, it is still waiting there at the release.
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+
+	old, latest := <-oldResp, <-newResp
+	require.Equal(t, http.StatusOK, old.Code)
+	require.Equal(t, http.StatusOK, latest.Code)
+	assert.NotEqual(t, newEtag, old.Header().Get("Etag"))
+
+	assert.Equal(t, newEtag, latest.Header().Get("Etag"))
+	var payload latestAllBody
+	require.NoError(t, json.Unmarshal(latest.Body.Bytes(), &payload))
+	assert.Contains(t, payload.Flags, "flag-two")
+	assert.NotContains(t, payload.Flags, "flag-one")
+}
+
+// replaceDataWithOneFlag replaces the data in the store with one flag, the way a full transfer
+// does, and returns the Etag of the new data.
+func replaceDataWithOneFlag(t *testing.T, store *testclient.FakeStore, key string) string {
+	t.Helper()
+	flag := ldbuilders.NewFlagBuilder(key).Version(1).SingleVariation(ldvalue.Bool(true)).Build()
+	flagJSON, err := json.Marshal(flag)
+	require.NoError(t, err)
+	builder := subsystems.NewChangeSetBuilder()
+	builder.Start(subsystems.ServerIntent{Payload: subsystems.Payload{
+		ID: "next-state", Target: 2, Code: subsystems.IntentTransferFull, Reason: "payload-missing",
+	}})
+	builder.AddPut(subsystems.FlagKind, flag.Key, flag.Version, flagJSON)
+	changeSet, err := builder.Finish(subsystems.NewSelector("next-state", 2))
+	require.NoError(t, err)
+	store.Apply(*changeSet)
+
+	descriptor := ldstoretypes.KeyedItemDescriptor{Key: flag.Key, Item: ldstoretypes.ItemDescriptor{Version: 1, Item: &flag}}
+	return formatEtag(latestAllEtag([]ldstoretypes.KeyedItemDescriptor{descriptor}, nil))
 }
 
 // TestEnvironmentTTLAppliesOnlyToPHPEndpoints checks that the environment TTL adds an Expires
