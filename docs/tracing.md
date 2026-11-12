@@ -104,14 +104,17 @@ the **request** span:
 | `launchdarkly.relay.singleflight.wait.duration` | How long this request waited for another request's build, in seconds. Present only on a request that waited |
 
 The request that performed the build carries no wait attribute -- it did not wait, and its work appears
-as the child spans in its own trace. So a trace with `shared=true`, no wait attribute, and no store or
-serialize children means another request's trace holds the build. The FDv1 `/sdk/latest-all` poll uses
-two flights. The first reads the store to compute the `Etag`, and a 304 reply needs only that one. This
-flight sets neither attribute and starts no wait span, so a 304 reply's request span has no singleflight
-attributes. A full transfer then reads the store again and serializes in a second flight, and the
-attributes and wait span describe only that flight. Its request span can hold the store span of the first
-flight without a serialize span; the serialize span marks the request that built the payload. Tracing
-backends cannot join a waiting request to the trace that did the work; find it by timestamp proximity.
+as the child spans in its own trace. So a trace with the wait attribute and no store or serialize
+children means another request's trace holds the build. The FDv1 `/sdk/latest-all` poll uses two
+flights. The first reads the store to compute the `Etag`. This flight sets neither attribute and starts
+no wait span, so a 304 reply from this check has no singleflight attributes on its request span. A
+request can share a read that began before it arrived, so the `Etag` it compares can be one read behind.
+A request whose `If-None-Match` is newer than that read does not get its 304 from this check. Like a full
+transfer, it takes an initialization slot and runs the second flight, which reads the store again and
+serializes, and it gets its 304 after that flight. The attributes and wait span describe only the second
+flight. Its request span can hold the store span of the first flight without a serialize span; the
+serialize span marks the request that built the payload. Tracing backends cannot join a waiting request
+to the trace that did the work; find it by timestamp proximity.
 
 ## Instrumentation scope
 

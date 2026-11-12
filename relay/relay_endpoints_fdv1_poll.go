@@ -42,8 +42,11 @@ type latestAllData struct {
 // Server-side FDv1 polling endpoint: sdk.launchdarkly.com/sdk/latest-all
 //
 // The response is the full data set as {"flags": {...}, "segments": {...}}. An SDK that sends
-// the Etag of its current data gets a 304 reply. That reply does not use a slot of the
-// initialization-delivery budget. Only a full payload takes a slot, the same as the FDv2 poll.
+// the Etag of its current data gets a 304 reply. A full payload takes a slot of the
+// initialization-delivery budget, the same as the FDv2 poll. A 304 from the Etag check does not.
+// That check can share a store read that began before the request arrived, so its 304 can be one
+// read behind. A request whose Etag is newer than that read takes a slot, and gets its 304 after
+// the payload flight.
 func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	env := middleware.GetEnvContextInfo(req.Context()).Env
 	tr := tracing.Tracer()
@@ -58,10 +61,11 @@ func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Concurrent requests share one store read for the Etag check. The flight returns only
-	// the Etag, so a request that gets a 304 reply keeps no data set in memory. The flight
-	// does not annotate the request span, so the singleflight attributes on that span
-	// describe only the payload flight.
+	// Concurrent requests share one store read for the Etag check. A request can join a read
+	// that began before it arrived, so the Etag it compares can be one read behind. The flight
+	// returns only the Etag, so a request that gets a 304 reply here keeps no data set in
+	// memory. The flight does not annotate the request span, so the singleflight attributes on
+	// that span describe only the payload flight.
 	etag, err, _ := env.GetPollingFlightGroup().Do(serverSideLatestAllEtagFlightKey,
 		func() (any, error) {
 			data, err := readLatestAllData(req.Context(), tr, env)
