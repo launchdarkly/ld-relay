@@ -1,12 +1,14 @@
 package relay
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
@@ -16,6 +18,8 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
@@ -277,6 +281,11 @@ func TestFDv2ClientSidePollingWithoutSelector(t *testing.T) {
 	// data that the persistent store already holds.
 	env := testenv.NewTestEnvContextWithClientFactory("",
 		testclient.FakeLDClientFactoryWithStore(false, store), nil)
+	limiter := concurrency.New("init", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
+	handler := middleware.ProvideInitLimiter(limiter, time.Second, nil)(
+		http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			pollEvalHandlerV2Shared(w, req, ct.OptBase2Bytes{})
+		}))
 	poll := func(query string, ifNoneMatch string) *httptest.ResponseRecorder {
 		headers := make(http.Header)
 		headers.Set("Content-Type", "application/json")
@@ -286,7 +295,7 @@ func TestFDv2ClientSidePollingWithoutSelector(t *testing.T) {
 		req := buildPreRoutedRequest("REPORT", []byte(`{"kind":"user","key":"me"}`), headers, nil, env)
 		req.URL.RawQuery = query
 		w := httptest.NewRecorder()
-		pollEvalHandlerV2Shared(w, req, ct.OptBase2Bytes{})
+		handler.ServeHTTP(w, req)
 		return w
 	}
 
@@ -304,5 +313,17 @@ func TestFDv2ClientSidePollingWithoutSelector(t *testing.T) {
 		etag := poll("", "").Header().Get("Etag")
 		assert.Equal(t, http.StatusNotModified, poll("", etag).Code)
 		assert.Equal(t, http.StatusOK, poll("", `W/""`).Code)
+	})
+
+	// The 304 must not need a slot when the Etag is a hash of the data rather than a selector.
+	t.Run("an SDK with the current Etag gets a 304 while the budget is full", func(t *testing.T) {
+		etag := poll("", "").Header().Get("Etag")
+
+		hold, ok := limiter.Acquire(context.Background())
+		require.True(t, ok)
+		defer hold()
+
+		assert.Equal(t, http.StatusNotModified, poll("", etag).Code)
+		assert.NotEqual(t, http.StatusNotModified, poll("", `W/""`).Code)
 	})
 }
