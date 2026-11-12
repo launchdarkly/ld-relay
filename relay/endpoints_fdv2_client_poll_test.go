@@ -4,12 +4,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 
+	ct "github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -253,4 +262,47 @@ func collectFlagKeys(t *testing.T, payload pollingPayload) []string {
 		}
 	}
 	return keys
+}
+
+func TestFDv2ClientSidePollingWithoutSelector(t *testing.T) {
+	flag := ldbuilders.NewFlagBuilder("flag-a").Version(1).SingleVariation(ldvalue.Bool(true)).
+		ClientSideUsingEnvironmentID(true).Build()
+	store := testclient.NewFakeStoreWithoutSelector([]ldstoretypes.Collection{
+		{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{
+			{Key: flag.Key, Item: ldstoretypes.ItemDescriptor{Version: flag.Version, Item: &flag}},
+		}},
+		{Kind: ldstoreimpl.Segments(), Items: []ldstoretypes.KeyedItemDescriptor{}},
+	})
+	// The client is not initialized, as when its initialization timed out and Relay serves the
+	// data that the persistent store already holds.
+	env := testenv.NewTestEnvContextWithClientFactory("",
+		testclient.FakeLDClientFactoryWithStore(false, store), nil)
+	poll := func(query string, ifNoneMatch string) *httptest.ResponseRecorder {
+		headers := make(http.Header)
+		headers.Set("Content-Type", "application/json")
+		if ifNoneMatch != "" {
+			headers.Set("If-None-Match", ifNoneMatch)
+		}
+		req := buildPreRoutedRequest("REPORT", []byte(`{"kind":"user","key":"me"}`), headers, nil, env)
+		req.URL.RawQuery = query
+		w := httptest.NewRecorder()
+		pollEvalHandlerV2Shared(w, req, ct.OptBase2Bytes{})
+		return w
+	}
+
+	for _, query := range []string{"", "basis=some-state"} {
+		t.Run("serves a full payload for query "+strconv.Quote(query), func(t *testing.T) {
+			w := poll(query, "")
+			require.Equal(t, http.StatusOK, w.Code)
+			assertFullPayloadWithoutState(t, w.Body.Bytes(), 1)
+			assert.NotEmpty(t, w.Header().Get("Etag"))
+			assert.NotEqual(t, `W/""`, w.Header().Get("Etag"))
+		})
+	}
+
+	t.Run("an SDK with the current Etag gets a 304", func(t *testing.T) {
+		etag := poll("", "").Header().Get("Etag")
+		assert.Equal(t, http.StatusNotModified, poll("", etag).Code)
+		assert.Equal(t, http.StatusOK, poll("", `W/""`).Code)
+	})
 }

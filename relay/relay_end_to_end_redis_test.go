@@ -7,6 +7,7 @@ package relay
 // must be running on localhost for these tests.
 
 import (
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -20,6 +21,9 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -109,5 +113,23 @@ func TestRelayEndToEndRedisInitTimeoutWithInitializedDataStore(t *testing.T) {
 		p.waitForLogMessage(slog.LevelError, "error initializing LaunchDarkly client",
 			"initialization timeout")
 		p.expectSuccessFromAllEndpoints(testEnv)
+
+		// The data in the database has no FDv2 selector, so the FDv2 polling endpoints serve it
+		// as a full payload without one.
+		for _, req := range []*http.Request{
+			st.BuildRequestWithAuth("GET", p.relayURL+"/sdk/poll", testEnv.Config.SDKKey, nil),
+			st.BuildRequestWithAuth("GET", p.relayURL+"/sdk/poll/eval/"+st.ToBase64(st.SimpleUserJSON),
+				testEnv.Config.MobileKey, nil),
+		} {
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode, req.URL.Path)
+			assert.NotEmpty(t, resp.Header.Get("Etag"), req.URL.Path)
+			assert.Contains(t, string(body), `"key":"`+testFlag.Key+`"`, req.URL.Path)
+			assert.Contains(t, string(body), `{"state":"","version":0}`, req.URL.Path)
+		}
 	})
 }

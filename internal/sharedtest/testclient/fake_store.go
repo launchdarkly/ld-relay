@@ -12,6 +12,7 @@ import (
 type FakeStore struct {
 	collections []ldstoretypes.Collection
 	selector    subsystems.Selector
+	initialized bool
 	mu          sync.Mutex
 
 	// SnapshotHook, if non-nil, is called at the start of every Snapshot call, before the
@@ -31,6 +32,16 @@ func NewFakeStore(collections []ldstoretypes.Collection) *FakeStore {
 	return &FakeStore{
 		collections: collections,
 		selector:    subsystems.NewSelector("initial-state", 1),
+	}
+}
+
+// NewFakeStoreWithoutSelector returns a FakeStore that holds collections and reports that it is
+// initialized, but has no selector. This is the state of the SDK's store while it serves data from
+// a persistent store and has not yet received a payload from LaunchDarkly.
+func NewFakeStoreWithoutSelector(collections []ldstoretypes.Collection) *FakeStore {
+	return &FakeStore{
+		collections: collections,
+		initialized: true,
 	}
 }
 
@@ -181,7 +192,7 @@ func (s *FakeStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItem
 func (s *FakeStore) IsInitialized() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.selector.IsDefined()
+	return s.initialized || s.selector.IsDefined()
 }
 
 func (s *FakeStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
