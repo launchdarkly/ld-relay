@@ -1,6 +1,9 @@
 package filedata
 
 import (
+	"archive/tar"
+	"bytes"
+	"fmt"
 	"os"
 	"sort"
 	"testing"
@@ -136,6 +139,69 @@ func TestEnvironmentSDKDataItemOfUnknownKindIsIgnored(t *testing.T) {
 		require.NoError(t, err)
 		verifyEnvironmentSDKData(t, testEnv1, sdkData)
 	})
+}
+
+func TestReadTarEnforcesAggregateLimits(t *testing.T) {
+	for _, params := range []struct {
+		name            string
+		fileSizes       []int
+		maxArchiveSize  int64
+		maxEntryCount   int
+		expectedMessage string
+	}{
+		{
+			name:            "archive size",
+			fileSizes:       []int{4, 4, 4},
+			maxArchiveSize:  10,
+			maxEntryCount:   3,
+			expectedMessage: "contents exceeded 10 bytes",
+		},
+		{
+			name:            "entry count",
+			fileSizes:       []int{1, 1, 1},
+			maxArchiveSize:  3,
+			maxEntryCount:   2,
+			expectedMessage: "more than 2 entries",
+		},
+	} {
+		t.Run(params.name, func(t *testing.T) {
+			archive := makeTarArchive(t, params.fileSizes...)
+
+			err := readTarWithLimits(
+				bytes.NewReader(archive),
+				t.TempDir(),
+				params.maxArchiveSize,
+				params.maxEntryCount,
+			)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), params.expectedMessage)
+		})
+	}
+}
+
+func TestReadTarAcceptsArchiveAtAggregateLimits(t *testing.T) {
+	archive := makeTarArchive(t, 2, 3)
+
+	err := readTarWithLimits(bytes.NewReader(archive), t.TempDir(), 5, 2)
+
+	require.NoError(t, err)
+}
+
+func makeTarArchive(t *testing.T, fileSizes ...int) []byte {
+	var data bytes.Buffer
+	tw := tar.NewWriter(&data)
+	for index, size := range fileSizes {
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name: fmt.Sprintf("file-%d", index),
+			Mode: 0600,
+			Size: int64(size),
+		}))
+		_, err := tw.Write(make([]byte, size))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	return data.Bytes()
 }
 
 func verifyAllEnvironmentData(t *testing.T, ar *archiveReader) {
