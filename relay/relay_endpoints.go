@@ -228,6 +228,14 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	tr := tracing.Tracer()
 
+	if !clientCtx.Env.GetStore().IsInitialized() {
+		clientCtx.Env.GetLogger().Warn("FDv2 poll received before the data store is initialized")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write(util.ErrorJSONMsg("Service not initialized"))
+		return
+	}
+
 	basis := req.URL.Query().Get("basis")
 
 	// Concurrent requests would each take a store snapshot and serialize an identical payload;
@@ -285,8 +293,8 @@ func buildServerSidePollPayload(
 	if err != nil {
 		env.GetLogger().Error("error reading feature store", "error", err)
 		return pollResult{}, err
-	} else if collection == nil || !selector.IsDefined() {
-		err := errors.New("snapshot selector is not defined; no data to return")
+	} else if collection == nil {
+		err := errors.New("store snapshot is empty; no data to return")
 		env.GetLogger().Error(err.Error())
 		return pollResult{}, err
 	}
@@ -365,7 +373,7 @@ func buildServerSidePollPayload(
 	)
 	return pollResult{
 		data:     data,
-		etag:     selector.State(),
+		etag:     fdv2PollEtag(collection, selector),
 		upToDate: selector.IsDefined() && basis != "" && selector.State() == basis,
 	}, nil
 }
@@ -422,8 +430,8 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		logger.Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
-	} else if collection == nil || !selector.IsDefined() {
-		logger.Error("snapshot selector is not defined; no data to return")
+	} else if collection == nil {
+		logger.Error("store snapshot is empty; no data to return")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -525,7 +533,7 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, 0, jsonData, selector.State())
+		return writeCacheableJSONResponse(w, req, 0, jsonData, fdv2PollEtag(collection, selector))
 	})
 }
 
@@ -917,6 +925,20 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, ttl ti
 	// influenced which payload was built.
 	_, err := w.Write(bytes) //nolint:gosec
 	return http.StatusOK, err
+}
+
+// fdv2PollEtag returns the Etag value for an FDv2 polling payload built from collection at
+// selector. It is the selector state when the selector is defined. Otherwise, as when Relay serves
+// data from a persistent store before it has received a payload from LaunchDarkly, it is a hash
+// of the data, the same as the FDv1 poll.
+func fdv2PollEtag(
+	collection map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
+	selector subsystems.Selector,
+) string {
+	if selector.IsDefined() {
+		return selector.State()
+	}
+	return latestAllEtag(liveItems(collection[ldstoreimpl.Features()]), liveItems(collection[ldstoreimpl.Segments()]))
 }
 
 // formatEtag returns the weak Etag header value that the polling endpoints send for etagValue.
