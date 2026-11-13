@@ -18,6 +18,11 @@ import (
 func EncodeHello(hello Hello) ([]byte, error) {
 	hello.Type = TypeHello
 	hello.Version = ProtocolVersion
+	// The schema requires an array, and a nil slice encodes as null. Msgpack is implicit, so
+	// a relay that offers nothing else sends an empty list.
+	if hello.Capabilities == nil {
+		hello.Capabilities = []string{}
+	}
 	frame, err := json.Marshal(hello)
 	if err != nil {
 		return nil, fmt.Errorf("megastream: cannot encode hello: %w", err)

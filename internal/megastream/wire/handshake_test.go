@@ -42,6 +42,9 @@ func TestEncodeHelloOmitsUnsetOptionalFields(t *testing.T) {
 	assert.NotContains(t, decoded, "relayVersion")
 	assert.NotContains(t, decoded, "instanceId")
 
+	// The capability list is required even when the relay offers only the implicit msgpack.
+	assert.Equal(t, []any{}, decoded["capabilities"])
+
 	// A scope with no recorded state must omit the field rather than present an empty
 	// selector, which the server would have to treat as a state to resume from.
 	scopes, ok := decoded["scopes"].([]any)
