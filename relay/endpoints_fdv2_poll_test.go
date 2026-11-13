@@ -76,6 +76,7 @@ func TestFDv2PollingEndpoint(t *testing.T) {
 			r.Header.Set("If-None-Match", etag)
 			result, _ = st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusNotModified, result.StatusCode)
+			assert.Equal(t, etag, result.Header.Get("Etag"), "a 304 reply must repeat the Etag")
 
 			r = spec.request()
 			r.Header.Set("If-None-Match", "wrong-etag")
