@@ -886,15 +886,15 @@ func traceWriteResponse(tr trace.Tracer, req *http.Request, write func() (int, e
 }
 
 // writeCacheableJSONResponse sends bytes as a JSON response with an Etag, or an empty 304 with
-// the same Etag when the caller's If-None-Match matches it. A ttl above zero also adds an Expires
-// header. Only the PHP polling endpoints pass the environment TTL. The other SDKs cache with
-// their own HTTP cache, and an Expires header stops them from seeing updates until it expires.
-// It returns the status code that was sent and the error from writing the body, if any.
+// the same Etag when the caller's If-None-Match matches it. Both carry Vary: Authorization. A ttl
+// above zero also adds an Expires header. Only the PHP polling endpoints pass the environment TTL. The other SDKs
+// cache with their own HTTP cache, and an Expires header stops them from seeing updates until it
+// expires. It returns the status code that was sent and the error from writing the body, if any.
 func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, ttl time.Duration,
 	bytes []byte, etagValue string,
 ) (int, error) {
+	browser.AddVaryHeader(w, "Authorization")
 	if ttl > 0 {
-		browser.AddVaryHeader(w, "Authorization")
 		expiresAt := time.Now().UTC().Add(ttl)
 		w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
 		// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an
