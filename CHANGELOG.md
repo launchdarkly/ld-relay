@@ -2,6 +2,17 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.1.1](https://github.com/launchdarkly/ld-relay/compare/v9.1.0...v9.1.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.27.4 and 1.26.11 ([#976](https://github.com/launchdarkly/ld-relay/issues/976)) ([4b1479a](https://github.com/launchdarkly/ld-relay/commit/4b1479ac1160a65ecf0abb55316538c9e1d3dcc2))
+* Include the Etag in 304 replies ([7f0fd25](https://github.com/launchdarkly/ld-relay/commit/7f0fd25dfa0dc6e4c65a09415455a35480d5231b))
+* Read the store once for concurrent FDv1 polls ([7f0fd25](https://github.com/launchdarkly/ld-relay/commit/7f0fd25dfa0dc6e4c65a09415455a35480d5231b))
+* Stop the environment TTL from delaying flag updates for polling SDKs ([#978](https://github.com/launchdarkly/ld-relay/issues/978)) ([7f0fd25](https://github.com/launchdarkly/ld-relay/commit/7f0fd25dfa0dc6e4c65a09415455a35480d5231b))
+* Update golang.org/x/crypto to v0.59.0 ([#982](https://github.com/launchdarkly/ld-relay/issues/982)) ([80c5a2a](https://github.com/launchdarkly/ld-relay/commit/80c5a2ad03e994ac61165d40842a8bfbf8f0bc6f))
+
 ## [9.1.0](https://github.com/launchdarkly/ld-relay/compare/v9.0.1...v9.1.0) (2026-11-10)
 
 
