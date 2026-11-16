@@ -82,6 +82,12 @@ type Params struct {
 // Connected reports a completed handshake and carries the negotiated session parameters.
 type Connected struct {
 	Welcome wire.Welcome
+
+	// Presented lists the scope credentials the handshake named. It travels with the
+	// message, because the session asks for the hello on its own goroutine, before the
+	// consumer has read the previous attempt's Disconnected. A consumer that recorded the
+	// presentation when it built the hello would then see that Disconnected undo it.
+	Presented []string
 }
 
 // Disconnected reports that a connection attempt ended, and Err says why.
@@ -205,7 +211,7 @@ func (s *Session) connectAndServe(ctx context.Context, policy *reconnectPolicy) 
 		_ = socket.CloseNow()
 	}()
 
-	welcome, err := s.handshake(ctx, socket, policy)
+	welcome, presented, err := s.handshake(ctx, socket, policy)
 	if err != nil {
 		return err
 	}
@@ -226,7 +232,7 @@ func (s *Session) connectAndServe(ctx context.Context, policy *reconnectPolicy) 
 		"heartbeatIntervalMs", welcome.HeartbeatIntervalMs,
 		"maxScopes", welcome.MaxScopes)
 
-	if !s.emit(ctx, Connected{Welcome: welcome}) {
+	if !s.emit(ctx, Connected{Welcome: welcome, Presented: presented}) {
 		return ctx.Err()
 	}
 	return s.serve(ctx, conn, welcome, policy)
@@ -282,19 +288,20 @@ func (s *Session) serve(
 	}
 }
 
-// handshake sends the hello and waits for the server's answer.
+// handshake sends the hello and waits for the server's answer. On success it also returns
+// the scope credentials the hello named.
 func (s *Session) handshake(
 	ctx context.Context,
 	socket *websocket.Conn,
 	policy *reconnectPolicy,
-) (wire.Welcome, error) {
+) (wire.Welcome, []string, error) {
 	root, scopes := s.params.Hello()
 	if root == "" {
-		return wire.Welcome{}, errors.New(
+		return wire.Welcome{}, nil, errors.New(
 			"megastream: no root credential configured for this environment")
 	}
 	if len(scopes) == 0 {
-		return wire.Welcome{}, errors.New(
+		return wire.Welcome{}, nil, errors.New(
 			"megastream: no scopes to register; the root credential alone serves nothing")
 	}
 	frame, err := wire.EncodeHello(wire.Hello{
@@ -305,7 +312,7 @@ func (s *Session) handshake(
 		InstanceID:   s.params.InstanceID,
 	})
 	if err != nil {
-		return wire.Welcome{}, err
+		return wire.Welcome{}, nil, err
 	}
 
 	writeCtx, cancelWrite := context.WithTimeout(ctx, handshakeTimeout)
@@ -313,34 +320,38 @@ func (s *Session) handshake(
 	// The handshake is JSON in a text frame so that either side can read the other's
 	// rejection whatever binary format the session goes on to negotiate.
 	if err := socket.Write(writeCtx, websocket.MessageText, frame); err != nil {
-		return wire.Welcome{}, fmt.Errorf("megastream: cannot send hello: %w", err)
+		return wire.Welcome{}, nil, fmt.Errorf("megastream: cannot send hello: %w", err)
 	}
 
 	reply, err := readFrame(ctx, socket, websocket.MessageText, handshakeTimeout)
 	if err != nil {
-		return wire.Welcome{}, err
+		return wire.Welcome{}, nil, err
 	}
 	answer, err := wire.DecodeHandshake(reply)
 	if err != nil {
-		return wire.Welcome{}, err
+		return wire.Welcome{}, nil, err
 	}
 	switch typed := answer.(type) {
 	case wire.Welcome:
 		if typed.Version != wire.ProtocolVersion {
-			return wire.Welcome{}, fmt.Errorf(
+			return wire.Welcome{}, nil, fmt.Errorf(
 				"megastream: server speaks protocol version %d, this relay speaks %d",
 				typed.Version, wire.ProtocolVersion)
 		}
-		return typed, nil
+		presented := make([]string, len(scopes))
+		for i, entry := range scopes {
+			presented[i] = entry.Key
+		}
+		return typed, presented, nil
 	case wire.Goodbye:
 		s.applyGoodbye(typed, policy)
-		return wire.Welcome{}, fmt.Errorf("megastream: handshake refused: %s (%s)",
+		return wire.Welcome{}, nil, fmt.Errorf("megastream: handshake refused: %s (%s)",
 			typed.Reason, typed.Code)
 	case wire.ErrorMessage:
-		return wire.Welcome{}, fmt.Errorf("megastream: handshake failed: %s (%s)",
+		return wire.Welcome{}, nil, fmt.Errorf("megastream: handshake failed: %s (%s)",
 			typed.Message, typed.Code)
 	default:
-		return wire.Welcome{}, fmt.Errorf("megastream: unexpected handshake reply %T", answer)
+		return wire.Welcome{}, nil, fmt.Errorf("megastream: unexpected handshake reply %T", answer)
 	}
 }
 
