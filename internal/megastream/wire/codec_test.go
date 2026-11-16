@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
@@ -256,6 +257,57 @@ func TestWithZstdRejectsBadFrames(t *testing.T) {
 
 	_, err = codec.Decode([]byte{frameCompressed, 0xff, 0xff, 0xff})
 	assert.Error(t, err, "a compressed frame that does not inflate is undecodable")
+}
+
+func TestWithZstdRefusesAFrameThatInflatesPastTheBound(t *testing.T) {
+	codec := newTestCodec(t, CapabilityZstd)
+
+	// Zeros compress to almost nothing, so each frame here is a few hundred bytes on the
+	// wire and inflates to one byte more than the bound.
+	oversized := make([]byte, MaxFrame+1)
+
+	t.Run("size declared in the frame header", func(t *testing.T) {
+		encoder, err := zstd.NewWriter(nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = encoder.Close() })
+
+		sent := append([]byte{frameCompressed}, encoder.EncodeAll(oversized, nil)...)
+		require.Less(t, len(sent), 64<<10)
+
+		_, err = codec.Decode(sent)
+		assert.ErrorIs(t, err, zstd.ErrDecoderSizeExceeded)
+	})
+
+	// A streamed frame does not declare its size, so the decoder can only find out by
+	// inflating it. The bound must still stop it.
+	t.Run("size not declared", func(t *testing.T) {
+		var compressed bytes.Buffer
+		encoder, err := zstd.NewWriter(&compressed)
+		require.NoError(t, err)
+		_, err = encoder.Write(oversized)
+		require.NoError(t, err)
+		require.NoError(t, encoder.Close())
+
+		sent := append([]byte{frameCompressed}, compressed.Bytes()...)
+		require.Less(t, len(sent), 64<<10)
+
+		_, err = codec.Decode(sent)
+		assert.ErrorIs(t, err, zstd.ErrDecoderSizeExceeded)
+	})
+
+	t.Run("a frame at the bound still decodes", func(t *testing.T) {
+		encoder, err := zstd.NewWriter(nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = encoder.Close() })
+
+		body := frame(t, map[string]any{"t": "heartbeat", "pad": make([]byte, MaxFrame-64)})
+		require.LessOrEqual(t, len(body), MaxFrame)
+		sent := append([]byte{frameCompressed}, encoder.EncodeAll(body, nil)...)
+
+		got, err := codec.Decode(sent)
+		require.NoError(t, err)
+		assert.Equal(t, Heartbeat{T: TypeHeartbeat}, got)
+	})
 }
 
 // Relay never compresses what it sends, but a negotiated session still needs the prefix on

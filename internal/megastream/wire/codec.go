@@ -16,11 +16,13 @@ const (
 	frameCompressed byte = 0x01
 )
 
-// maxDecompressedFrame bounds what one compressed frame may inflate to. A frame carries a
-// single message, so this is generous for any object LaunchDarkly serves. The bound exists
-// because the decompressed length is attacker-controlled in principle, and an unbounded
-// allocation driven by a length field is worth refusing at the boundary.
-const maxDecompressedFrame = 64 << 20
+// MaxFrame bounds one inbound message, both as it arrives and after it inflates. A frame
+// carries a single message, so this is generous for any object LaunchDarkly serves.
+//
+// The bound applies after decompression too, because a small compressed frame can inflate
+// without limit. Without it, one frame could make the relay allocate until it runs out of
+// memory. A frame that inflates past the bound is refused before the relay allocates for it.
+const MaxFrame = 16 << 20
 
 // Codec encodes and decodes the binary frames that follow the handshake. One Codec belongs
 // to one session, because whether frames carry a compression prefix is negotiated per
@@ -37,7 +39,7 @@ func NewCodec(negotiated []string) (*Codec, error) {
 	if !codec.zstd {
 		return codec, nil
 	}
-	decoder, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecompressedFrame))
+	decoder, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(MaxFrame))
 	if err != nil {
 		return nil, fmt.Errorf("megastream: cannot create zstd decoder: %w", err)
 	}

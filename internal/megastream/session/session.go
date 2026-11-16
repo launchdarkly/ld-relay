@@ -31,7 +31,7 @@ const (
 
 	// readLimit bounds one inbound frame. The library defaults to 32 KiB, which a large
 	// flag would exceed, so the session sets its own.
-	readLimit = 16 << 20
+	readLimit = wire.MaxFrame
 
 	// messageBuffer smooths delivery bursts. The consumer must keep up: falling behind is
 	// backpressure on the socket, never dropped messages, because the protocol's ordering
