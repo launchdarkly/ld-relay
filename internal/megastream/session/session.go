@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/megastream/wire"
+	"github.com/launchdarkly/ld-relay/v9/internal/retry"
 )
 
 // StreamPath is appended to the configured streaming URI to form the MegaStream URL.
@@ -163,13 +164,17 @@ func (s *Session) URL() string {
 func (s *Session) Run(ctx context.Context) {
 	defer close(s.out)
 
-	policy := &reconnectPolicy{}
+	policy := newReconnectPolicy()
 	for ctx.Err() == nil {
 		err := s.connectAndServe(ctx, policy)
 		if ctx.Err() != nil {
 			return
 		}
-		delay := policy.next()
+		delay, extended := policy.next()
+		if extended {
+			s.logger.Warn("MegaStream failure is unlikely to resolve soon; retrying on the extended schedule",
+				"url", s.url.String())
+		}
 		s.logger.Warn("MegaStream connection ended; will reconnect",
 			"error", err, "delay", delay, "url", s.url.String())
 		if !sleep(ctx, delay) {
@@ -189,7 +194,7 @@ func (s *Session) connectAndServe(ctx context.Context, policy *reconnectPolicy) 
 		}
 	}()
 
-	socket, err := s.dial(ctx)
+	socket, err := s.dial(ctx, policy)
 	if err != nil {
 		return err
 	}
@@ -214,7 +219,7 @@ func (s *Session) connectAndServe(ctx context.Context, policy *reconnectPolicy) 
 	s.current.Store(conn)
 	defer s.current.Store(nil)
 
-	policy.reset()
+	policy.healthy()
 	s.logger.Info("MegaStream established",
 		"capabilities", welcome.Capabilities,
 		"base", welcome.Base,
@@ -244,6 +249,7 @@ func (s *Session) serve(
 		if err != nil {
 			return err
 		}
+		policy.healthy()
 		msg, err := conn.codec.Decode(frame)
 		if err != nil {
 			// An undecodable frame in a single ordered stream is an unidentifiable message
@@ -346,7 +352,7 @@ func (s *Session) applyGoodbye(goodbye wire.Goodbye, policy *reconnectPolicy) {
 		// a long time before asking again.
 		s.logger.Error("MegaStream rejected this relay's configuration",
 			"code", goodbye.Code, "reason", goodbye.Reason, "url", s.url.String())
-		policy.park()
+		policy.unexpected()
 	}
 }
 
@@ -424,7 +430,7 @@ func (s *Session) emit(ctx context.Context, msg any) bool {
 	}
 }
 
-func (s *Session) dial(ctx context.Context) (*websocket.Conn, error) {
+func (s *Session) dial(ctx context.Context, policy *reconnectPolicy) (*websocket.Conn, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
@@ -435,6 +441,11 @@ func (s *Session) dial(ctx context.Context) (*websocket.Conn, error) {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
+		if resp != nil && retry.ClassifyHTTPStatus(resp.StatusCode) == retry.Unexpected {
+			// A status such as 401 or 404 does not correct itself soon, so the relay keeps
+			// trying on the extended schedule.
+			policy.unexpected()
+		}
 		return nil, fmt.Errorf("megastream: cannot connect to %s: %w", s.url.String(), err)
 	}
 	return socket, nil

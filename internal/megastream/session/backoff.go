@@ -3,40 +3,62 @@ package session
 import (
 	"math/rand/v2"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/retry"
 )
 
 const (
-	// baseReconnectDelay is the delay before the first retry after a failure.
-	baseReconnectDelay = 1 * time.Second
+	// retryInitialDelay is the base delay of the normal curve.
+	retryInitialDelay = 1 * time.Second
 
-	// maxReconnectDelay bounds the ordinary exponential schedule.
-	maxReconnectDelay = 30 * time.Second
+	// retryNormalCeiling bounds the normal curve.
+	retryNormalCeiling = 30 * time.Second
+
+	// retryExtendedInitialDelay is the first delay after an unexpected failure, such as a
+	// close that reports a configuration problem. None of those resolves until an operator
+	// edits the configuration, so retrying on the normal curve only produces load and noise.
+	retryExtendedInitialDelay = 5 * time.Minute
+
+	// retryExtendedCeiling bounds the extended curve.
+	retryExtendedCeiling = 1 * time.Hour
+
+	// retryResetThreshold is how long a connection must stay up before the schedule returns
+	// to its start. A connection that fails soon after its handshake keeps backing off, so
+	// a server that accepts and then drops the relay does not get a reconnect every second.
+	retryResetThreshold = 60 * time.Second
 
 	// maxBackoffAdvice caps what the relay honors from a server's close advice. Without the
 	// cap, one bad advised value could park a whole fleet on stale flags indefinitely.
 	maxBackoffAdvice = 1 * time.Hour
 
-	// configErrorDelay is the floor after a close that reports a configuration problem.
-	// None of those resolves until an operator edits the configuration, so retrying on the
-	// ordinary schedule only produces load and noise.
-	configErrorDelay = 1 * time.Hour
-
-	// jitterRatio is the largest fraction of a delay that jitter adds to it.
-	jitterRatio = 0.5
-
-	// maxAttemptShift bounds the exponent so the doubling cannot overflow. The ordinary
-	// ceiling is reached long before this.
-	maxAttemptShift = 8
+	// adviceJitterRatio is the largest fraction of an advised delay that jitter adds to it.
+	adviceJitterRatio = 0.5
 )
 
 // reconnectPolicy decides how long to wait before each connection attempt.
 //
-// Every delay carries jitter. A server deploy disconnects a whole fleet at once, and an
-// unjittered schedule brings that fleet back as a herd. A floor raises a delay but never
-// removes the jitter above it, which is why jitter applies last.
+// The schedule is the shared retry strategy. This type adds the one thing MegaStream has
+// that the strategy does not: a server can advise a minimum delay when it closes the
+// session.
 type reconnectPolicy struct {
-	attempts int
-	floor    time.Duration
+	strategy *retry.Strategy
+
+	// class is the class of the failure in progress. A close or a refused dial can mark the
+	// failure unexpected before the connection attempt returns.
+	class retry.FailureClass
+
+	// floor is the minimum delay a server advised for the next reconnect.
+	floor time.Duration
+}
+
+func newReconnectPolicy(options ...retry.Option) *reconnectPolicy {
+	return &reconnectPolicy{strategy: retry.NewStrategy(retry.Config{
+		InitialDelay:         retryInitialDelay,
+		NormalCeiling:        retryNormalCeiling,
+		ExtendedInitialDelay: retryExtendedInitialDelay,
+		ExtendedCeiling:      retryExtendedCeiling,
+		ResetThreshold:       retryResetThreshold,
+	}, options...)}
 }
 
 // advise records the minimum delay a server asked for, ignoring a non-positive value and
@@ -53,38 +75,38 @@ func (p *reconnectPolicy) advise(delay time.Duration) {
 	}
 }
 
-// park raises the floor to the configuration-error delay.
-func (p *reconnectPolicy) park() {
-	if configErrorDelay > p.floor {
-		p.floor = configErrorDelay
-	}
+// unexpected marks the failure in progress as one that is unlikely to correct itself soon.
+func (p *reconnectPolicy) unexpected() {
+	p.class = retry.Unexpected
 }
 
-// next returns the delay before the next attempt and advances the schedule. It consumes any
-// floor, because close advice applies to the next reconnect rather than to all of them.
-func (p *reconnectPolicy) next() time.Duration {
-	delay := baseReconnectDelay << p.attempts
-	if delay > maxReconnectDelay {
-		delay = maxReconnectDelay
-	}
-	if p.attempts < maxAttemptShift {
-		p.attempts++
-	}
+// healthy records that the connection is serving. The session reports this on every frame
+// it reads, and the schedule returns to its start once the connection has stayed up for the
+// reset threshold.
+func (p *reconnectPolicy) healthy() {
+	p.strategy.OnHealthy()
+}
+
+// next records the failure that ended the last attempt and returns the delay before the next
+// one. The second result reports whether this failure moved the schedule onto the extended
+// curve. It consumes the failure class and any floor, because both describe one close
+// rather than all later ones.
+func (p *reconnectPolicy) next() (time.Duration, bool) {
+	engaged := p.strategy.OnFailure(p.class)
+	delay := p.strategy.NextWait()
 	if delay < p.floor {
-		delay = p.floor
+		// The strategy's jitter shortens a delay, and an advised delay is a minimum, so
+		// jitter here lengthens it instead. Without jitter, a fleet the server closed at
+		// once would come back at once.
+		delay = withJitter(p.floor)
 	}
+	p.class = retry.Normal
 	p.floor = 0
-	return withJitter(delay)
-}
-
-// reset returns the schedule to its start. The session calls it once a handshake succeeds.
-func (p *reconnectPolicy) reset() {
-	p.attempts = 0
-	p.floor = 0
+	return delay, engaged
 }
 
 func withJitter(delay time.Duration) time.Duration {
-	spread := int64(float64(delay) * jitterRatio)
+	spread := int64(float64(delay) * adviceJitterRatio)
 	if spread <= 0 {
 		return delay
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/megastream/wire"
+	"github.com/launchdarkly/ld-relay/v9/internal/retry"
 )
 
 func TestWebsocketURL(t *testing.T) {
@@ -321,12 +322,42 @@ func TestHandshakeRefusesToSendAnUnusableHello(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			socket, err := session.dial(context.Background())
+			socket, err := session.dial(context.Background(), newReconnectPolicy())
 			require.NoError(t, err)
 			defer socket.CloseNow()
 
-			_, err = session.handshake(context.Background(), socket, &reconnectPolicy{})
+			_, err = session.handshake(context.Background(), socket, newReconnectPolicy())
 			assert.Error(t, err)
+		})
+	}
+}
+
+// A refused upgrade with a status that does not correct itself soon moves the relay onto the
+// extended schedule. A transient status does not.
+func TestARefusedDialIsClassifiedByItsStatus(t *testing.T) {
+	for status, want := range map[int]retry.FailureClass{
+		http.StatusUnauthorized:       retry.Unexpected,
+		http.StatusNotFound:           retry.Unexpected,
+		http.StatusTooManyRequests:    retry.Normal,
+		http.StatusServiceUnavailable: retry.Normal,
+	} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+			t.Cleanup(server.Close)
+
+			session, err := New(Params{
+				StreamURI: mustParse(t, server.URL),
+				Hello:     func() (string, []wire.HelloScope) { return "sdk-env", nil },
+				Logger:    slog.New(slog.DiscardHandler),
+			})
+			require.NoError(t, err)
+
+			policy := newReconnectPolicy()
+			_, err = session.dial(context.Background(), policy)
+			require.Error(t, err)
+			assert.Equal(t, want, policy.class)
 		})
 	}
 }
@@ -548,7 +579,7 @@ func TestAGoodbyeReachesTheConsumer(t *testing.T) {
 	assert.Error(t, expect[Disconnected](t, session).Err)
 }
 
-func TestApplyGoodbyeRecordsAdviceAndParks(t *testing.T) {
+func TestApplyGoodbyeRecordsAdviceAndTheFailureClass(t *testing.T) {
 	session, err := New(Params{
 		StreamURI: mustParse(t, "http://127.0.0.1:1"),
 		Hello:     func() (string, []wire.HelloScope) { return "sdk-env", nil },
@@ -556,13 +587,15 @@ func TestApplyGoodbyeRecordsAdviceAndParks(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	advised := &reconnectPolicy{}
+	advised, _ := testPolicy()
 	session.applyGoodbye(wire.Goodbye{Code: wire.GoodbyeDraining, BackoffMs: 5000}, advised)
-	withinJitter(t, 5*time.Second, advised.next())
+	withinAdviceJitter(t, 5*time.Second, nextDelay(t, advised))
 
-	parked := &reconnectPolicy{}
+	parked, _ := testPolicy()
 	session.applyGoodbye(wire.Goodbye{Code: wire.GoodbyeMixedEnvironment}, parked)
-	withinJitter(t, configErrorDelay, parked.next())
+	delay, extended := parked.next()
+	assert.True(t, extended)
+	assert.Equal(t, retryExtendedInitialDelay, delay)
 }
 
 func TestRegisterAndDeregisterSendTheirFrames(t *testing.T) {

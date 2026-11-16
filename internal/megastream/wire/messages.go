@@ -270,7 +270,7 @@ func HasCapability(capabilities []string, name string) bool {
 
 // IsConfigurationError reports whether a goodbye code describes a relay configuration
 // problem. None of these resolves without an operator editing the configuration, so the
-// session parks on a long retry schedule instead of the ordinary one.
+// session retries on the extended schedule instead of the normal one.
 func IsConfigurationError(code string) bool {
 	switch code {
 	case GoodbyeInvalidRoot, GoodbyeRootNotEnvironmentWide, GoodbyeMixedEnvironment:
