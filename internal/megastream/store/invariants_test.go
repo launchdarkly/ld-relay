@@ -29,15 +29,13 @@ import (
 //	I7  a declaration is staged only for a scope that has hydrated, since one that has not
 //	    serves nothing and takes its declaration at once
 //	I8  State presents only the scope's latest accepted cursor, and only while nothing is
-//	    pending or evicted (checked against a shadow record in the test loop, outside the
-//	    lock)
+//	    pending or evicted and the membership has not changed since that cursor (checked
+//	    against a shadow record in the test loop, outside the lock)
 //	I9  a scope's evicted set names only objects the store does not hold, and its created
-//	    set only objects it does hold; a filtered scope has no created set, and its evicted
-//	    set names only objects it retracted
+//	    set only objects it does hold; only an unfiltered scope has either set
 //	I10 the unfiltered index names exactly the scopes served as unfiltered
-//	I11 the retracted index matches the scopes' retracted sets, only a filtered scope with a
-//	    selector retracts or adds, an added object is a live member, and no object is both
-//	    added and retracted
+//	I11 only a filtered scope with a selector retracts or adds, an added object is a live
+//	    member, a retracted object is not, and no object is both added and retracted
 func checkInvariants(t *testing.T, s *Store, step int, seed uint64) {
 	t.Helper()
 	s.mu.RLock()
@@ -66,8 +64,8 @@ func checkInvariants(t *testing.T, s *Store, step int, seed uint64) {
 			fail("I10: scope %q unfiltered=%v but indexed=%v", name, sc.unfiltered, indexed)
 		}
 		for id := range sc.evicted {
-			if _, retracted := sc.retracted[id]; !sc.unfiltered && !retracted {
-				fail("I9: filtered scope %q has evicted %s, which it did not retract", name, id)
+			if !sc.unfiltered {
+				fail("I9: filtered scope %q has evicted %s", name, id)
 			}
 			if s.objects[id].Present() {
 				fail("I9: scope %q has evicted %s, which the store holds", name, id)
@@ -89,8 +87,8 @@ func checkInvariants(t *testing.T, s *Store, step int, seed uint64) {
 			}
 		}
 		for id := range sc.retracted {
-			if _, indexed := s.retracted[id][name]; !indexed {
-				fail("I11: scope %q retracted %s, but the index does not say so", name, id)
+			if _, member := sc.members[id]; member {
+				fail("I11: scope %q retracted %s, which it holds", name, id)
 			}
 		}
 		// I7
@@ -137,22 +135,6 @@ func checkInvariants(t *testing.T, s *Store, step int, seed uint64) {
 		}
 	}
 
-	// I11, second half
-	for id, names := range s.retracted {
-		if len(names) == 0 {
-			fail("I11: %s has an empty retracted-index row", id)
-		}
-		for name := range names {
-			sc := s.scopes[name]
-			if sc == nil {
-				fail("I11: the retracted index names %q, which the store does not hold", name)
-			}
-			if _, ok := sc.retracted[id]; !ok {
-				fail("I11: the retracted index says %q retracted %s, but it did not", name, id)
-			}
-		}
-	}
-
 	// I2
 	for id, scopes := range s.referencing {
 		if len(scopes) == 0 {
@@ -185,10 +167,15 @@ func checkState(t *testing.T, s *Store, latest map[string]string, step int, seed
 		}
 		s.mu.RLock()
 		evicted := len(s.scopes[name].evicted)
+		changed := s.scopes[name].changedSinceCursor()
 		s.mu.RUnlock()
 		if evicted > 0 {
 			t.Fatalf("seed %d, step %d: I8: %q presents %q with %d evicted objects",
 				seed, step, name, state, evicted)
+		}
+		if changed {
+			t.Fatalf("seed %d, step %d: I8: %q presents %q with membership changed since it",
+				seed, step, name, state)
 		}
 		if state != latest[name] {
 			t.Fatalf("seed %d, step %d: I8: %q presents %q, but its latest cursor is %q",

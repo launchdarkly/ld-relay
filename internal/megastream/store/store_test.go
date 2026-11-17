@@ -223,70 +223,134 @@ func TestDeleteObjectDoesNotDiscardPendingMembership(t *testing.T) {
 	assert.Equal(t, "sel-b", state)
 }
 
-// A filtered scope that drops an object and then sees it evicted, both before its cursor,
-// has a selector that still claims the object. Presenting that selector would let the server
-// count the object as held, and send another scope a reference to it with no content.
-func TestAnEvictionAfterARefDeleteWithholdsTheSelector(t *testing.T) {
-	s := newTestStore(t)
-	apply(t, s,
-		intent("sdk-viewA", wire.IntentTransferFull, false),
-		ref("sdk-viewA", KindFlag, "k7"),
-		ref("sdk-viewA", KindFlag, "k8"),
-		flagPut("k7", 7),
-		flagPut("k8", 7),
-		cursor("sdk-viewA", "sel-1", 7),
-		refDelete("sdk-viewA", KindFlag, "k7"),
-	)
-	state, presentable := s.State("sdk-viewA")
-	require.True(t, presentable, "a ref-delete alone loses nothing the store holds")
-	require.Equal(t, "sel-1", state)
+// The store applies a delivery in place, so a membership change after the cursor leaves the
+// recorded selector naming an older state than the one the scope holds. A resume carries only
+// the net changes since the presented state, so a change made and undone upstream while the
+// relay was away would never be re-sent. The selector is withheld until the next cursor.
+func TestAMembershipChangeAfterTheCursorWithholdsTheSelector(t *testing.T) {
+	t.Run("filtered ref", func(t *testing.T) {
+		s := newTestStore(t)
+		apply(t, s,
+			intent("sdk-viewA", wire.IntentTransferFull, false),
+			ref("sdk-viewA", KindFlag, "f1"),
+			flagPut("f1", 1),
+			flagPut("f2", 1),
+			cursor("sdk-viewA", "sel-1", 1),
+			ref("sdk-viewA", KindFlag, "f2"),
+		)
+		_, presentable := s.State("sdk-viewA")
+		assert.False(t, presentable)
 
-	apply(t, s, del(KindFlag, "k7", 8))
-	_, presentable = s.State("sdk-viewA")
-	assert.False(t, presentable)
+		apply(t, s, cursor("sdk-viewA", "sel-2", 2))
+		state, presentable := s.State("sdk-viewA")
+		assert.True(t, presentable)
+		assert.Equal(t, "sel-2", state)
+	})
 
-	// Fresh content satisfies the claim again.
-	apply(t, s, flagPut("k7", 9))
-	state, presentable = s.State("sdk-viewA")
-	assert.True(t, presentable)
-	assert.Equal(t, "sel-1", state)
+	t.Run("filtered ref-delete", func(t *testing.T) {
+		s := newTestStore(t)
+		apply(t, s,
+			intent("sdk-viewA", wire.IntentTransferFull, false),
+			ref("sdk-viewA", KindFlag, "f1"),
+			flagPut("f1", 1),
+			cursor("sdk-viewA", "sel-1", 1),
+			refDelete("sdk-viewA", KindFlag, "f1"),
+		)
+		_, presentable := s.State("sdk-viewA")
+		assert.False(t, presentable)
 
-	// So does the cursor that covers the change.
-	apply(t, s, del(KindFlag, "k7", 10))
-	_, presentable = s.State("sdk-viewA")
-	assert.False(t, presentable)
-	apply(t, s, cursor("sdk-viewA", "sel-2", 10))
-	state, presentable = s.State("sdk-viewA")
-	assert.True(t, presentable)
-	assert.Equal(t, "sel-2", state)
+		apply(t, s, cursor("sdk-viewA", "sel-2", 2))
+		state, presentable := s.State("sdk-viewA")
+		assert.True(t, presentable)
+		assert.Equal(t, "sel-2", state)
+	})
 
-	// The cursor ends the watch, so a later eviction of k7 does not concern the scope.
-	apply(t, s, flagPut("k7", 11), del(KindFlag, "k7", 12))
-	_, presentable = s.State("sdk-viewA")
-	assert.True(t, presentable)
+	t.Run("unfiltered new object", func(t *testing.T) {
+		s := newTestStore(t)
+		apply(t, s,
+			intent("sdk-env", wire.IntentTransferFull, true),
+			flagPut("f1", 1),
+			cursor("sdk-env", "sel-1", 1),
+			flagPut("f2", 2),
+		)
+		_, presentable := s.State("sdk-env")
+		assert.False(t, presentable)
+
+		apply(t, s, cursor("sdk-env", "sel-2", 2))
+		state, presentable := s.State("sdk-env")
+		assert.True(t, presentable)
+		assert.Equal(t, "sel-2", state)
+	})
 }
 
-// The eviction of an object another scope dropped does not concern this scope.
-func TestAnEvictionConcernsOnlyTheScopeThatDroppedTheObject(t *testing.T) {
+// A content update to an object the scope already holds does not withhold the selector.
+// Versions only move forward, so a resume re-sends any later change to the object.
+func TestAContentUpdateAfterTheCursorKeepsTheSelector(t *testing.T) {
 	s := newTestStore(t)
 	apply(t, s,
 		intent("sdk-viewA", wire.IntentTransferFull, false),
-		intent("sdk-viewB", wire.IntentTransferFull, false),
-		ref("sdk-viewA", KindFlag, "k7"),
-		ref("sdk-viewB", KindFlag, "k7"),
-		flagPut("k7", 7),
-		cursor("sdk-viewA", "sel-a", 7),
-		cursor("sdk-viewB", "sel-b", 7),
-		refDelete("sdk-viewA", KindFlag, "k7"),
-		refDelete("sdk-viewB", KindFlag, "k7"),
-		cursor("sdk-viewB", "sel-b2", 8),
-		del(KindFlag, "k7", 8),
+		intent("sdk-env", wire.IntentTransferFull, true),
+		ref("sdk-viewA", KindFlag, "f1"),
+		flagPut("f1", 1),
+		cursor("sdk-viewA", "sel-a", 1),
+		cursor("sdk-env", "sel-e", 1),
+		flagPut("f1", 2),
 	)
-	_, presentable := s.State("sdk-viewA")
-	assert.False(t, presentable)
-	state, presentable := s.State("sdk-viewB")
+	state, presentable := s.State("sdk-viewA")
 	assert.True(t, presentable)
-	assert.Equal(t, "sel-b2", state)
+	assert.Equal(t, "sel-a", state)
+	state, presentable = s.State("sdk-env")
+	assert.True(t, presentable)
+	assert.Equal(t, "sel-e", state)
+}
+
+// A membership change undone before the next cursor leaves the scope where its selector
+// says, so the selector stays presentable.
+func TestAMembershipChangeUndoneBeforeTheCursorKeepsTheSelector(t *testing.T) {
+	t.Run("filtered ref then ref-delete", func(t *testing.T) {
+		s := newTestStore(t)
+		apply(t, s,
+			intent("sdk-viewA", wire.IntentTransferFull, false),
+			ref("sdk-viewA", KindFlag, "f1"),
+			flagPut("f1", 1),
+			flagPut("f2", 1),
+			cursor("sdk-viewA", "sel-1", 1),
+			ref("sdk-viewA", KindFlag, "f2"),
+			refDelete("sdk-viewA", KindFlag, "f2"),
+		)
+		state, presentable := s.State("sdk-viewA")
+		assert.True(t, presentable)
+		assert.Equal(t, "sel-1", state)
+	})
+
+	t.Run("filtered ref-delete then ref", func(t *testing.T) {
+		s := newTestStore(t)
+		apply(t, s,
+			intent("sdk-viewA", wire.IntentTransferFull, false),
+			ref("sdk-viewA", KindFlag, "f1"),
+			flagPut("f1", 1),
+			cursor("sdk-viewA", "sel-1", 1),
+			refDelete("sdk-viewA", KindFlag, "f1"),
+			ref("sdk-viewA", KindFlag, "f1"),
+		)
+		state, presentable := s.State("sdk-viewA")
+		assert.True(t, presentable)
+		assert.Equal(t, "sel-1", state)
+	})
+
+	t.Run("unfiltered put then delete of a new object", func(t *testing.T) {
+		s := newTestStore(t)
+		apply(t, s,
+			intent("sdk-env", wire.IntentTransferFull, true),
+			flagPut("f1", 1),
+			cursor("sdk-env", "sel-1", 1),
+			flagPut("f2", 2),
+			del(KindFlag, "f2", 3),
+		)
+		state, presentable := s.State("sdk-env")
+		assert.True(t, presentable)
+		assert.Equal(t, "sel-1", state)
+	})
 }
 
 // An object referenced after the cursor is not one the selector claims, so dropping it and
@@ -307,40 +371,34 @@ func TestAnEvictionOfAnObjectAddedAfterTheCursorKeepsTheSelector(t *testing.T) {
 	assert.True(t, presentable)
 	assert.Equal(t, "sel-1", state)
 
-	// An object the selector claims stays watched after it is dropped, referenced again and
-	// dropped again.
+	// An object the selector claims is still retracted after it is dropped, referenced again
+	// and dropped again.
 	apply(t, s,
 		refDelete("sdk-viewA", KindFlag, "k8"),
 		ref("sdk-viewA", KindFlag, "k8"),
 		refDelete("sdk-viewA", KindFlag, "k8"),
-		del(KindFlag, "k8", 10),
 	)
 	_, presentable = s.State("sdk-viewA")
 	assert.False(t, presentable)
 }
 
-// Removing a scope or discarding its state ends the watch with the selector.
-func TestRemovingOrDiscardingAScopeEndsTheWatch(t *testing.T) {
+// Discarding a scope's state discards the record of how it changed since that state.
+func TestDiscardingAScopesStateClearsItsChanges(t *testing.T) {
 	s := newTestStore(t)
 	apply(t, s,
 		intent("sdk-viewA", wire.IntentTransferFull, false),
-		intent("sdk-viewB", wire.IntentTransferFull, false),
 		ref("sdk-viewA", KindFlag, "k7"),
-		ref("sdk-viewB", KindFlag, "k7"),
 		flagPut("k7", 7),
+		flagPut("k8", 7),
 		cursor("sdk-viewA", "sel-a", 7),
-		cursor("sdk-viewB", "sel-b", 7),
 		refDelete("sdk-viewA", KindFlag, "k7"),
-		refDelete("sdk-viewB", KindFlag, "k7"),
+		ref("sdk-viewA", KindFlag, "k8"),
 	)
-	s.RemoveScope("sdk-viewA")
-	s.DiscardState("sdk-viewB")
-	apply(t, s, del(KindFlag, "k7", 8))
+	s.DiscardState("sdk-viewA")
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	assert.Empty(t, s.retracted)
-	assert.Empty(t, s.scopes["sdk-viewB"].evicted)
+	assert.False(t, s.scopes["sdk-viewA"].changedSinceCursor())
 }
 
 func TestRefDeleteRemovesMembership(t *testing.T) {

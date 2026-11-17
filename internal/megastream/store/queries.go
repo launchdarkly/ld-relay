@@ -15,8 +15,9 @@ package store
 //   - Pending    the references still waiting on content, which the self-repair path reports
 //                when they outlive their scope's cursor.
 //   - State      the selector to present at the next handshake, and downstream as an Etag.
-//                It is withheld while anything is pending or evicted, so the gate and the
-//                read cannot come apart.
+//                It is withheld while anything is pending or evicted, or while the scope
+//                has changed since its last cursor, so the gate and the read cannot come
+//                apart.
 //   - Hydrated   whether a scope has had its first cursor, which the sweep and the
 //                pending-ref grace period are both defined against.
 //   - Scopes     the scopes the store has opened, for enumerating them when computing what a
@@ -132,7 +133,7 @@ func (s *Store) Pending(name string) []ObjectID {
 // State returns the selector a scope may present at the next handshake. The second result
 // reports whether there is one.
 //
-// It is withheld in four cases. Before the scope's first cursor there is nothing recorded.
+// It is withheld in five cases. Before the scope's first cursor there is nothing recorded.
 // After a refusal discarded it, there is nothing to present either -- and that is separate
 // from the scope still serving its retained membership. While any reference the scope holds
 // is still waiting on content, the recorded selector is not safe to present: the state a
@@ -144,9 +145,14 @@ func (s *Store) Pending(name string) []ObjectID {
 // object it dropped with a ref-delete: the server may count that object as held when it
 // hydrates another scope, and send that scope a reference with no content.
 //
-// An older selector is never offered in its place. A resume carries the net changes since
-// the presented state, and this store applies later messages in place, so a change that
-// was made and undone after that state would never be re-sent.
+// The last case is a scope whose membership changed after its last cursor: a ref or a
+// ref-delete for a filtered scope, or a new object for an unfiltered one. This store applies
+// a delivery in place, so the recorded selector then names an older state than the one the
+// scope holds. A resume carries only the net changes since the presented state, so a change
+// that was made and undone upstream while this relay was away would never be re-sent. The
+// scope would then over-serve or under-serve until its next full transfer. A content update
+// to an object the scope already holds does not count: versions only move forward, so a
+// resume re-sends any later change to it.
 //
 // Withholding is what makes this one operation rather than two. A separate gate and read
 // would each take the lock, letting the applier advance between them, so a caller could
@@ -156,7 +162,8 @@ func (s *Store) State(name string) (string, bool) {
 	defer s.mu.RUnlock()
 
 	sc := s.scopes[name]
-	if sc == nil || !sc.hydrated || sc.state == "" || len(sc.pending) > 0 || len(sc.evicted) > 0 {
+	if sc == nil || !sc.hydrated || sc.state == "" || len(sc.pending) > 0 || len(sc.evicted) > 0 ||
+		sc.changedSinceCursor() {
 		return "", false
 	}
 	return sc.state, true

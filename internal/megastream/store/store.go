@@ -32,11 +32,6 @@ type Store struct {
 	// concerns them, and there are few of them, so walking this keeps a put or a delete from
 	// costing a pass over every scope.
 	unfiltered map[string]*scope
-
-	// retracted is the reverse of the scopes' retracted sets: which scopes dropped an object
-	// from their membership since their last cursor. A put or a delete for that object
-	// concerns those scopes even though they no longer reference it.
-	retracted map[ObjectID]map[string]struct{}
 }
 
 // scope is one registered credential's view of the base store.
@@ -73,36 +68,24 @@ type scope struct {
 	// state is the selector from the most recent applied cursor.
 	state string
 
-	// evicted is the set of objects the scope's selector may claim that the store lost after
-	// that selector and does not hold again, and that no reference of the scope covers. A
-	// resume from the selector would never re-send such an object. The server also counts
-	// it as held when it hydrates another scope, and sends that scope a reference with no
-	// content. Fresh content for the object removes it from the set, and the scope's next
-	// cursor clears the set, because the server sends that cursor only after the content it
-	// covers.
-	//
-	// An unfiltered scope holds no references, so every eviction it sees goes here. A
-	// filtered scope's references go pending instead, and pending withholds the selector.
-	// A ref-delete ends that, so an object the scope retracted goes here: one evicted after
-	// its ref-delete, or one already evicted when its ref-delete arrived.
+	// evicted is the set of objects an unfiltered scope's selector claims that the store lost
+	// after that selector and does not hold again. A resume from the selector would never
+	// re-send such an object. The server also counts it as held when it hydrates another
+	// scope, and sends that scope a reference with no content. Fresh content for the object
+	// removes it from the set, and the scope's next cursor clears the set, because the server
+	// sends that cursor only after the content it covers. A filtered scope needs no such set:
+	// an eviction makes its reference pending, and a ref-delete is a membership change, which
+	// withholds the selector until the next cursor on its own.
 	evicted map[ObjectID]struct{}
 
-	// retracted is the set of objects a filtered scope dropped from its live membership after
-	// its last cursor. The scope's selector may still claim them, and the set is what lets an
-	// eviction of one reach the scope.
+	// retracted and added are the objects a filtered scope dropped from and added to its live
+	// membership after its last cursor. created is the objects that arrived after an
+	// unfiltered scope's last cursor and that the store did not hold at that cursor. Together
+	// they record how the scope's membership differs from what its selector names. A change
+	// that is undone before the next cursor leaves the sets, so they hold the net difference.
 	retracted map[ObjectID]struct{}
-
-	// added is the set of objects a filtered scope added to its live membership after its
-	// last cursor. The scope's selector does not claim them, so dropping one again does not
-	// retract it. It plays the part for a filtered scope that created plays for an
-	// unfiltered one.
-	added map[ObjectID]struct{}
-
-	// created is the set of objects that arrived after an unfiltered scope's last cursor and
-	// that the store did not hold at that cursor. The scope's selector does not claim them,
-	// so evicting one again before the next cursor loses nothing the selector covers and
-	// does not withhold it. A filtered scope behaves the same way through its references.
-	created map[ObjectID]struct{}
+	added     map[ObjectID]struct{}
+	created   map[ObjectID]struct{}
 
 	// hydrated latches on the scope's first cursor and is cleared only by destroying the
 	// scope. It is what makes the scope servable, and it is deliberately separate from
@@ -123,7 +106,6 @@ func New(logger *slog.Logger) *Store {
 		scopes:      map[string]*scope{},
 		referencing: map[ObjectID]map[string]struct{}{},
 		unfiltered:  map[string]*scope{},
-		retracted:   map[ObjectID]map[string]struct{}{},
 	}
 }
 
@@ -333,7 +315,7 @@ func (s *Store) checkResume(intent wire.ServerIntent, sc *scope, unfiltered bool
 	// full transfer when it cannot compute the exact difference, so a resume that changes
 	// the declaration is a contract violation.
 	if unfiltered != sc.unfiltered {
-		s.discardState(intent.Scope, sc)
+		sc.discardState()
 		return fmt.Errorf(
 			"megastream: scope %q resumed with %q but changed its unfiltered declaration",
 			masked(intent.Scope), intent.IntentCode)
@@ -376,10 +358,6 @@ func (s *Store) applyPut(put wire.PutObject) error {
 		if sc := s.scopes[name]; sc != nil {
 			delete(sc.pending, id)
 		}
-	}
-	for name := range s.retracted[id] {
-		// The selector's claim is satisfied again.
-		delete(s.scopes[name].evicted, id)
 	}
 	if !held {
 		for _, sc := range s.unfiltered {
@@ -433,12 +411,6 @@ func (s *Store) applyDelete(del wire.DeleteObject) error {
 			sc.pending[id] = struct{}{}
 		}
 	}
-	// A scope that dropped the object before this delete has no reference to go pending,
-	// but its selector may still claim the object.
-	for name := range s.retracted[id] {
-		sc := s.scopes[name]
-		sc.evicted = addTo(sc.evicted, id)
-	}
 	// An unfiltered scope may see every object, so it loses this one too, without holding a
 	// reference that could go pending.
 	for _, sc := range s.unfiltered {
@@ -487,7 +459,10 @@ func (s *Store) addRef(name string, id ObjectID) error {
 		return nil
 	}
 	if _, member := sc.members[id]; !member && sc.state != "" {
-		if _, retracted := sc.retracted[id]; !retracted {
+		if _, retracted := sc.retracted[id]; retracted {
+			// The selector claims the object, so re-adding it undoes the retraction.
+			delete(sc.retracted, id)
+		} else {
 			sc.added = addTo(sc.added, id)
 		}
 	}
@@ -530,15 +505,7 @@ func (s *Store) removeRef(name string, id ObjectID) error {
 		// The selector does not claim an object added after it.
 		delete(sc.added, id)
 	} else if _, member := sc.members[id]; member && sc.state != "" {
-		// The selector claims the object, so keep watching it until the next cursor.
-		s.retract(name, sc, id)
-		if !s.objects[id].Present() {
-			// The object was already gone, perhaps before the last cursor. If it left the
-			// environment, the selector no longer claims it. If it only left the scopes'
-			// views, the selector still claims it until this ref-delete is covered. An
-			// eviction does not say which, so treat it as the second case.
-			sc.evicted = addTo(sc.evicted, id)
-		}
+		sc.retracted = addTo(sc.retracted, id)
 	}
 	delete(sc.members, id)
 	delete(sc.pending, id)
@@ -579,7 +546,7 @@ func (s *Store) applyCursor(cursor wire.PayloadTransferred) error {
 		s.swapMembership(cursor.Scope, sc)
 	}
 	sc.state = cursor.State
-	s.clearClaims(cursor.Scope, sc)
+	sc.clearClaims()
 	sc.hydrated = true
 	return nil
 }
@@ -605,7 +572,7 @@ func (s *Store) releaseMembership(name string, sc *scope) {
 	}
 	sc.members = map[ObjectID]struct{}{}
 	sc.pending = map[ObjectID]struct{}{}
-	s.clearClaims(name, sc)
+	sc.clearClaims()
 }
 
 // setUnfiltered sets the declaration a scope is served under and keeps the index in step.
@@ -616,6 +583,13 @@ func (s *Store) setUnfiltered(name string, sc *scope, unfiltered bool) {
 	} else {
 		delete(s.unfiltered, name)
 	}
+}
+
+// changedSinceCursor reports whether the scope's membership differs from what its selector
+// names. The sets net out a change that was undone before the cursor, so a ref followed by
+// its ref-delete leaves the scope unchanged.
+func (sc *scope) changedSinceCursor() bool {
+	return len(sc.added) > 0 || len(sc.retracted) > 0 || len(sc.created) > 0
 }
 
 // addTo adds an id to a set, allocating the set on first use.
@@ -643,7 +617,7 @@ func (s *Store) RemoveScope(name string) {
 	for id := range sc.members {
 		s.unreference(id, name)
 	}
-	s.clearClaims(name, sc)
+	sc.clearClaims()
 	delete(s.scopes, name)
 	delete(s.unfiltered, name)
 }
@@ -661,40 +635,22 @@ func (s *Store) DiscardState(name string) {
 	defer s.mu.Unlock()
 
 	if sc := s.scopes[name]; sc != nil {
-		s.discardState(name, sc)
+		sc.discardState()
 	}
 }
 
-func (s *Store) discardState(name string, sc *scope) {
+func (sc *scope) discardState() {
 	sc.state = ""
-	s.clearClaims(name, sc)
+	sc.clearClaims()
 }
 
 // clearClaims drops the sets that describe what a scope's selector claims, for when the
 // selector is replaced or discarded.
-func (s *Store) clearClaims(name string, sc *scope) {
-	for id := range sc.retracted {
-		names := s.retracted[id]
-		delete(names, name)
-		if len(names) == 0 {
-			delete(s.retracted, id)
-		}
-	}
+func (sc *scope) clearClaims() {
 	sc.retracted = nil
 	sc.added = nil
 	sc.evicted = nil
 	sc.created = nil
-}
-
-// retract records that a filtered scope dropped an object its selector may claim.
-func (s *Store) retract(name string, sc *scope, id ObjectID) {
-	sc.retracted = addTo(sc.retracted, id)
-	names := s.retracted[id]
-	if names == nil {
-		names = map[string]struct{}{}
-		s.retracted[id] = names
-	}
-	names[name] = struct{}{}
 }
 
 // addressable reports whether an identity names an object that an object message can
