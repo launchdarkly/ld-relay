@@ -14,7 +14,7 @@ runs:
   using: composite
   steps:
       - name: Setup Go ${{ inputs.go-version }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
             go-version: ${{ inputs.go-version }}
 
@@ -25,7 +25,7 @@ runs:
 
       - name: Upload Results
         if: steps.benchmarks.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
             name: Benchmarks-go${{ inputs.go-version }}${{ inputs.suffix && format('-{0}', inputs.suffix) || '' }}
             path: benchmarks.txt

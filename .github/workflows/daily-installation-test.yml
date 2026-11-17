@@ -17,7 +17,7 @@ jobs:
             relay-major: ['v7', 'v8', 'v9']
         fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/install-relay
         with:
           go-version: ${{ matrix.go-version }}
