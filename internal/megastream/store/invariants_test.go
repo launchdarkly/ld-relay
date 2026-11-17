@@ -29,8 +29,8 @@ import (
 //	I7  a declaration is staged only for a scope that has hydrated, since one that has not
 //	    serves nothing and takes its declaration at once
 //	I8  State presents only the scope's latest accepted cursor, and only while nothing is
-//	    pending or evicted and the membership has not changed since that cursor (checked
-//	    against a shadow record in the test loop, outside the lock)
+//	    pending or evicted and the scope's view still matches the view at that cursor
+//	    (checked against a shadow record in the test loop, outside the lock)
 //	I9  a scope's evicted set names only objects the store does not hold, and its created
 //	    set only objects it does hold; only an unfiltered scope has either set
 //	I10 the unfiltered index names exactly the scopes served as unfiltered
@@ -153,8 +153,11 @@ func checkInvariants(t *testing.T, s *Store, step int, seed uint64) {
 }
 
 // checkState verifies I8 through the public read, against the latest cursor the store
-// accepted for each scope.
-func checkState(t *testing.T, s *Store, latest map[string]string, step int, seed uint64) {
+// accepted for each scope and the view the scope had at that cursor. The view comes from
+// the membership and the held objects, not from the store's own change sets, so a gap in
+// that bookkeeping shows up here.
+func checkState(t *testing.T, s *Store, latest map[string]string,
+	views map[string]map[ObjectID]struct{}, step int, seed uint64) {
 	t.Helper()
 	for _, name := range s.Scopes() {
 		state, ok := s.State(name)
@@ -167,21 +170,57 @@ func checkState(t *testing.T, s *Store, latest map[string]string, step int, seed
 		}
 		s.mu.RLock()
 		evicted := len(s.scopes[name].evicted)
-		changed := s.scopes[name].changedSinceCursor()
 		s.mu.RUnlock()
 		if evicted > 0 {
 			t.Fatalf("seed %d, step %d: I8: %q presents %q with %d evicted objects",
 				seed, step, name, state, evicted)
 		}
-		if changed {
-			t.Fatalf("seed %d, step %d: I8: %q presents %q with membership changed since it",
-				seed, step, name, state)
+		if view := scopeView(s, name); !sameIDs(view, views[name]) {
+			t.Fatalf("seed %d, step %d: I8: %q presents %q, but its view %v differs from %v at that cursor",
+				seed, step, name, state, view, views[name])
 		}
 		if state != latest[name] {
 			t.Fatalf("seed %d, step %d: I8: %q presents %q, but its latest cursor is %q",
 				seed, step, name, state, latest[name])
 		}
 	}
+}
+
+// scopeView returns what a scope's selector would name if it were taken now. For a filtered
+// scope that is its membership. For an unfiltered scope it is every object the store holds.
+func scopeView(s *Store, name string) map[ObjectID]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	view := map[ObjectID]struct{}{}
+	sc := s.scopes[name]
+	if sc == nil {
+		return view
+	}
+	if !sc.unfiltered {
+		for id := range sc.members {
+			view[id] = struct{}{}
+		}
+		return view
+	}
+	for id, record := range s.objects {
+		if record.Present() {
+			view[id] = struct{}{}
+		}
+	}
+	return view
+}
+
+func sameIDs(a, b map[ObjectID]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for id := range a {
+		if _, ok := b[id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // randomMessage produces one message for the given scope and object pools.
@@ -250,6 +289,7 @@ func TestIndexInvariantsHoldAcrossRandomMessageSequences(t *testing.T) {
 		s := New(discardLogger())
 		rng := rand.New(rand.NewPCG(seed, seed*7919))
 		latest := map[string]string{}
+		views := map[string]map[ObjectID]struct{}{}
 
 		for step := range 300 {
 			switch {
@@ -257,6 +297,7 @@ func TestIndexInvariantsHoldAcrossRandomMessageSequences(t *testing.T) {
 				name := scopes[rng.IntN(len(scopes))]
 				s.RemoveScope(name)
 				delete(latest, name)
+				delete(views, name)
 			case rng.IntN(90) == 0:
 				s.DiscardState(scopes[rng.IntN(len(scopes))])
 			default:
@@ -272,11 +313,12 @@ func TestIndexInvariantsHoldAcrossRandomMessageSequences(t *testing.T) {
 				if s.Apply(msg) == nil {
 					if c, ok := msg.(wire.PayloadTransferred); ok && s.Hydrated(c.Scope) {
 						latest[c.Scope] = c.State
+						views[c.Scope] = scopeView(s, c.Scope)
 					}
 				}
 			}
 			checkInvariants(t, s, step, seed)
-			checkState(t, s, latest, step, seed)
+			checkState(t, s, latest, views, step, seed)
 		}
 
 		// Reads must not panic or disagree with the indexes at the end of a sequence.
