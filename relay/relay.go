@@ -184,6 +184,15 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		if _, err := sdks.CreateTLSConfig(c.Redis); err != nil {
 			return nil, errRedisTLSConfig(err)
 		}
+		// Logged here rather than in ValidateConfig, which runs both when the configuration is
+		// loaded and again above, so the warning appears once.
+		if c.Redis.TLSInsecureSkipVerify {
+			if c.Redis.TLSEnabled() {
+				logger.Warn(warnRedisTLSInsecureSkipVerify)
+			} else {
+				logger.Warn(warnRedisTLSInsecureSkipVerifyWithoutTLS)
+			}
+		}
 	}
 
 	logNameMode := relayenv.LogNameIsSDKKey
