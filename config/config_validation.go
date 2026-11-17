@@ -39,6 +39,12 @@ var (
 const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file was set, but TLS is not enabled " +
 	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
 
+const warnRedisTLSInsecureSkipVerifyWithoutTLS = "Redis TLS certificate verification was disabled " +
+	"(REDIS_TLS_INSECURE_SKIP_VERIFY), but TLS is not enabled (use REDIS_TLS or a rediss:// URL); this setting will be ignored"
+
+const warnRedisTLSInsecureSkipVerify = "Redis TLS certificate verification is disabled " +
+	"(REDIS_TLS_INSECURE_SKIP_VERIFY); the connection is encrypted but the identity of the Redis server is not checked"
+
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
 const warnOTLPHTTPJSONProtocol = `OTEL_EXPORTER_OTLP_PROTOCOL is set to "http/json", which Relay does not` +
@@ -263,6 +269,13 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 		}
 		if c.Redis.hasTLSFiles() && !c.Redis.TLSEnabled() {
 			logger.Warn(warnRedisTLSFilesWithoutTLS)
+		}
+		if c.Redis.TLSInsecureSkipVerify {
+			if c.Redis.TLSEnabled() {
+				logger.Warn(warnRedisTLSInsecureSkipVerify)
+			} else {
+				logger.Warn(warnRedisTLSInsecureSkipVerifyWithoutTLS)
+			}
 		}
 	}
 

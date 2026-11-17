@@ -503,14 +503,16 @@ func makeValidConfigRedisMTLS() testDataValidConfig {
 			ClientCertificateFile: "/certs/client.pem",
 			ClientKeyFile:         "/certs/client.key",
 			CAFile:                "/certs/ca.pem",
+			TLSInsecureSkipVerify: true,
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_REDIS":              "1",
-		"REDIS_URL":              "rediss://redishost:6400",
-		"REDIS_CLIENT_CERT_FILE": "/certs/client.pem",
-		"REDIS_CLIENT_KEY_FILE":  "/certs/client.key",
-		"REDIS_CA_FILE":          "/certs/ca.pem",
+		"USE_REDIS":                      "1",
+		"REDIS_URL":                      "rediss://redishost:6400",
+		"REDIS_CLIENT_CERT_FILE":         "/certs/client.pem",
+		"REDIS_CLIENT_KEY_FILE":          "/certs/client.key",
+		"REDIS_CA_FILE":                  "/certs/ca.pem",
+		"REDIS_TLS_INSECURE_SKIP_VERIFY": "true",
 	}
 	c.fileContent = `
 [Redis]
@@ -518,6 +520,7 @@ Url = "rediss://redishost:6400"
 ClientCertificateFile = "/certs/client.pem"
 ClientKeyFile = "/certs/client.key"
 CAFile = "/certs/ca.pem"
+TLSInsecureSkipVerify = true
 `
 	return c
 }

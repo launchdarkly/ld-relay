@@ -166,7 +166,8 @@ func GetRedisBasicProperties(
 // CreateTLSConfig creates a TLS configuration for Redis based on the provided RedisConfig.
 // It returns nil if TLS is not enabled in the configuration (neither REDIS_TLS nor a rediss:// URL).
 // If TLS is enabled, it sets the server name and a minimum version of TLS 1.2. It loads the client
-// certificate and key if both are set, and uses the CA file as the root CAs if it is set.
+// certificate and key if both are set, and uses the CA file as the root CAs if it is set. If
+// TLSInsecureSkipVerify is set, the server's certificate chain and host name are not verified.
 func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
 	if !config.TLSEnabled() {
 		return nil, nil
@@ -175,6 +176,8 @@ func CreateTLSConfig(config config.RedisConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		ServerName: config.URL.Get().Hostname(),
 		MinVersion: tls.VersionTLS12,
+		// Opt-in only, for Redis servers that present a self-signed certificate (such as Heroku Redis).
+		InsecureSkipVerify: config.TLSInsecureSkipVerify, //nolint:gosec
 	}
 
 	if config.ClientCertificateFile != "" && config.ClientKeyFile != "" {
