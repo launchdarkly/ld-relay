@@ -283,6 +283,51 @@ func TestAMembershipChangeAfterTheCursorWithholdsTheSelector(t *testing.T) {
 	})
 }
 
+// A ref-delete of an object the scope does not hold changes nothing. A later ref of that
+// object adds it after the cursor, so the selector does not name it and is withheld.
+func TestARefDeleteOfANonMemberThenARefWithholdsTheSelector(t *testing.T) {
+	s := newTestStore(t)
+	apply(t, s,
+		intent("sdk-viewA", wire.IntentTransferFull, false),
+		ref("sdk-viewA", KindFlag, "f1"),
+		flagPut("f1", 1),
+		flagPut("f2", 1),
+		cursor("sdk-viewA", "sel-1", 1),
+		refDelete("sdk-viewA", KindFlag, "f2"),
+	)
+	state, presentable := s.State("sdk-viewA")
+	require.True(t, presentable, "a ref-delete of a non-member changes nothing")
+	require.Equal(t, "sel-1", state)
+
+	apply(t, s, ref("sdk-viewA", KindFlag, "f2"))
+	_, presentable = s.State("sdk-viewA")
+	assert.False(t, presentable, "sel-1 does not name f2, but the scope now serves it")
+}
+
+// The change sets are per scope. A membership change in one scope withholds only that
+// scope's selector.
+func TestAMembershipChangeWithholdsOnlyItsOwnScope(t *testing.T) {
+	s := newTestStore(t)
+	apply(t, s,
+		intent("sdk-viewA", wire.IntentTransferFull, false),
+		intent("sdk-viewB", wire.IntentTransferFull, false),
+		ref("sdk-viewA", KindFlag, "f1"),
+		ref("sdk-viewB", KindFlag, "f1"),
+		flagPut("f1", 1),
+		flagPut("f2", 1),
+		cursor("sdk-viewA", "sel-a", 1),
+		cursor("sdk-viewB", "sel-b", 1),
+		ref("sdk-viewA", KindFlag, "f2"),
+		refDelete("sdk-viewA", KindFlag, "f1"),
+	)
+	_, presentable := s.State("sdk-viewA")
+	assert.False(t, presentable)
+
+	state, presentable := s.State("sdk-viewB")
+	assert.True(t, presentable)
+	assert.Equal(t, "sel-b", state)
+}
+
 // A content update to an object the scope already holds does not withhold the selector.
 // Versions only move forward, so a resume re-sends any later change to the object.
 func TestAContentUpdateAfterTheCursorKeepsTheSelector(t *testing.T) {
