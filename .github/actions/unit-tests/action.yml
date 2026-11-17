@@ -46,14 +46,14 @@ runs:
 
     - name: Upload test results
       if: steps.process-test.outcome == 'success'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: Test-result-${{ steps.go-version.outputs.version }}${{ inputs.suffix && format('-{0}', inputs.suffix) || '' }}
         path: junit_report.xml
 
     - name: Upload coverage results
       if: steps.test-coverage.outcome == 'success'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: Coverage-result-${{ steps.go-version.outputs.version }}${{ inputs.suffix && format('-{0}', inputs.suffix) || '' }}
         path: build/coverage*
