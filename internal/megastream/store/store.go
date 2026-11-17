@@ -303,6 +303,11 @@ func (s *Store) checkResume(intent wire.ServerIntent, sc *scope, unfiltered bool
 	// reference is pending, but whether this relay presented a state was decided at the
 	// handshake. Base-scope traffic may arrive before this scope's intent, and an eviction
 	// there makes a presented scope pending again. Its delta then resolves the reference.
+	//
+	// A change since the cursor is not part of this test either. State withholds the selector
+	// of such a scope, so a relay that follows the contract does not present it, and the
+	// server answers with a full transfer. A resume for that scope is a server error that this
+	// store does not try to detect.
 	if sc == nil || !sc.hydrated || sc.state == "" {
 		return fmt.Errorf(
 			"megastream: scope %q resumed with %q but this relay presented no state for it",
