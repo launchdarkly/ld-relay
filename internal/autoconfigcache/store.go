@@ -36,11 +36,29 @@ func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 		return noopStore{}, nil
 	}
 	encKey := resolveEncryptionKey(c)
+	var store Store
+	var err error
 	if c.Redis.URL.IsDefined() {
-		return newRedisStore(c.Redis, cacheKey, encKey, loggers)
+		store, err = newRedisStore(c.Redis, cacheKey, encKey, loggers)
+	} else {
+		store, err = newDynamoDBStore(c.DynamoDB, cacheKey, encKey, loggers)
 	}
-	return newDynamoDBStore(c.DynamoDB, cacheKey, encKey, loggers)
+	if err != nil || !c.IsPersistentStoreReadOnly() {
+		return store, err
+	}
+	return readOnlyStore{store}, nil
 }
+
+// readOnlyStore reads the cache but never writes it. Other Relay instances keep the cache up to date.
+type readOnlyStore struct {
+	Store
+}
+
+func (readOnlyStore) SetAll(context.Context, autoconfig.PutContent) error { return nil }
+func (readOnlyStore) Upsert(context.Context, autoconfig.CacheKind, string, interface{}) error {
+	return nil
+}
+func (readOnlyStore) Delete(context.Context, autoconfig.CacheKind, string) error { return nil }
 
 const (
 	envItemPrefix    = "env:"
