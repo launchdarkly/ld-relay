@@ -274,8 +274,8 @@ func (c RedisConfig) TLSEnabled() bool {
 	return c.URL.IsDefined() && strings.EqualFold(c.URL.Get().Scheme, "rediss")
 }
 
-// hasTLSFiles is true if any certificate, key or CA file option is set.
-func (c RedisConfig) hasTLSFiles() bool {
+// HasTLSFiles is true if any certificate, key or CA file option is set.
+func (c RedisConfig) HasTLSFiles() bool {
 	return c.ClientCertificateFile != "" || c.ClientKeyFile != "" || c.CAFile != ""
 }
 
