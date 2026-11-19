@@ -16,6 +16,7 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -85,6 +86,40 @@ func TestNewRelayRejectsUnreadableRedisTLSFileInAutoConfigMode(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid Redis TLS configuration")
 	assert.Nil(t, relay)
+}
+
+func TestNewRelayWarnsOnceWhenRedisTLSVerificationIsDisabled(t *testing.T) {
+	for _, p := range []struct {
+		name, url, expected, unexpected string
+	}{
+		{"TLS enabled", "rediss://redishost:6380", warnRedisTLSInsecureSkipVerify, warnRedisTLSInsecureSkipVerifyWithoutTLS},
+		{"TLS not enabled", "redis://redishost:6380", warnRedisTLSInsecureSkipVerifyWithoutTLS, warnRedisTLSInsecureSkipVerify},
+	} {
+		t.Run(p.name, func(t *testing.T) {
+			redisURL, _ := configtypes.NewOptURLAbsoluteFromString(p.url)
+			config := c.Config{
+				OfflineMode: c.OfflineModeConfig{FileDataSource: "x"},
+				Redis:       c.RedisConfig{URL: redisURL, TLSInsecureSkipVerify: true},
+			}
+			logger, logs := logtest.NewMockLogger()
+			// As in real startup, the configuration is validated once before NewRelay validates it again.
+			require.NoError(t, c.ValidateConfig(&config, logger))
+
+			// NewRelay fails because there is no data file, but only after the Redis settings are checked.
+			_, err := NewRelay(config, logger, nil)
+			require.Error(t, err)
+
+			warnings := logs.Messages(slog.LevelWarn)
+			count := 0
+			for _, m := range warnings {
+				if m == p.expected {
+					count++
+				}
+			}
+			assert.Equal(t, 1, count, "warnings: %v", warnings)
+			assert.NotContains(t, warnings, p.unexpected)
+		})
+	}
 }
 
 func TestStrayFilterQueryParameterIsIgnored(t *testing.T) {
