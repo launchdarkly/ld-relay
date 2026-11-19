@@ -22,3 +22,9 @@ func errNewMetricsManagerFailed(err error) error {
 func errRedisTLSConfig(err error) error {
 	return fmt.Errorf("invalid Redis TLS configuration: %w", err)
 }
+
+const warnRedisTLSInsecureSkipVerify = "Redis TLS certificate verification is disabled " +
+	"(REDIS_TLS_INSECURE_SKIP_VERIFY); the connection is encrypted but the identity of the Redis server is not checked"
+
+const warnRedisTLSInsecureSkipVerifyWithoutTLS = "Redis TLS certificate verification was disabled " +
+	"(REDIS_TLS_INSECURE_SKIP_VERIFY), but TLS is not enabled (use REDIS_TLS or a rediss:// URL); this setting will be ignored"

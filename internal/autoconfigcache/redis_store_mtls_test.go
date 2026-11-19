@@ -74,4 +74,33 @@ func TestRedisStoreMTLS(t *testing.T) {
 		var verifyErr *tls.CertificateVerificationError
 		assert.ErrorAs(t, err, &verifyErr) // the message text differs by OS
 	})
+
+	t.Run("succeeds without the CA when TLSInsecureSkipVerify is set", func(t *testing.T) {
+		store := makeStore(t, "rediss", func(c *config.RedisConfig) {
+			c.ClientCertificateFile = files.ClientCertFile
+			c.ClientKeyFile = files.ClientKeyFile
+			c.TLSInsecureSkipVerify = true
+		})
+		_ = getAll(store)
+		awaitSuccessfulHandshake(t, handshakes)
+	})
+}
+
+// awaitSuccessfulHandshake waits for a handshake that succeeds. It skips the errors from handshakes
+// that earlier subtests made fail on purpose, because those errors can arrive late.
+func awaitSuccessfulHandshake(t *testing.T, ch <-chan error) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	var lastErr error
+	for {
+		select {
+		case err := <-ch:
+			if err == nil {
+				return
+			}
+			lastErr = err
+		case <-deadline:
+			t.Fatalf("no successful TLS handshake observed (last error: %v)", lastErr)
+		}
+	}
 }

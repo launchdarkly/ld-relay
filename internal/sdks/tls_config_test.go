@@ -59,6 +59,13 @@ func TestCreateTLSConfig(t *testing.T) {
 		assert.Equal(t, "redishost", tc.ServerName)
 		assert.Nil(t, tc.RootCAs)
 		assert.Empty(t, tc.Certificates)
+		assert.False(t, tc.InsecureSkipVerify)
+	})
+
+	t.Run("insecure skip verify", func(t *testing.T) {
+		tc, err := CreateTLSConfig(redisTLSConfig(t, func(c *config.RedisConfig) { c.TLSInsecureSkipVerify = true }))
+		require.NoError(t, err)
+		assert.True(t, tc.InsecureSkipVerify)
 	})
 
 	t.Run("client cert, key and CA", func(t *testing.T) {

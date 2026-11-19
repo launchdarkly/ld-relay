@@ -258,6 +258,7 @@ type RedisConfig struct {
 	ClientCertificateFile string `conf:"REDIS_CLIENT_CERT_FILE"`
 	ClientKeyFile         string `conf:"REDIS_CLIENT_KEY_FILE"`
 	CAFile                string `conf:"REDIS_CA_FILE"`
+	TLSInsecureSkipVerify bool   `conf:"REDIS_TLS_INSECURE_SKIP_VERIFY"`
 
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
 
