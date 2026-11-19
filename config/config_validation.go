@@ -37,9 +37,6 @@ var (
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
 
-const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file was set, but TLS is not enabled " +
-	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
-
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
 const warnOTLPHTTPJSONProtocol = `OTEL_EXPORTER_OTLP_PROTOCOL is set to "http/json", which Relay does not` +
@@ -266,9 +263,6 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 		// operator does not think that the CA file protects the connection.
 		if c.Redis.CAFile != "" && c.Redis.TLSInsecureSkipVerify {
 			result.AddError(nil, errRedisCAFileWithInsecureSkipVerify)
-		}
-		if c.Redis.hasTLSFiles() && !c.Redis.TLSEnabled() {
-			logger.Warn(warnRedisTLSFilesWithoutTLS)
 		}
 	}
 

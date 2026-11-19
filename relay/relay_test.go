@@ -122,6 +122,30 @@ func TestNewRelayWarnsOnceWhenRedisTLSVerificationIsDisabled(t *testing.T) {
 	}
 }
 
+func TestNewRelayWarnsOnceWhenRedisTLSFilesAreSetWithoutTLS(t *testing.T) {
+	redisURL, _ := configtypes.NewOptURLAbsoluteFromString("redis://redishost:6380")
+	config := c.Config{
+		OfflineMode: c.OfflineModeConfig{FileDataSource: "x"},
+		Redis:       c.RedisConfig{URL: redisURL, CAFile: "/certs/ca.pem"},
+	}
+	logger, logs := logtest.NewMockLogger()
+	// As in real startup, the configuration is validated once before NewRelay validates it again.
+	require.NoError(t, c.ValidateConfig(&config, logger))
+
+	// NewRelay fails because there is no data file, but only after the Redis settings are checked.
+	_, err := NewRelay(config, logger, nil)
+	require.Error(t, err)
+
+	warnings := logs.Messages(slog.LevelWarn)
+	count := 0
+	for _, m := range warnings {
+		if m == warnRedisTLSFilesWithoutTLS {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "warnings: %v", warnings)
+}
+
 func TestStrayFilterQueryParameterIsIgnored(t *testing.T) {
 	// Payload filters are not supported, but an SDK configured with one keeps sending ?filter= on
 	// every request. Those requests must be served the environment's full data. Refusing them would

@@ -23,6 +23,9 @@ func errRedisTLSConfig(err error) error {
 	return fmt.Errorf("invalid Redis TLS configuration: %w", err)
 }
 
+const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file was set, but TLS is not enabled " +
+	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
+
 const warnRedisTLSInsecureSkipVerify = "Redis TLS certificate verification is disabled " +
 	"(REDIS_TLS_INSECURE_SKIP_VERIFY); the connection is encrypted but the identity of the Redis server is not checked"
 
