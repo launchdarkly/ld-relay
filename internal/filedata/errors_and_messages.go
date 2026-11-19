@@ -43,3 +43,11 @@ func errUncompressedFileTooBig(fileName string, maxSize int64) error {
 	return fmt.Errorf("detected malformed or malicious archive file; it contained a file %q with a size >= %d bytes",
 		fileName, maxSize)
 }
+
+func errUncompressedArchiveTooBig(maxSize int64) error {
+	return fmt.Errorf("detected malformed or malicious archive file; its contents exceeded %d bytes", maxSize)
+}
+
+func errArchiveHasTooManyEntries(maxEntries int) error {
+	return fmt.Errorf("detected malformed or malicious archive file; it contained more than %d entries", maxEntries)
+}
