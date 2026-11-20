@@ -45,7 +45,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup Go ${{ needs.go-versions.outputs.latest }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
       - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0
