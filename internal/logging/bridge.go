@@ -16,8 +16,10 @@ type slogBaseLogger struct {
 	logger *slog.Logger
 }
 
+// Println joins values with spaces, as log.Logger.Println does; ldlog passes its
+// level prefix as a separate value. parseLDLogPrefix trims the trailing newline.
 func (b *slogBaseLogger) Println(values ...interface{}) {
-	msg := fmt.Sprint(values...)
+	msg := fmt.Sprintln(values...)
 	level, cleanMsg := parseLDLogPrefix(msg)
 	b.logger.Log(context.Background(), level, cleanMsg)
 }
@@ -29,10 +31,8 @@ func (b *slogBaseLogger) Printf(format string, values ...interface{}) {
 }
 
 // parseLDLogPrefix extracts the log level from an ldlog-formatted message.
-// ldlog builds the prefix as "LEVEL:" (no trailing space) and applies it via
-// either Printf (which inserts " " between prefix and format) or Println via
-// fmt.Sprint (which inserts no separator between two string operands). Match
-// on the colon-terminated prefix and let TrimSpace deal with whatever follows.
+// ldlog builds the prefix as "LEVEL:" (no trailing space). Match on the
+// colon-terminated prefix and let TrimSpace deal with whatever follows.
 func parseLDLogPrefix(message string) (slog.Level, string) {
 	prefixes := []struct {
 		prefix string
