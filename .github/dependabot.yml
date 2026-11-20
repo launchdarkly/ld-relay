@@ -10,3 +10,14 @@ updates:
       default-days: 7
       exclude:
         - 'launchdarkly/*'
+  - package-ecosystem: 'github-actions'
+    target-branch: 'v8'
+    directories:
+      - '/'
+      - '/.github/actions/*'
+    schedule:
+      interval: 'monthly'
+    cooldown:
+      default-days: 7
+      exclude:
+        - 'launchdarkly/*'
