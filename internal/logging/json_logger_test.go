@@ -3,8 +3,11 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +126,48 @@ func TestParseLogLevel(t *testing.T) {
 			level, remainder := parseLogLevel(tt.input)
 			assert.Equal(t, tt.expectedLevel, level)
 			assert.Equal(t, tt.expectedRemain, remainder)
+		})
+	}
+}
+
+func TestJSONLogger_WithLDLogLoggers(t *testing.T) {
+	tests := []struct {
+		name          string
+		prefix        string
+		log           func(ldlog.Loggers)
+		expectedLevel string
+		expectedMsg   string
+	}{
+		{"Debug without prefix", "", func(l ldlog.Loggers) { l.Debug("querying store") }, "DEBUG", "querying store"},
+		{"Info without prefix", "", func(l ldlog.Loggers) { l.Info("starting client") }, "INFO", "starting client"},
+		{"Warn without prefix", "", func(l ldlog.Loggers) { l.Warn("slow consumer") }, "WARN", "slow consumer"},
+		{"Error without prefix", "", func(l ldlog.Loggers) { l.Error("something failed") }, "ERROR", "something failed"},
+		{"Println with multiple values", "", func(l ldlog.Loggers) { l.Info("count", 3) }, "INFO", "count 3"},
+		{"Println with prefix", "AutoConfiguration", func(l ldlog.Loggers) { l.Error("Invalid key") },
+			"ERROR", "AutoConfiguration Invalid key"},
+		{"Println with prefix and multiple values", "BigSegmentSynchronizer",
+			func(l ldlog.Loggers) { l.Error("Synchronization failed:", errors.New("HTTP error 401")) },
+			"ERROR", "BigSegmentSynchronizer Synchronization failed: HTTP error 401"},
+		{"Printf with prefix", "AutoConfiguration", func(l ldlog.Loggers) { l.Warnf("value %d", 1) },
+			"WARN", "AutoConfiguration value 1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			loggers := ldlog.NewDefaultLoggers()
+			loggers.SetBaseLogger(NewJSONLogger(&buf))
+			loggers.SetMinLevel(ldlog.Debug)
+			if tt.prefix != "" {
+				loggers.SetPrefix(tt.prefix)
+			}
+
+			tt.log(loggers)
+
+			var entry JSONLogEntry
+			require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
+			assert.Equal(t, tt.expectedLevel, entry.Level)
+			assert.Equal(t, tt.expectedMsg, entry.Message)
 		})
 	}
 }

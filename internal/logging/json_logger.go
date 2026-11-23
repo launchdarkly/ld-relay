@@ -35,9 +35,10 @@ func (l *JSONLogger) Printf(format string, values ...interface{}) {
 }
 
 // Println implements ldlog.BaseLogger. It parses the level prefix from the message
-// and outputs a JSON-structured log line.
+// and outputs a JSON-structured log line. Like log.Logger.Println, it always puts a
+// space between values; ldlog passes its level prefix as a separate value.
 func (l *JSONLogger) Println(values ...interface{}) {
-	message := fmt.Sprint(values...)
+	message := strings.TrimSuffix(fmt.Sprintln(values...), "\n")
 	l.output(message)
 }
 
