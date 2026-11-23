@@ -84,7 +84,7 @@ jobs:
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_RO_TOKEN }}
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
+      - uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
         id: scan-alpine
         continue-on-error: true
         with:
@@ -96,7 +96,7 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
+      - uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
         id: scan-distroless
         continue-on-error: true
         with:
@@ -105,7 +105,7 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
+      - uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
         continue-on-error: true
         id: scan-debug-distroless
         with:
