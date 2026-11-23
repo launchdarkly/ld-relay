@@ -66,7 +66,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: "true"
       - name: Setup Go ${{ inputs.go-version }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
       - name: Set up QEMU
