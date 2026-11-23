@@ -27,6 +27,8 @@ import (
 const (
 	environmentsChecksumFileName = "checksum.md5"
 	maxDecompressedFileSize      = 1024 * 1024 * 200 // arbitrary 200MB limit to avoid decompression bombs
+	maxDecompressedArchiveSize   = 1024 * 1024 * 1024
+	maxArchiveEntryCount         = 10_000
 )
 
 // archiveReader is the low-level implementation of unarchiving a data file and reading the environments.
@@ -196,7 +198,13 @@ func readUncompressedArchive(filePath, targetDir string) error {
 }
 
 func readTar(r io.Reader, targetDir string) error {
+	return readTarWithLimits(r, targetDir, maxDecompressedArchiveSize, maxArchiveEntryCount)
+}
+
+func readTarWithLimits(r io.Reader, targetDir string, maxArchiveSize int64, maxEntryCount int) error {
 	tr := tar.NewReader(r)
+	var archiveSize int64
+	entryCount := 0
 	for {
 		h, err := tr.Next()
 		if err != nil {
@@ -206,10 +214,19 @@ func readTar(r io.Reader, targetDir string) error {
 			return err
 		}
 
+		entryCount++
+		if entryCount > maxEntryCount {
+			return errArchiveHasTooManyEntries(maxEntryCount)
+		}
+
 		// In our archive format, there should be no subdirectories, just top-level files
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
+		if h.Size > maxArchiveSize-archiveSize {
+			return errUncompressedArchiveTooBig(maxArchiveSize)
+		}
+		archiveSize += h.Size
 		outPath, err := securejoin.SecureJoin(targetDir, h.Name)
 		if err != nil {
 			return err // COVERAGE: can't cause this condition in unit tests
