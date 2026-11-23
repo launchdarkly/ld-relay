@@ -70,7 +70,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets/v1.2.2
+      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets/v1
         name: 'Get Docker token'
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
