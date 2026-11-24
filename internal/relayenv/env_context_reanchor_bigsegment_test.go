@@ -179,7 +179,7 @@ func TestReanchorBigSegmentSync_ConcurrentStoreUpdateDuringReanchorIsRaceFree(t 
 	defer env.Close()
 	envImpl := env.(*envContextImpl)
 
-	// The sink wired into the store adapter; SendAllDataUpdate reads c.bigSegmentSync.
+	// The sink wired into the store adapter. It runs concurrently with the re-anchor.
 	sink := &envContextStreamUpdates{context: envImpl}
 
 	stop := make(chan struct{})
@@ -191,7 +191,7 @@ func TestReanchorBigSegmentSync_ConcurrentStoreUpdateDuringReanchorIsRaceFree(t 
 			case <-stop:
 				return
 			default:
-				sink.SendAllDataUpdate(nil) // reads c.bigSegmentSync via bigSegmentSyncConfigured()
+				sink.SendAllDataUpdate(nil)
 			}
 		}
 	}()

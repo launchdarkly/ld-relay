@@ -126,8 +126,12 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 
 	useConsul := false
 	reader.Read("USE_CONSUL", &useConsul)
-	if useConsul {
-		c.Consul.Host = defaultConsulHost
+	// As for Redis, the Consul variables also apply when the configuration file sets the Consul host.
+	// Otherwise, a variable such as STORE_READ_ONLY would have no effect on that database.
+	if useConsul || c.Consul.Host != "" {
+		if c.Consul.Host == "" {
+			c.Consul.Host = defaultConsulHost
+		}
 		reader.ReadStruct(&c.Consul, false)
 	}
 

@@ -81,6 +81,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigOfflineModeWithMonitoringInterval("1s"),
 		makeValidConfigOfflineModeWithMonitoringInterval("5m"),
 		makeValidConfigRedisMinimal(),
+		makeValidConfigRedisReadOnly(),
 		makeValidConfigRedisAll(),
 		makeValidConfigRedisURL(),
 		makeValidConfigRedisPortOnly(),
@@ -436,6 +437,30 @@ func makeValidConfigRedisMinimal() testDataValidConfig {
 [Redis]
 Host = "localhost"
 Port = 6379
+`
+	return c
+}
+
+func makeValidConfigRedisReadOnly() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - read-only with infinite cache TTL"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL:      newOptURLAbsoluteMustBeValid("redis://localhost:6379"),
+			LocalTTL: ct.NewOptDuration(-1 * time.Second),
+			ReadOnly: true,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":       "1",
+		"CACHE_TTL":       "-1s",
+		"STORE_READ_ONLY": "true",
+	}
+	c.fileContent = `
+[Redis]
+Host = "localhost"
+Port = 6379
+LocalTTL = -1s
+ReadOnly = true
 `
 	return c
 }
