@@ -248,3 +248,48 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestConfigureDataStoreReadOnly(t *testing.T) {
+	optRedisURL, _ := configtypes.NewOptURLAbsoluteFromString("redis://redishost:3000")
+	infiniteTTL := configtypes.NewOptDuration(-1)
+
+	for _, p := range []struct {
+		name        string
+		config      config.Config
+		description string
+	}{
+		{"Redis", config.Config{Redis: config.RedisConfig{URL: optRedisURL, ReadOnly: true, LocalTTL: infiniteTTL}}, "Redis"},
+		{"Consul", config.Config{Consul: config.ConsulConfig{Host: "my-host", ReadOnly: true, LocalTTL: infiniteTTL}}, "Consul"},
+		{"DynamoDB", config.Config{DynamoDB: config.DynamoDBConfig{Enabled: true, TableName: "table", ReadOnly: true,
+			LocalTTL: infiniteTTL}}, "DynamoDB"},
+	} {
+		t.Run(p.name, func(t *testing.T) {
+			mockLog := ldlogtest.NewMockLog()
+			factory, _, err := ConfigureDataStore(p.config, config.EnvConfig{}, mockLog.Loggers)
+			assert.NoError(t, err)
+
+			readOnly, ok := factory.(readOnlyDataStoreConfigurer)
+			if assert.True(t, ok, "expected the read-only data store, got %T", factory) {
+				// Diagnostic events describe the database, as in writer mode.
+				description := readOnly.DescribeConfiguration(subsystems.BasicClientContext{})
+				assert.Equal(t, p.description, description.StringValue())
+				assert.NotNil(t, readOnly.persistent())
+			}
+			mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Data store is read-only")
+		})
+	}
+
+	t.Run("writer mode does not use the read-only data store", func(t *testing.T) {
+		c := config.Config{Redis: config.RedisConfig{URL: optRedisURL}}
+		factory, _, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
+		assert.NoError(t, err)
+		assert.IsType(t, &ldcomponents.PersistentDataStoreBuilder{}, factory)
+	})
+}
+
+func TestReadOnlyRedisPoolKeepsNoIdleConnections(t *testing.T) {
+	pool := newReadOnlyRedisPool("redis://redishost:3000", nil)
+	assert.Equal(t, 0, pool.MaxIdle)
+	assert.Equal(t, 16, pool.MaxActive)
+	assert.True(t, pool.Wait)
+}
