@@ -220,9 +220,15 @@ func (r *Registry) onConnectedLocked(connected session.Connected) {
 		r.maxScopes = connected.Welcome.MaxScopes
 	}
 	for _, key := range connected.Presented {
-		if sc := r.scopes[key]; sc != nil {
-			sc.state = Presented
+		sc := r.scopes[key]
+		if sc == nil {
+			// Configuration dropped the credential after the hello named it, and the record
+			// went before this connection was applied. The server still counts the
+			// presentation, so a removed record keeps it until the withdrawal can be sent.
+			sc = &scope{desired: Desired{Key: key}, removed: true}
+			r.scopes[key] = sc
 		}
+		sc.state = Presented
 	}
 }
 
@@ -389,7 +395,10 @@ func (r *Registry) plan() []action {
 		switch sc.state {
 		case Presented:
 			// The server has not answered yet. A withdrawal now would race the answer, so
-			// the credential waits for its intent or its error.
+			// the credential waits for its intent or its error. Until then it holds a slot.
+			// A credential that is hydrating or synced holds one too, but its withdrawal is
+			// sent before any registration in this call.
+			occupied++
 		case Hydrating, Synced, Refused:
 			if r.connected {
 				actions = append(actions, action{key: key, previous: sc.state})
@@ -437,9 +446,18 @@ func (r *Registry) settle(act action, err error) {
 		}
 		return
 	}
-	if !act.register {
-		r.forgetLocked(act.key)
+	if act.register {
+		return
 	}
+	if sc.wants(r.now()) {
+		// Configuration wanted the credential again while the withdrawal was sent. The
+		// server has dropped the registration, so the store's scope goes, but the record
+		// stays as a new credential that the next call registers with a full transfer.
+		r.store.RemoveScope(act.key)
+		r.scopes[act.key] = &scope{desired: sc.desired}
+		return
+	}
+	r.forgetLocked(act.key)
 }
 
 // forgetLocked drops a withdrawn credential from both the registry and the store.

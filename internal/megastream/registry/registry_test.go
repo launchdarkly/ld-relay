@@ -25,19 +25,27 @@ type sent struct {
 	key string
 }
 
-// fakeSender records what the registry sends, and fails a send when told to.
+// fakeSender records what the registry sends, and fails a send when told to. A test can
+// set during to act while a send is in progress, when the registry does not hold its lock.
 type fakeSender struct {
-	sent []sent
-	err  error
+	sent   []sent
+	err    error
+	during func(sent)
 }
 
 func (f *fakeSender) Register(_ context.Context, key string) error {
-	f.sent = append(f.sent, sent{op: "add", key: key})
-	return f.err
+	return f.record(sent{op: "add", key: key})
 }
 
 func (f *fakeSender) Deregister(_ context.Context, key string) error {
-	f.sent = append(f.sent, sent{op: "remove", key: key})
+	return f.record(sent{op: "remove", key: key})
+}
+
+func (f *fakeSender) record(s sent) error {
+	f.sent = append(f.sent, s)
+	if f.during != nil {
+		f.during(s)
+	}
 	return f.err
 }
 
@@ -512,4 +520,67 @@ func TestRegistrationsRespectTheScopeBound(t *testing.T) {
 	f.registry.SetDesired("sdk-env", want("sdk-b", "sdk-c"))
 	f.hydrate("sdk-b", "sel-2")
 	assert.Equal(t, append(removed("sdk-a"), added("sdk-c")...), f.reconcile())
+}
+
+// Configuration can drop a credential after the hello names it and before the connection is
+// applied. The server still holds the presentation, so the registry withdraws it once the
+// server answers.
+func TestACredentialDroppedBeforeItsConnectionIsAppliedIsWithdrawn(t *testing.T) {
+	f := newFixture(t)
+	f.registry.SetDesired("sdk-env", want("sdk-viewA"))
+	_, scopes := f.registry.Hello()
+	require.Len(t, scopes, 1)
+
+	f.registry.SetDesired("sdk-env", nil)
+	assert.Empty(t, f.reconcile(), "nothing is on the wire before the connection is applied")
+
+	f.deliver(session.Connected{Welcome: wire.Welcome{}, Presented: []string{"sdk-viewA"}})
+	assert.Equal(t, Presented, f.state("sdk-viewA"))
+	_, servable := f.registry.Servable("sdk-viewA")
+	assert.False(t, servable)
+	assert.Empty(t, f.reconcile(), "the presentation is unanswered")
+
+	f.deliver(intent("sdk-viewA", false))
+	assert.Equal(t, removed("sdk-viewA"), f.reconcile())
+	assert.False(t, f.known("sdk-viewA"))
+}
+
+// A presentation that configuration dropped holds its slot until the server answers it, so a
+// replacement waits for the withdrawal.
+func TestAnUnansweredDroppedPresentationHoldsItsSlot(t *testing.T) {
+	f := newFixture(t)
+	f.registry.SetDesired("sdk-env", want("sdk-a"))
+	f.connect(wire.Welcome{MaxScopes: 1})
+
+	f.registry.SetDesired("sdk-env", want("sdk-b"))
+	assert.Empty(t, f.reconcile(), "sdk-a still holds the only slot")
+
+	f.deliver(intent("sdk-a", false))
+	assert.Equal(t, append(removed("sdk-a"), added("sdk-b")...), f.reconcile())
+}
+
+// Configuration can want a credential again while its withdrawal is sent. The server drops
+// the registration, so the registry registers the credential again with a full transfer.
+func TestACredentialWantedAgainDuringItsWithdrawalIsRegisteredAgain(t *testing.T) {
+	f := newFixture(t)
+	f.registry.SetDesired("sdk-env", want("sdk-viewA"))
+	f.connect(wire.Welcome{})
+	f.hydrate("sdk-viewA", "sel-1")
+
+	f.registry.SetDesired("sdk-env", nil)
+	f.sender.during = func(s sent) {
+		if s.op == "remove" {
+			f.registry.SetDesired("sdk-env", want("sdk-viewA"))
+		}
+	}
+	assert.Equal(t, removed("sdk-viewA"), f.reconcile())
+	f.sender.during = nil
+
+	assert.True(t, f.known("sdk-viewA"))
+	assert.Equal(t, Unregistered, f.state("sdk-viewA"))
+	assert.NotContains(t, f.objects.Scopes(), "sdk-viewA")
+	_, servable := f.registry.Servable("sdk-viewA")
+	assert.False(t, servable, "the withdrawn data is gone")
+
+	assert.Equal(t, added("sdk-viewA"), f.reconcile())
 }
