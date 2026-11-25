@@ -263,6 +263,8 @@ func TestHelloCarriesTheRootTheScopesAndTheirStates(t *testing.T) {
 
 	connected := expect[Connected](t, session)
 	assert.Equal(t, "payload-1", connected.Welcome.Base)
+	assert.Equal(t, []string{"sdk-env", "sdk-viewA", "mob-viewA"}, connected.Presented,
+		"Connected names what this attempt presented, in stream order with the messages")
 }
 
 // The provider is consulted per attempt, so a reconnect presents whatever the caller wants
@@ -326,7 +328,7 @@ func TestHandshakeRefusesToSendAnUnusableHello(t *testing.T) {
 			require.NoError(t, err)
 			defer socket.CloseNow()
 
-			_, err = session.handshake(context.Background(), socket, newReconnectPolicy())
+			_, _, err = session.handshake(context.Background(), socket, newReconnectPolicy())
 			assert.Error(t, err)
 		})
 	}
