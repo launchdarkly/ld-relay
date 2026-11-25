@@ -260,7 +260,7 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, clientCtx.Env, result.data, result.etag)
+		return writeCacheableJSONResponse(w, req, 0, result.data, result.etag)
 	})
 }
 
@@ -525,7 +525,7 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
+		return writeCacheableJSONResponse(w, req, 0, jsonData, selector.State())
 	})
 }
 
@@ -548,7 +548,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, clientCtx.Env, result.data, result.etag)
+		return writeCacheableJSONResponse(w, req, clientCtx.Env.GetTTL(), result.data, result.etag)
 	})
 }
 
@@ -852,7 +852,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 		}
 
 		traceWriteResponse(tr, req, func() (int, error) {
-			return writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
+			return writeCacheableJSONResponse(w, req, clientContext.GetTTL(), bytes, strconv.Itoa(item.Version))
 		})
 	}
 }
@@ -885,15 +885,16 @@ func traceWriteResponse(tr trace.Tracer, req *http.Request, write func() (int, e
 	}
 }
 
-// writeCacheableJSONResponse sends bytes as a JSON response with this environment's cache
-// headers, or an empty 304 when the caller's If-None-Match matches the current Etag. It
-// returns the status code that was sent and the error from writing the body, if any.
-func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
+// writeCacheableJSONResponse sends bytes as a JSON response with an Etag, or an empty 304 with
+// the same Etag when the caller's If-None-Match matches it. Both carry Vary: Authorization. A ttl
+// above zero also adds an Expires header. Only the PHP polling endpoints pass the environment TTL. The other SDKs
+// cache with their own HTTP cache, and an Expires header stops them from seeing updates until it
+// expires. It returns the status code that was sent and the error from writing the body, if any.
+func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, ttl time.Duration,
 	bytes []byte, etagValue string,
 ) (int, error) {
-	ttl := clientContext.GetTTL()
+	browser.AddVaryHeader(w, "Authorization")
 	if ttl > 0 {
-		browser.AddVaryHeader(w, "Authorization")
 		expiresAt := time.Now().UTC().Add(ttl)
 		w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
 		// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an
@@ -902,13 +903,13 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	}
 
 	etag := formatEtag(etagValue)
+	w.Header().Set("Etag", etag)
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return http.StatusNotModified, nil
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
 
 	// Not XSS: every caller passes the output of a JSON encoder, and the response is served as

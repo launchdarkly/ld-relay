@@ -22,7 +22,17 @@ import (
 // doTracedPollRequest runs one pre-routed request against handler on the calling goroutine,
 // wrapped in its own root span the way otelmux wraps a routed request, and returns the response.
 func doTracedPollRequest(env relayenv.EnvContext, handler http.HandlerFunc, rawQuery string) *httptest.ResponseRecorder {
-	req := buildPreRoutedRequest("GET", nil, make(http.Header), nil, env)
+	return doTracedPollRequestWithHeader(env, handler, rawQuery, make(http.Header))
+}
+
+// doTracedPollRequestWithHeader is doTracedPollRequest with the given request headers.
+func doTracedPollRequestWithHeader(
+	env relayenv.EnvContext,
+	handler http.HandlerFunc,
+	rawQuery string,
+	header http.Header,
+) *httptest.ResponseRecorder {
+	req := buildPreRoutedRequest("GET", nil, header, nil, env)
 	req.URL.RawQuery = rawQuery
 	ctx, span := tracing.Tracer().Start(req.Context(), "test.request")
 	req = req.WithContext(ctx)
@@ -44,9 +54,15 @@ func storeWithOneFlag() *testclient.FakeStore {
 // reports how many reads happened. It is installed after the environment is built so that only the
 // handlers' reads are observed.
 func blockFirstRead(setHook func(func()), entered chan<- struct{}, release <-chan struct{}) *atomic.Int32 {
+	return blockNthRead(setHook, 1, entered, release)
+}
+
+// blockNthRead is blockFirstRead for the nth read: that read signals `entered` and blocks until
+// `release` is closed, and every other read passes straight through.
+func blockNthRead(setHook func(func()), n int32, entered chan<- struct{}, release <-chan struct{}) *atomic.Int32 {
 	var reads atomic.Int32
 	setHook(func() {
-		if reads.Add(1) == 1 {
+		if reads.Add(1) == n {
 			close(entered)
 			<-release
 		}
@@ -225,4 +241,117 @@ func TestPollingSingleflightAttributesForALoneRequest(t *testing.T) {
 			assert.False(t, waited, "a request that built its own payload should record no wait time")
 		})
 	}
+}
+
+// TestFDv1PollSingleflightAttributesDescribeOnlyThePayloadFlight checks that the Etag flight of
+// /sdk/latest-all leaves the request span alone, so the singleflight attributes and wait spans
+// describe only the payload flight.
+func TestFDv1PollSingleflightAttributesDescribeOnlyThePayloadFlight(t *testing.T) {
+	t.Run("a request that waited in the Etag flight and built the payload", func(t *testing.T) {
+		recorder := installSpanRecorder(t)
+		store := storeWithOneFlag()
+		env := envWithStore(store)
+		etag := doTracedPollRequest(env, pollLatestAllHandler, "").Header().Get("Etag")
+		require.NotEmpty(t, etag)
+		recorder.Reset()
+
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		blockFirstRead(func(hook func()) { store.SnapshotHook = hook }, entered, release)
+
+		// The leader has the current Etag, so it leaves with a 304 reply after the Etag flight.
+		// The follower joins that flight and then builds the payload alone.
+		leaderResp := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			leaderResp <- doTracedPollRequestWithHeader(env, pollLatestAllHandler, "", http.Header{"If-None-Match": {etag}})
+		}()
+		<-entered
+		followerResp := make(chan *httptest.ResponseRecorder, 1)
+		go func() { followerResp <- doTracedPollRequest(env, pollLatestAllHandler, "") }()
+		// The follower needs only a short CPU path to reach the flight group.
+		time.Sleep(100 * time.Millisecond)
+		close(release)
+
+		leader, follower := <-leaderResp, <-followerResp
+		require.Equal(t, http.StatusNotModified, leader.Code)
+		require.Equal(t, http.StatusOK, follower.Code)
+
+		spans := recorder.Ended()
+		assert.Len(t, spansNamed(spans, tracing.SpanStoreSnapshot), 2,
+			"the Etag flight and the payload flight should each read the store one time")
+		assert.Empty(t, spansNamed(spans, tracing.SpanSingleflightWait),
+			"a wait in the Etag flight should not show as a wait span")
+
+		serialize := requireSpan(t, spans, tracing.SpanSerializePayload)
+		for _, root := range spansNamed(spans, "test.request") {
+			attrs := spanAttrs(root)
+			_, waited := attrs[tracing.SingleflightWaitDurationKey]
+			assert.False(t, waited, "no request waited in the payload flight")
+			shared, ok := attrs[tracing.SingleflightSharedKey]
+			if root.SpanContext().TraceID() == serialize.SpanContext().TraceID() {
+				require.True(t, ok, "the request that built the payload should report whether the build was shared")
+				assert.False(t, shared.AsBool())
+			} else {
+				assert.False(t, ok, "a 304 reply ran no payload flight, so it should have no singleflight attributes")
+			}
+		}
+	})
+
+	t.Run("requests that waited in the payload flight", func(t *testing.T) {
+		recorder := installSpanRecorder(t)
+		store := storeWithOneFlag()
+		env := envWithStore(store)
+
+		// The leader's first read is its Etag read. Its second read is the payload read, which
+		// blocks and holds the payload flight open.
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		blockNthRead(func(hook func()) { store.SnapshotHook = hook }, 2, entered, release)
+
+		const followers = 3
+		responses := make(chan *httptest.ResponseRecorder, followers+1)
+		go func() { responses <- doTracedPollRequest(env, pollLatestAllHandler, "") }()
+		<-entered
+		for range followers {
+			go func() { responses <- doTracedPollRequest(env, pollLatestAllHandler, "") }()
+		}
+		// Each follower reads the store for its Etag check without blocking and then joins the
+		// payload flight. A follower that arrives after the release builds its own payload, and
+		// the serialize span count below fails.
+		time.Sleep(100 * time.Millisecond)
+		close(release)
+
+		for range followers + 1 {
+			require.Equal(t, http.StatusOK, (<-responses).Code)
+		}
+
+		spans := recorder.Ended()
+		serialize := requireSpan(t, spans, tracing.SpanSerializePayload)
+		waitSpans := spansNamed(spans, tracing.SpanSingleflightWait)
+		assert.Len(t, waitSpans, followers, "only the waits in the payload flight should show as wait spans")
+		for _, w := range waitSpans {
+			assert.NotEqual(t, serialize.SpanContext().TraceID(), w.SpanContext().TraceID(),
+				"the request that built the payload must not also show a wait span")
+		}
+
+		roots := spansNamed(spans, "test.request")
+		require.Len(t, roots, followers+1)
+		waitedRoots := 0
+		for _, root := range roots {
+			attrs := spanAttrs(root)
+			shared, ok := attrs[tracing.SingleflightSharedKey]
+			require.True(t, ok, "the request span should report whether the payload build was shared")
+			assert.True(t, shared.AsBool())
+
+			wait, waited := attrs[tracing.SingleflightWaitDurationKey]
+			if root.SpanContext().TraceID() == serialize.SpanContext().TraceID() {
+				assert.False(t, waited, "the request that built the payload did not wait")
+			} else {
+				waitedRoots++
+				require.True(t, waited, "a request that shared another's payload build should record its wait")
+				assert.Positive(t, wait.AsFloat64())
+			}
+		}
+		assert.Equal(t, followers, waitedRoots)
+	})
 }

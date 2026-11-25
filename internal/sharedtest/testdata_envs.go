@@ -55,8 +55,9 @@ var EnvMain = TestEnv{
 var EnvWithTTL = TestEnv{
 	Name: "ProjectName ServerSideEnvWithTTL",
 	Config: config.EnvConfig{
-		SDKKey: config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"),
-		TTL:    ct.NewOptDuration(10 * time.Minute),
+		SDKKey:    config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"),
+		MobileKey: config.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"),
+		TTL:       ct.NewOptDuration(10 * time.Minute),
 	},
 }
 

@@ -37,15 +37,15 @@ jobs:
     runs-on: ubuntu-latest
     name: ${{ format('Unit Tests ({0})', inputs.store) }}
     steps:
-      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0
+      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores/v0
         with:
           dynamodb: true
           redis: ${{ inputs.redis }}
           valkey: ${{ inputs.valkey }}
           valkey_port: ${{ inputs.valkey_port }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Go ${{ inputs.go-version }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.go-version }}
       - uses: ./.github/actions/unit-tests
@@ -58,7 +58,7 @@ jobs:
     name: ${{ format('Benchmarks ({0})', inputs.store) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/benchmarks
         with:
           go-version: ${{ inputs.go-version }}

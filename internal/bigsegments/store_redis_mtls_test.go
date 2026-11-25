@@ -51,6 +51,17 @@ func TestRedisBigSegmentStoreMTLS(t *testing.T) {
 		assert.ErrorAs(t, err, &verifyErr) // the message text differs by OS
 	})
 
+	t.Run("succeeds without the CA when TLSInsecureSkipVerify is set", func(t *testing.T) {
+		store, err := newRedisBigSegmentStore(makeConfig(func(c *config.RedisConfig) {
+			c.ClientCertificateFile = files.ClientCertFile
+			c.ClientKeyFile = files.ClientKeyFile
+			c.TLSInsecureSkipVerify = true
+		}), config.EnvConfig{}, true, logger)
+		require.NoError(t, err)
+		defer store.Close()
+		awaitSuccessfulHandshake(t, handshakes)
+	})
+
 	t.Run("fails without a client cert", func(t *testing.T) {
 		_, err := newRedisBigSegmentStore(makeConfig(func(c *config.RedisConfig) {
 			c.CAFile = files.CAFile
@@ -67,5 +78,24 @@ func awaitHandshake(t *testing.T, ch <-chan error) error {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no TLS handshake observed")
 		return nil
+	}
+}
+
+// awaitSuccessfulHandshake waits for a handshake that succeeds. It skips the errors from handshakes
+// that earlier subtests made fail on purpose, because those errors can arrive late.
+func awaitSuccessfulHandshake(t *testing.T, ch <-chan error) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	var lastErr error
+	for {
+		select {
+		case err := <-ch:
+			if err == nil {
+				return
+			}
+			lastErr = err
+		case <-deadline:
+			t.Fatalf("no successful TLS handshake observed (last error: %v)", lastErr)
+		}
 	}
 }

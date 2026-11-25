@@ -159,6 +159,31 @@ func NewRelay(c config.Config, logger *slog.Logger, clientFactory ClientFactoryF
 	})
 }
 
+// checkRedisTLS loads the Redis TLS files and logs warnings about the Redis TLS settings.
+//
+// The TLS files are loaded again whenever a store is created, but checking them here makes a bad
+// file a startup error. Otherwise, in auto-configuration mode, every environment would fail to
+// initialize while Relay kept running.
+//
+// The warnings are logged here rather than in ValidateConfig. ValidateConfig runs both when the
+// configuration is loaded and again in NewRelay, so a warning there appears twice.
+func checkRedisTLS(c config.RedisConfig, logger *slog.Logger) error {
+	if _, err := sdks.CreateTLSConfig(c); err != nil {
+		return errRedisTLSConfig(err)
+	}
+	if c.HasTLSFiles() && !c.TLSEnabled() {
+		logger.Warn(warnRedisTLSFilesWithoutTLS)
+	}
+	if c.TLSInsecureSkipVerify {
+		if c.TLSEnabled() {
+			logger.Warn(warnRedisTLSInsecureSkipVerify)
+		} else {
+			logger.Warn(warnRedisTLSInsecureSkipVerifyWithoutTLS)
+		}
+	}
+	return nil
+}
+
 func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
@@ -177,12 +202,9 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		return nil, errNoEnvironments
 	}
 
-	// The Redis TLS files are loaded again whenever a store is created, but checking them here
-	// makes a bad file a startup error. Otherwise, in auto-configuration mode, every environment
-	// would fail to initialize while Relay kept running.
 	if c.Redis.URL.IsDefined() {
-		if _, err := sdks.CreateTLSConfig(c.Redis); err != nil {
-			return nil, errRedisTLSConfig(err)
+		if err := checkRedisTLS(c.Redis, logger); err != nil {
+			return nil, err
 		}
 	}
 

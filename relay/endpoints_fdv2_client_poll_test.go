@@ -112,6 +112,7 @@ func TestFDv2ClientSidePollingWithMobileKey(t *testing.T) {
 			req.Header.Set("If-None-Match", etag)
 			result, _ = st.DoRequest(req, p.relay)
 			assert.Equal(t, http.StatusNotModified, result.StatusCode)
+			assert.Equal(t, etag, result.Header.Get("Etag"), "a 304 reply must repeat the Etag")
 
 			req = st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
 			req.Header.Set("If-None-Match", "wrong-etag")

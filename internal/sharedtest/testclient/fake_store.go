@@ -19,6 +19,10 @@ type FakeStore struct {
 	// observe or block concurrent snapshot reads.
 	SnapshotHook func()
 
+	// SnapshotDoneHook, if non-nil, is called at the end of every Snapshot call, after the
+	// store's lock is released. Tests set it to hold a caller that has already read the data.
+	SnapshotDoneHook func()
+
 	// GetAllHook is SnapshotHook for GetAll calls.
 	GetAllHook func()
 }
@@ -185,11 +189,15 @@ func (s *FakeStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedIt
 		s.SnapshotHook()
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	result := make(map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor)
 	for _, collection := range s.collections {
 		result[collection.Kind] = collection.Items
 	}
+	selector := s.selector
+	s.mu.Unlock()
 
-	return result, s.selector, nil
+	if s.SnapshotDoneHook != nil {
+		s.SnapshotDoneHook()
+	}
+	return result, selector, nil
 }

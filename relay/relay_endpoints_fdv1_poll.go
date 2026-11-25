@@ -24,9 +24,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// serverSideLatestAllFlightKey is the flight-group key prefix for the FDv1 poll. The handler
-// appends the Etag of the data, so only requests for the same data share a serialization.
-const serverSideLatestAllFlightKey = "sdk-latest-all"
+// Flight-group keys for the FDv1 poll. The Etag flight reads the store and hashes it, for the
+// Etag check. The payload flight reads the store again and serializes it, for a full transfer. Its
+// key is the payload key, a colon, and the Etag that the request saw.
+const (
+	serverSideLatestAllEtagFlightKey    = "sdk-latest-all-etag"
+	serverSideLatestAllPayloadFlightKey = "sdk-latest-all"
+)
 
 // latestAllData is the live data set that the FDv1 poll serves, and the Etag that identifies it.
 type latestAllData struct {
@@ -38,8 +42,11 @@ type latestAllData struct {
 // Server-side FDv1 polling endpoint: sdk.launchdarkly.com/sdk/latest-all
 //
 // The response is the full data set as {"flags": {...}, "segments": {...}}. An SDK that sends
-// the Etag of its current data gets a 304 reply. That reply does not use a slot of the
-// initialization-delivery budget. Only a full payload takes a slot, the same as the FDv2 poll.
+// the Etag of its current data gets a 304 reply. A full payload takes a slot of the
+// initialization-delivery budget, the same as the FDv2 poll. A 304 from the Etag check does not.
+// That check can share a store read that began before the request arrived, so its 304 can be one
+// read behind. A request whose Etag is newer than that read takes a slot, and gets its 304 after
+// the payload flight.
 func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	env := middleware.GetEnvContextInfo(req.Context()).Env
 	tr := tracing.Tracer()
@@ -47,22 +54,31 @@ func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	// An FDv1 SDK takes any 200 reply as a complete data set. Before Relay has data, a 503
 	// keeps the SDK retrying, so it does not start with no flags.
 	if !env.GetStore().IsInitialized() {
-		env.GetLogger().Warn("FDv1 poll received before the data store is initialized")
+		env.GetLogger().Debug("FDv1 poll received before the data store is initialized")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write(util.ErrorJSONMsg("Service not initialized"))
 		return
 	}
 
-	data, err := readLatestAllData(req.Context(), tr, env)
+	// Concurrent requests share one store read for the Etag check. A request can join a read
+	// that began before it arrived, so the Etag it compares can be one read behind. The flight
+	// returns only the Etag, so a request that gets a 304 reply here keeps no data set in
+	// memory. The flight does not annotate the request span, so the singleflight attributes on
+	// that span describe only the payload flight.
+	etag, err, _ := env.GetPollingFlightGroup().Do(serverSideLatestAllEtagFlightKey,
+		func() (any, error) {
+			data, err := readLatestAllData(req.Context(), tr, env)
+			return data.etag, err
+		})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	if req.Header.Get("If-None-Match") == formatEtag(data.etag) {
+	if req.Header.Get("If-None-Match") == formatEtag(etag.(string)) {
 		traceWriteResponse(tr, req, func() (int, error) {
-			return writeCacheableJSONResponse(w, req, env, nil, data.etag)
+			return writeCacheableJSONResponse(w, req, 0, nil, etag.(string))
 		})
 		return
 	}
@@ -76,8 +92,16 @@ func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	defer release()
 
-	// Requests with the same Etag have the same data, so they can share one payload.
-	result, err := runPollingFlight(req, env, serverSideLatestAllFlightKey+":"+data.etag, func() (pollResult, error) {
+	// The payload flight reads the store again, after the wait for a slot. A request joins only
+	// a flight of requests that saw the same Etag, and that flight read the store after one of
+	// them saw it. So the reply has the data that the Etag check saw, or newer data. The data
+	// can still change after the flight reads it.
+	payloadKey := serverSideLatestAllPayloadFlightKey + ":" + etag.(string)
+	result, err := runPollingFlight(req, env, payloadKey, func() (pollResult, error) {
+		data, err := readLatestAllData(req.Context(), tr, env)
+		if err != nil {
+			return pollResult{}, err
+		}
 		return buildLatestAllPayload(req.Context(), tr, env, data)
 	})
 	if err != nil {
@@ -86,12 +110,13 @@ func pollLatestAllHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, env, result.data, result.etag)
+		return writeCacheableJSONResponse(w, req, 0, result.data, result.etag)
 	})
 }
 
 // readLatestAllData reads the store snapshot and computes the Etag of the live data. It does
-// not serialize the data, so a request that gets a 304 reply stays cheap. The selector cannot
+// not serialize the data. It runs inside a flight, so it logs and traces a failure one time
+// for each flight. The selector cannot
 // be the Etag: it is not defined while Relay serves data from a persistent store, and in
 // offline mode its state does not change when the archive changes.
 func readLatestAllData(ctx context.Context, tr trace.Tracer, env relayenv.EnvContext) (latestAllData, error) {

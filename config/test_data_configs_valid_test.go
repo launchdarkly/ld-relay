@@ -85,6 +85,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
 		makeValidConfigRedisMTLS(),
+		makeValidConfigRedisTLSInsecureSkipVerify(),
 		makeValidConfigRedisURL(),
 		makeValidConfigRedisPortOnly(),
 		makeValidConfigRedisDockerPort(),
@@ -518,6 +519,27 @@ Url = "rediss://redishost:6400"
 ClientCertificateFile = "/certs/client.pem"
 ClientKeyFile = "/certs/client.key"
 CAFile = "/certs/ca.pem"
+`
+	return c
+}
+
+func makeValidConfigRedisTLSInsecureSkipVerify() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - TLS insecure skip verify"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL:                   newOptURLAbsoluteMustBeValid("rediss://redishost:6400"),
+			TLSInsecureSkipVerify: true,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":                      "1",
+		"REDIS_URL":                      "rediss://redishost:6400",
+		"REDIS_TLS_INSECURE_SKIP_VERIFY": "true",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://redishost:6400"
+TLSInsecureSkipVerify = true
 `
 	return c
 }

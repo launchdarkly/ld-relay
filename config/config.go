@@ -258,6 +258,7 @@ type RedisConfig struct {
 	ClientCertificateFile string `conf:"REDIS_CLIENT_CERT_FILE"`
 	ClientKeyFile         string `conf:"REDIS_CLIENT_KEY_FILE"`
 	CAFile                string `conf:"REDIS_CA_FILE"`
+	TLSInsecureSkipVerify bool   `conf:"REDIS_TLS_INSECURE_SKIP_VERIFY"`
 
 	AtomicUpsert bool `conf:"REDIS_ATOMIC_UPSERT"`
 
@@ -273,8 +274,8 @@ func (c RedisConfig) TLSEnabled() bool {
 	return c.URL.IsDefined() && strings.EqualFold(c.URL.Get().Scheme, "rediss")
 }
 
-// hasTLSFiles is true if any certificate, key or CA file option is set.
-func (c RedisConfig) hasTLSFiles() bool {
+// HasTLSFiles is true if any certificate, key or CA file option is set.
+func (c RedisConfig) HasTLSFiles() bool {
 	return c.ClientCertificateFile != "" || c.ClientKeyFile != "" || c.CAFile != ""
 }
 

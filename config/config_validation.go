@@ -27,7 +27,8 @@ var (
 	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
-	errRedisClientCertWithoutKey               = errors.New("Redis client certificate and key must be specified together (REDIS_CLIENT_CERT_FILE and REDIS_CLIENT_KEY_FILE, or ClientCertificateFile and ClientKeyFile)") //nolint:staticcheck
+	errRedisClientCertWithoutKey               = errors.New("Redis client certificate and key must be specified together (REDIS_CLIENT_CERT_FILE and REDIS_CLIENT_KEY_FILE, or ClientCertificateFile and ClientKeyFile)")         //nolint:staticcheck
+	errRedisCAFileWithInsecureSkipVerify       = errors.New("Redis CA file cannot be used when TLS certificate verification is disabled (REDIS_CA_FILE and REDIS_TLS_INSECURE_SKIP_VERIFY, or CAFile and TLSInsecureSkipVerify)") //nolint:staticcheck
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
@@ -35,9 +36,6 @@ var (
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
-
-const warnRedisTLSFilesWithoutTLS = "Redis client certificate, key or CA file was set, but TLS is not enabled " +
-	"(use REDIS_TLS or a rediss:// URL); these settings will be ignored"
 
 const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
 
@@ -261,8 +259,10 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slo
 		if (c.Redis.ClientCertificateFile == "") != (c.Redis.ClientKeyFile == "") {
 			result.AddError(nil, errRedisClientCertWithoutKey)
 		}
-		if c.Redis.hasTLSFiles() && !c.Redis.TLSEnabled() {
-			logger.Warn(warnRedisTLSFilesWithoutTLS)
+		// With verification disabled, Go does not use the CA file. Reject the combination so that an
+		// operator does not think that the CA file protects the connection.
+		if c.Redis.CAFile != "" && c.Redis.TLSInsecureSkipVerify {
+			result.AddError(nil, errRedisCAFileWithInsecureSkipVerify)
 		}
 	}
 

@@ -49,6 +49,12 @@ func (l smallSndbufListener) Accept() (net.Conn, error) {
 	return c, nil
 }
 
+// stallingFlagCount is the number of flags in the payload sent to a client that stops reading.
+// The payload has to be larger than what the kernel buffers on loopback, or the server's write
+// never blocks. The SO_SNDBUF and SO_RCVBUF hints keep that small on Linux, but macOS still
+// absorbs a few hundred flags, so use enough to block on both.
+const stallingFlagCount = 5000
+
 func manyFlags(n int) []ldmodel.FeatureFlag {
 	flags := make([]ldmodel.FeatureFlag, n)
 	for i := range flags {
@@ -99,7 +105,7 @@ func TestSocketHalfClosedClientDrainEndsWithTheSlot(t *testing.T) {
 		// per-chunk deadline, ~5s minimum) can end the drain quickly.
 		WithInitLimiter(limiter, 30*time.Second)).(*serverSideStreamProvider)
 	cred := testSDKKey
-	store := makeMockStore(manyFlags(400), nil)
+	store := makeMockStore(manyFlags(stallingFlagCount), nil)
 	esp := sp.RegisterV2(cred, store, slog.Default())
 	require.NotNil(t, esp)
 
@@ -164,7 +170,7 @@ func TestSocketHalfClosedClientDrainEndsWithTheSlot(t *testing.T) {
 // client cannot keep a slot.
 func TestSocketStalledClientIsCutAtDeadline(t *testing.T) {
 	const maxHold = 800 * time.Millisecond
-	srv, _ := serveStream(t, concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10}), maxHold, manyFlags(400), false, func(l net.Listener) net.Listener {
+	srv, _ := serveStream(t, concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10}), maxHold, manyFlags(stallingFlagCount), false, func(l net.Listener) net.Listener {
 		return smallSndbufListener{l}
 	})
 
@@ -299,7 +305,7 @@ func mustFlagJSON(version int) []byte {
 func TestSocketSlotHeldAcrossSend(t *testing.T) {
 	const maxHold = 10 * time.Second // long, so A's deadline does not release the slot before B connects
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
-	srv, _ := serveStream(t, limiter, maxHold, manyFlags(400), true, func(l net.Listener) net.Listener {
+	srv, _ := serveStream(t, limiter, maxHold, manyFlags(stallingFlagCount), true, func(l net.Listener) net.Listener {
 		return smallSndbufListener{l}
 	})
 	addr := strings.TrimPrefix(srv.URL, "http://")

@@ -39,6 +39,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigRedisConflictingParams(),
 		makeInvalidConfigRedisNoPrefix(),
 		makeInvalidConfigRedisClientCertWithoutKey(),
+		makeInvalidConfigRedisCAFileWithInsecureSkipVerify(),
 		makeInvalidConfigRedisAutoConfNoPrefix(),
 		makeInvalidConfigConsulNoPrefix(),
 		makeInvalidConfigConsulAutoConfNoPrefix(),
@@ -364,6 +365,24 @@ func makeInvalidConfigRedisClientCertWithoutKey() testDataInvalidConfig {
 [Redis]
 URL = rediss://localhost:6379
 ClientCertificateFile = /certs/client.pem
+`
+	return c
+}
+
+func makeInvalidConfigRedisCAFileWithInsecureSkipVerify() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - CA file with insecure skip verify"}
+	c.envVarsError = errRedisCAFileWithInsecureSkipVerify.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":                      "1",
+		"REDIS_URL":                      "rediss://localhost:6379",
+		"REDIS_CA_FILE":                  "/certs/ca.pem",
+		"REDIS_TLS_INSECURE_SKIP_VERIFY": "true",
+	}
+	c.fileContent = `
+[Redis]
+URL = rediss://localhost:6379
+CAFile = /certs/ca.pem
+TLSInsecureSkipVerify = true
 `
 	return c
 }
