@@ -523,16 +523,22 @@ func TestRegistrationsRespectTheScopeBound(t *testing.T) {
 }
 
 // Configuration can drop a credential after the hello names it and before the connection is
-// applied. The server still holds the presentation, so the registry withdraws it once the
-// server answers.
+// applied. The server may hold the presentation and resume it from the selector the hello
+// offered, so the registry keeps the credential and its store state, and withdraws it once
+// the server answers.
 func TestACredentialDroppedBeforeItsConnectionIsAppliedIsWithdrawn(t *testing.T) {
 	f := newFixture(t)
 	f.registry.SetDesired("sdk-env", want("sdk-viewA"))
+	f.connect(wire.Welcome{})
+	f.hydrate("sdk-viewA", "sel-1")
+	f.deliver(session.Disconnected{})
+
 	_, scopes := f.registry.Hello()
-	require.Len(t, scopes, 1)
+	require.Equal(t, []wire.HelloScope{{Key: "sdk-viewA", State: "sel-1"}}, scopes)
 
 	f.registry.SetDesired("sdk-env", nil)
 	assert.Empty(t, f.reconcile(), "nothing is on the wire before the connection is applied")
+	assert.True(t, f.known("sdk-viewA"), "the hello named it")
 
 	f.deliver(session.Connected{Welcome: wire.Welcome{}, Presented: []string{"sdk-viewA"}})
 	assert.Equal(t, Presented, f.state("sdk-viewA"))
@@ -540,8 +546,28 @@ func TestACredentialDroppedBeforeItsConnectionIsAppliedIsWithdrawn(t *testing.T)
 	assert.False(t, servable)
 	assert.Empty(t, f.reconcile(), "the presentation is unanswered")
 
-	f.deliver(intent("sdk-viewA", false))
+	unfiltered := true
+	f.deliver(wire.ServerIntent{
+		T: wire.TypeServerIntent, Scope: "sdk-viewA",
+		IntentCode: wire.IntentTransferChanges, Unfiltered: &unfiltered,
+	})
 	assert.Equal(t, removed("sdk-viewA"), f.reconcile())
+	assert.False(t, f.known("sdk-viewA"))
+	assert.NotContains(t, f.objects.Scopes(), "sdk-viewA")
+}
+
+// A credential that a hello named is forgotten once a connection that did not present it is
+// applied.
+func TestACredentialAHelloNamedIsForgottenWhenTheConnectionOmitsIt(t *testing.T) {
+	f := newFixture(t)
+	f.registry.SetDesired("sdk-env", want("sdk-viewA"))
+	f.registry.Hello()
+	f.registry.SetDesired("sdk-env", nil)
+	assert.Empty(t, f.reconcile())
+	assert.True(t, f.known("sdk-viewA"))
+
+	f.connect(wire.Welcome{})
+	assert.Empty(t, f.reconcile())
 	assert.False(t, f.known("sdk-viewA"))
 }
 

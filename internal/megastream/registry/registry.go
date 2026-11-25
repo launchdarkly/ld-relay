@@ -75,6 +75,10 @@ type Registry struct {
 	maxScopes int
 	// connected records whether the session has an established connection.
 	connected bool
+	// hello holds the credentials the latest hello named, until the connection that
+	// presented it is applied. The server may hold any of them by then, together with the
+	// selector that the hello offered for it.
+	hello map[string]struct{}
 }
 
 // New builds a registry over a store.
@@ -134,8 +138,9 @@ func (r *Registry) SetDesired(root string, wanted []Desired) {
 // Every wanted credential the scope bound allows is presented, including one that was
 // rejected or refused. A reconnect is the natural point to try it again.
 //
-// Hello changes nothing. The session calls it on its own goroutine, and the presentation
-// takes effect when the Connected that names it is applied, in order with the messages.
+// The session calls Hello on its own goroutine, and the presentation takes effect when the
+// Connected that names it is applied, in order with the messages. Until then, Hello only
+// keeps every credential it named from being forgotten.
 func (r *Registry) Hello() (string, []wire.HelloScope) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -154,7 +159,9 @@ func (r *Registry) Hello() (string, []wire.HelloScope) {
 			"maxScopes", r.maxScopes, "unregistered", left)
 	}
 	scopes := make([]wire.HelloScope, 0, len(keys))
+	r.hello = make(map[string]struct{}, len(keys))
 	for _, key := range keys {
+		r.hello[key] = struct{}{}
 		entry := wire.HelloScope{Key: key}
 		// The store withholds a selector it cannot stand behind, so the server answers a
 		// withheld one with a full transfer.
@@ -219,16 +226,11 @@ func (r *Registry) onConnectedLocked(connected session.Connected) {
 	if connected.Welcome.MaxScopes > 0 {
 		r.maxScopes = connected.Welcome.MaxScopes
 	}
+	r.hello = nil
 	for _, key := range connected.Presented {
-		sc := r.scopes[key]
-		if sc == nil {
-			// Configuration dropped the credential after the hello named it, and the record
-			// went before this connection was applied. The server still counts the
-			// presentation, so a removed record keeps it until the withdrawal can be sent.
-			sc = &scope{desired: Desired{Key: key}, removed: true}
-			r.scopes[key] = sc
+		if sc := r.scopes[key]; sc != nil {
+			sc.state = Presented
 		}
-		sc.state = Presented
 	}
 }
 
@@ -404,6 +406,13 @@ func (r *Registry) plan() []action {
 				actions = append(actions, action{key: key, previous: sc.state})
 			}
 		default:
+			if _, named := r.hello[key]; named {
+				// The connection may present it with its selector. Forgetting it now would
+				// leave the server holding a registration that is never withdrawn, and
+				// would discard the store state that the server's resume applies to.
+				// Connected marks it presented, and it is withdrawn after the answer.
+				continue
+			}
 			r.forgetLocked(key)
 		}
 	}
